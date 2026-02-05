@@ -18,7 +18,7 @@
     "dist"
   ],
   "scripts": {
-    "dev": "vite build --watch",
+    "dev": "tsc && vite build --watch",
     "build": "tsc && vite build",
     "lint": "eslint \"src/**/*.ts\""
   },
