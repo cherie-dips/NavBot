@@ -8,7 +8,10 @@
     },
     "lint": {},
     "dev": {
-      "dependsOn": ["^build"],
+      "cache": false,
+      "dependsOn": ["^build"]
+    },
+    "web#dev": {
       "cache": false,
       "persistent": true
     }
