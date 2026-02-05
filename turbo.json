@@ -13,6 +13,7 @@
     },
     "web#dev": {
       "cache": false,
+      "dependsOn": ["@repo/chat-widget#build"],
       "persistent": true
     }
   }
