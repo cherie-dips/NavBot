@@ -4,7 +4,7 @@ import cssInjectedByJsPlugin from "vite-plugin-css-injected-by-js";
 import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
-  plugins: [react(), cssInjectedByJsPlugin(), tailwindcss()],
+  plugins: [react(), tailwindcss(), cssInjectedByJsPlugin()],
   build: {
     lib: {
       entry: "src/index.tsx",
