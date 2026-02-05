@@ -9,11 +9,11 @@ interface Message {
 }
 
 const mockResponses = [
-  "I'm here to help! What would you like to know? anjjjjjj",
-  "That's a great question! Let me think about that... anjjjj",
-  "I can assist you with navigation and general queries. anjjjj",
-  "Feel free to ask me anything! anjjj",
-  "I'm NavBot, your virtual assistant. How can I help you today? anjjjjjj",
+  "I'm here to help! What would you like to know?",
+  "That's a great question! Let me think about that... ",
+  "I can assist you with navigation and general queries.",
+  "Feel free to ask me anything!",
+  "I'm NavBot, your virtual assistant. How can I help you today?",
 ];
 
 export const ChatWidget: React.FC = () => {
