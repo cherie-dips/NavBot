@@ -1,0 +1,38 @@
+{
+  "name": "@repo/chat-widget",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./dist/chat-widget.umd.cjs",
+  "module": "./dist/chat-widget.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/chat-widget.js",
+      "require": "./dist/chat-widget.umd.cjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./script": "./dist/chat-widget.iife.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "dev": "vite build --watch",
+    "build": "tsc && vite build",
+    "lint": "eslint \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
+    "@repo/typescript-config": "workspace:*",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^3.1.0",
+    "eslint": "^8.57.0",
+    "typescript": "5.5.4",
+    "vite": "^5.1.4",
+    "vite-plugin-css-injected-by-js": "^3.5.0"
+  }
+}
