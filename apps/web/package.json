@@ -10,6 +10,7 @@
     "lint": "eslint \"src/**/*.ts\""
   },
   "dependencies": {
+    "@repo/chat-widget": "workspace:*",
     "@tailwindcss/vite": "^4.1.18",
     "lucide": "^0.563.0",
     "lucide-react": "^0.563.0",

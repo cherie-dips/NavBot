@@ -20,6 +20,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@repo/chat-widget':
+        specifier: workspace:*
+        version: link:../../packages/chat-widget
       '@tailwindcss/vite':
         specifier: ^4.1.18
         version: 4.1.18(vite@5.4.17)
