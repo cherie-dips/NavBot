@@ -79,18 +79,18 @@ export const ChatWidget: React.FC = () => {
 
   if (!mounted) return null;
 
-  // Cluely-style minimalist glassmorphic design
+  // Universal Blended / Neutral Glassmorphic Design
   return createPortal(
-    <div className="fixed bottom-6 right-6 z-[9999] font-sans antialiased">
+    <div className="fixed bottom-6 right-6 z-[9999] font-sans antialiased text-slate-800">
       {/* Glassmorphic Chat Panel */}
       <div
         className={`
           flex flex-col
-          w-[380px] h-[520px]
-          bg-white/10 backdrop-blur-2xl
+          w-[360px] h-[500px]
+          bg-white/30 backdrop-blur-3xl
           border border-white/20
           rounded-3xl
-          shadow-[0_8px_32px_0_rgba(31,38,135,0.37)]
+          shadow-2xl shadow-black/5
           overflow-hidden
           transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
           origin-bottom-right
@@ -101,34 +101,27 @@ export const ChatWidget: React.FC = () => {
         `}
       >
         {/* Minimal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-gradient-to-br from-white/5 to-transparent backdrop-blur-xl">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-white/10 backdrop-blur-md">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
-              <span className="text-white font-bold text-sm">N</span>
+            <div className="w-8 h-8 rounded-full bg-white/30 flex items-center justify-center border border-white/20">
+              <span className="text-slate-700 font-serif italic font-bold text-xs">n</span>
             </div>
             <div>
-              <span className="font-semibold text-sm text-gray-900">NavBot Assistant</span>
-              <div className="flex items-center gap-1.5 mt-0.5">
-                <span className="flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                </span>
-                <span className="text-xs text-gray-600">Online</span>
-              </div>
+              <span className="font-medium text-sm text-slate-700 font-serif italic">navbot</span>
             </div>
           </div>
           <button
             onClick={() => setIsOpen(false)}
-            className="text-gray-500 hover:text-gray-900 transition-colors p-2 rounded-lg hover:bg-white/20"
+            className="text-slate-500 hover:text-slate-800 transition-colors p-2 rounded-full hover:bg-white/20"
           >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gradient-to-b from-white/5 to-white/10">
+        <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
           {messages.map((message) => (
             <div
               key={message.id}
@@ -136,15 +129,15 @@ export const ChatWidget: React.FC = () => {
             >
               <div
                 className={`
-                  max-w-[80%] px-4 py-3 text-sm leading-relaxed rounded-2xl
+                  max-w-[85%] px-4 py-3 text-sm leading-relaxed rounded-2xl backdrop-blur-md
                   ${message.sender === "bot"
-                    ? "bg-white/80 backdrop-blur-xl text-gray-800 rounded-tl-sm shadow-lg border border-white/50"
-                    : "bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-tr-sm shadow-lg shadow-blue-500/30"}
+                    ? "bg-white/40 text-slate-700 rounded-tl-sm border border-white/20"
+                    : "bg-black/5 text-slate-800 rounded-tr-sm border border-black/5 font-medium"}
                 `}
               >
                 {message.text}
               </div>
-              <span className="text-[10px] text-gray-600 mt-1.5 px-1">
+              <span className="text-[10px] text-slate-400 mt-1.5 px-1 opacity-70">
                 {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
             </div>
@@ -152,10 +145,10 @@ export const ChatWidget: React.FC = () => {
 
           {isTyping && (
             <div className="flex flex-col items-start animate-pulse">
-              <div className="bg-white/80 backdrop-blur-xl border border-white/50 px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1.5 items-center shadow-lg">
-                <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></span>
-                <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></span>
-                <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
+              <div className="bg-white/40 backdrop-blur-md border border-white/20 px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1.5 items-center">
+                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></span>
+                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></span>
+                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
               </div>
             </div>
           )}
@@ -163,22 +156,21 @@ export const ChatWidget: React.FC = () => {
         </div>
 
         {/* Input Area */}
-        <div className="p-4 bg-gradient-to-t from-white/20 to-transparent backdrop-blur-xl border-t border-white/10">
+        <div className="p-4 bg-white/10 backdrop-blur-md border-t border-white/10">
           <div className="relative group">
             <input
               type="text"
-              placeholder="Type your message..."
+              placeholder="Type a message..."
               className="
                 w-full
-                bg-white/60 hover:bg-white/70 focus:bg-white/80
+                bg-white/20 hover:bg-white/30 focus:bg-white/40
                 backdrop-blur-xl
-                border border-white/30 focus:border-blue-400/50
-                rounded-2xl
-                py-3.5 pl-4 pr-12
-                text-sm text-gray-900 placeholder:text-gray-500
+                border border-white/20 focus:border-white/40
+                rounded-xl
+                py-3 pl-4 pr-12
+                text-sm text-slate-800 placeholder:text-slate-500
                 outline-none
                 transition-all duration-300
-                shadow-lg shadow-black/5
               "
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
@@ -189,51 +181,40 @@ export const ChatWidget: React.FC = () => {
               disabled={!inputValue.trim()}
               className="
                 absolute right-2 top-1/2 -translate-y-1/2
-                p-2 rounded-xl
-                bg-gradient-to-br from-blue-500 to-indigo-600
-                text-white
-                disabled:opacity-30 disabled:from-gray-400 disabled:to-gray-500
-                hover:shadow-lg hover:shadow-blue-500/30
+                p-1.5 rounded-lg
+                text-slate-500 hover:text-slate-800
+                disabled:opacity-30
                 transition-all duration-300
-                disabled:cursor-not-allowed
               "
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Modern Pill Launcher */}
+      {/* Minimal Launcher */}
       <div
         className={`flex justify-end transition-all duration-500 ease-out ${isOpen ? "opacity-0 translate-y-4 pointer-events-none" : "opacity-100 translate-y-0"}`}
       >
         <button
           onClick={() => setIsOpen(true)}
           className="
-            flex items-center gap-3
-            bg-gradient-to-br from-blue-600 to-indigo-600
-            hover:from-blue-500 hover:to-indigo-500
-            py-3.5 px-6
+            flex items-center gap-2
+            bg-white/40 backdrop-blur-xl
+            hover:bg-white/50
+            py-2.5 px-5
             rounded-full
-            shadow-2xl shadow-blue-500/40
+            shadow-lg shadow-black/5
             transition-all duration-300 hover:scale-105 active:scale-95
             group
-            border border-white/20
+            border border-white/30
           "
         >
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
-          </span>
-          <span className="font-semibold text-sm text-white">Chat with us</span>
-          <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center group-hover:bg-white/30 transition-colors">
-            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-            </svg>
-          </div>
+          <span className="w-2 h-2 rounded-full bg-slate-800 animate-pulse"></span>
+          <span className="font-serif italic text-sm text-slate-700">Questions?</span>
         </button>
       </div>
     </div>,

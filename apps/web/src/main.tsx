@@ -1,439 +1,398 @@
 import { createRoot } from "react-dom/client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
+import { Sparkles, MessageSquare, Zap, Shield, BarChart3, Globe, ArrowRight, Check, Copy } from "lucide-react";
 import "./style.css";
+
+// Color Palette References:
+// Light Blue: #8EBFF2
+// Periwinkle: #8691CA
+// Medium Blue: #478EDB
+// Background: #F9F9FA
+// Text Dark: #2E3538
+// White: #FFFFFF
 
 const App = () => {
   const [scrolled, setScrolled] = useState(false);
-  const [activeFeature, setActiveFeature] = useState<number | null>(null);
-  const heroRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const handleScroll = () => {
       setScrolled(window.scrollY > 20);
     };
-
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  const handleCopy = () => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <>
-      <div className="min-h-screen bg-gradient-to-br from-[#f8f9fc] via-[#fdfeff] to-[#f0f4ff] font-sans antialiased">
-        {/* Navigation */}
-        <nav className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${
-          scrolled ? 'bg-white/60 backdrop-blur-xl border-b border-gray-200/50 shadow-sm' : 'bg-transparent'
+    <div className="min-h-screen bg-[#F9F9FA] text-[#2E3538] selection:bg-[#8EBFF2] selection:text-[#FFFFFF] overflow-x-hidden font-sans">
+
+      {/* Navbar */}
+      <nav className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${scrolled
+          ? "bg-white/80 backdrop-blur-xl border-b border-[#8691CA]/10 py-4 shadow-sm"
+          : "bg-transparent py-6"
         }`}>
-          <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-2 cursor-pointer group">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20 group-hover:shadow-blue-500/40 transition-all">
-                <span className="text-white text-sm font-bold">N</span>
-              </div>
-              <span className="text-xl font-semibold text-gray-900">NavBot</span>
+        <div className="container mx-auto px-6 flex items-center justify-between">
+          <div className="flex items-center gap-2 group cursor-pointer">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-[#478EDB] to-[#8691CA] flex items-center justify-center shadow-lg shadow-[#478EDB]/20 transition-transform group-hover:scale-110 duration-300">
+              <span className="text-white font-bold text-sm">N</span>
             </div>
+            <span className="text-xl font-medium italic text-[#2E3538] tracking-tight font-serif">navbot</span>
+          </div>
 
-            <div className="hidden md:flex items-center gap-10">
-              {["Features", "How it works", "Pricing", "Docs"].map((item) => (
-                <a key={item} href="#" className="text-sm text-gray-600 hover:text-gray-900 transition-colors">
-                  {item}
-                </a>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-4">
-              <a href="#" className="hidden md:block text-sm text-gray-600 hover:text-gray-900 transition-colors">
-                Sign in
+          <div className="hidden md:flex items-center gap-8">
+            {["Features", "How it works", "Pricing", "Docs"].map((item) => (
+              <a key={item} href="#" className="text-sm font-medium text-slate-500 hover:text-[#478EDB] transition-colors relative group">
+                {item}
+                <span className="absolute -bottom-1 left-0 w-full h-0.5 bg-[#478EDB] scale-x-0 group-hover:scale-x-100 transition-transform origin-left duration-300"></span>
               </a>
-              <button className="px-5 py-2 rounded-full bg-gray-900 text-white text-sm font-medium hover:bg-gray-800 transition-all">
-                Start Free
-              </button>
-            </div>
+            ))}
           </div>
-        </nav>
 
-        {/* Hero Section */}
-        <section ref={heroRef} className="relative pt-32 pb-24 px-6 overflow-hidden">
-          {/* Subtle gradient orbs */}
-          <div className="absolute top-20 left-[5%] w-96 h-96 bg-blue-200/30 rounded-full blur-3xl opacity-60"></div>
-          <div className="absolute top-40 right-[10%] w-80 h-80 bg-indigo-200/30 rounded-full blur-3xl opacity-60"></div>
+          <div className="flex items-center gap-4">
+            <a href="#" className="hidden md:block text-sm font-medium text-slate-500 hover:text-[#478EDB] transition-colors">Sign in</a>
+            <button className="px-6 py-2.5 rounded-full bg-[#2E3538] text-white text-sm font-medium hover:bg-[#478EDB] transition-colors shadow-lg shadow-[#2E3538]/10 hover:shadow-[#478EDB]/30 duration-300">
+              Get Started
+            </button>
+          </div>
+        </div>
+      </nav>
 
-          <div className="max-w-5xl mx-auto text-center relative z-10">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/80 backdrop-blur-sm border border-gray-200/60 shadow-sm mb-8">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
-              </span>
-              <span className="text-xs font-medium text-gray-700">Powered by GPT-4</span>
+      {/* Hero Section */}
+      <section className="relative pt-40 pb-24 overflow-hidden">
+        {/* Animated Background Blobs (Events Style) */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-[#8EBFF2] opacity-20 rounded-full blur-[100px] animate-pulse" />
+          <div className="absolute top-[20%] left-[-10%] w-[500px] h-[500px] bg-[#8691CA] opacity-20 rounded-full blur-[100px] animate-pulse delay-700" />
+          <div className="absolute bottom-[-10%] left-[30%] w-[400px] h-[400px] bg-[#478EDB] opacity-10 rounded-full blur-[100px]" />
+        </div>
+
+        <div className="container mx-auto px-6 relative z-10 text-center">
+          {/* Pill Badge */}
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-white/60 backdrop-blur-md rounded-full mb-8 border border-[#8691CA]/20 shadow-sm animate-fade-in-up mx-auto">
+            <Sparkles className="w-4 h-4 text-[#478EDB]" />
+            <span className="text-sm font-medium text-[#478EDB]">
+              Powered by GPT-4
+            </span>
+          </div>
+
+          {/* Headline */}
+          <h1 className="font-serif text-6xl md:text-7xl lg:text-8xl font-light text-[#2E3538] mb-8 leading-[1.1] animate-fade-in-up delay-150 tracking-tight">
+            Embed Intelligence
+            <br />
+            <span className="italic text-transparent bg-clip-text bg-gradient-to-r from-[#478EDB] to-[#8691CA]">
+              In One Line
+            </span>
+          </h1>
+
+          <p className="text-xl md:text-2xl text-slate-500 mb-12 max-w-2xl mx-auto leading-relaxed animate-fade-in-up delay-300 font-light">
+            Stop building chatbots from scratch. Drop in one script tag and let AI handle the rest.
+            <span className="block mt-2 font-medium text-[#478EDB]">No training. No configuration. Just works.</span>
+          </p>
+
+          {/* Code Block Visual */}
+          <div className="max-w-3xl mx-auto mb-16 animate-fade-in-up delay-500">
+            <div className="relative group perspective-1000">
+              <div className="absolute -inset-1 bg-gradient-to-r from-[#8EBFF2] via-[#8691CA] to-[#478EDB] rounded-3xl blur-lg opacity-30 group-hover:opacity-50 transition duration-700"></div>
+
+              <div className="relative bg-[#2E3538] rounded-3xl p-8 shadow-2xl overflow-hidden text-left border border-white/10">
+                {/* Browser chrome */}
+                <div className="flex items-center gap-2 mb-6 pb-4 border-b border-white/10">
+                  <div className="flex gap-2">
+                    <div className="w-3 h-3 rounded-full bg-[#FF5F56]"></div>
+                    <div className="w-3 h-3 rounded-full bg-[#FFBD2E]"></div>
+                    <div className="w-3 h-3 rounded-full bg-[#27C93F]"></div>
+                  </div>
+                  <span className="ml-4 text-xs text-slate-400 font-mono">index.html</span>
+                </div>
+
+                {/* Code */}
+                <div className="font-mono text-sm space-y-3 font-medium">
+                  <div className="text-slate-500">
+                    <span className="text-[#8691CA]">&lt;!DOCTYPE</span>
+                    <span className="text-slate-400"> html</span>
+                    <span className="text-[#8691CA]">&gt;</span>
+                  </div>
+                  <div className="text-slate-500">
+                    <span className="text-[#8691CA]">&lt;html</span>
+                    <span className="text-[#8691CA]">&gt;</span>
+                  </div>
+                  <div className="text-slate-500 ml-4">
+                    <span className="text-[#8691CA]">&lt;head</span>
+                    <span className="text-[#8691CA]">&gt;</span>
+                  </div>
+                  <div className="text-slate-500 ml-8">
+                    <span className="text-[#8691CA]">&lt;title&gt;</span>
+                    <span className="text-white">Your Amazing Website</span>
+                    <span className="text-[#8691CA]">&lt;/title&gt;</span>
+                  </div>
+
+                  {/* Highlighted script tag */}
+                  <div className="ml-8 bg-[#478EDB]/10 border border-[#478EDB]/30 rounded-xl p-4 my-4 relative group/code transition-all hover:bg-[#478EDB]/15">
+                    <div className="absolute -right-2 -top-2 scale-0 group-hover/code:scale-125 transition-transform duration-300">
+                      <div className="bg-[#478EDB] rounded-full p-1 shadow-lg">
+                        <Sparkles className="w-3 h-3 text-white" />
+                      </div>
+                    </div>
+                    <div className="text-slate-300 break-all">
+                      <span className="text-[#8691CA]">&lt;script </span>
+                      <span className="text-[#8EBFF2]">src</span>
+                      <span className="text-slate-500">=</span>
+                      <span className="text-[#F2994A]">"https://cdn.navbot.ai/widget.js"</span>
+                      <span className="text-[#8EBFF2] ml-2">data-id</span>
+                      <span className="text-slate-500">=</span>
+                      <span className="text-[#F2994A]">"YOUR_ID"</span>
+                      <span className="text-[#8691CA]">&gt;&lt;/script&gt;</span>
+                    </div>
+                    <button
+                      onClick={handleCopy}
+                      className="absolute right-3 top-3 opacity-0 group-hover/code:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 p-1.5 rounded-lg text-white"
+                    >
+                      {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+                    </button>
+                  </div>
+
+                  <div className="text-slate-500 ml-4">
+                    <span className="text-[#8691CA]">&lt;/head&gt;</span>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <h1 className="text-6xl md:text-8xl font-bold text-gray-900 mb-6 leading-[0.95] tracking-tight">
-              Embed Intelligence
-              <br />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600">
-                In One Line
-              </span>
-            </h1>
-
-            <p className="text-xl md:text-2xl text-gray-600 mb-12 max-w-3xl mx-auto leading-relaxed">
-              Stop building chatbots from scratch. Drop in one script tag and let AI handle the rest.
-              <br />
-              <span className="text-gray-900 font-medium">No training. No configuration. Just works.</span>
+            <p className="mt-8 text-sm text-slate-500 font-medium">
+              Your AI assistant is live in under 60 seconds.
             </p>
+          </div>
 
-            {/* Code snippet showcase */}
-            <div className="max-w-3xl mx-auto mb-12">
-              <div className="relative group">
-                <div className="absolute -inset-1 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-2xl blur-lg opacity-20 group-hover:opacity-30 transition duration-500"></div>
-                
-                <div className="relative bg-gray-900/95 backdrop-blur-xl rounded-2xl p-8 border border-gray-700/50 shadow-2xl overflow-hidden">
-                  {/* Browser chrome */}
-                  <div className="flex items-center gap-2 mb-6 pb-4 border-b border-gray-700/50">
-                    <div className="flex gap-2">
-                      <div className="w-3 h-3 rounded-full bg-red-500/80"></div>
-                      <div className="w-3 h-3 rounded-full bg-yellow-500/80"></div>
-                      <div className="w-3 h-3 rounded-full bg-green-500/80"></div>
-                    </div>
-                    <span className="ml-4 text-xs text-gray-500 font-mono">index.html</span>
-                  </div>
-
-                  {/* Code */}
-                  <div className="font-mono text-sm text-left space-y-2">
-                    <div className="text-gray-500">
-                      <span className="text-purple-400">&lt;!DOCTYPE</span> 
-                      <span className="text-blue-400"> html</span>
-                      <span className="text-purple-400">&gt;</span>
-                    </div>
-                    <div className="text-gray-500">
-                      <span className="text-purple-400">&lt;html</span>
-                      <span className="text-purple-400">&gt;</span>
-                    </div>
-                    <div className="text-gray-500 ml-4">
-                      <span className="text-purple-400">&lt;head</span>
-                      <span className="text-purple-400">&gt;</span>
-                    </div>
-                    <div className="text-gray-500 ml-8">
-                      <span className="text-purple-400">&lt;title</span>
-                      <span className="text-purple-400">&gt;</span>
-                      <span className="text-gray-300">Your Website</span>
-                      <span className="text-purple-400">&lt;/title&gt;</span>
-                    </div>
-                    
-                    {/* Highlighted script tag */}
-                    <div className="ml-8 bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 my-3 relative group/code">
-                      <div className="absolute -right-2 -top-2">
-                        <span className="flex h-6 w-6">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                          <span className="relative inline-flex items-center justify-center rounded-full h-6 w-6 bg-blue-500 text-white text-xs font-bold">✨</span>
-                        </span>
-                      </div>
-                      <div className="text-blue-400">
-                        <span className="text-purple-400">&lt;script </span>
-                        <span className="text-green-400">src</span>
-                        <span className="text-white">=</span>
-                        <span className="text-orange-400">"https://cdn.navbot.ai/widget.js"</span>
-                      </div>
-                      <div className="text-blue-400 ml-16">
-                        <span className="text-green-400">data-bot-id</span>
-                        <span className="text-white">=</span>
-                        <span className="text-orange-400">"your-bot-id"</span>
-                        <span className="text-purple-400">&gt;&lt;/script&gt;</span>
-                      </div>
-                      <div className="absolute right-3 top-3 opacity-0 group-hover/code:opacity-100 transition-opacity">
-                        <button className="text-xs text-blue-400 hover:text-blue-300 bg-blue-500/20 px-2 py-1 rounded">
-                          Copy
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="text-gray-500 ml-4">
-                      <span className="text-purple-400">&lt;/head&gt;</span>
-                    </div>
-                    <div className="text-gray-500 ml-4">
-                      <span className="text-purple-400">&lt;body</span>
-                      <span className="text-purple-400">&gt;</span>
-                    </div>
-                    <div className="text-gray-500 ml-8 text-gray-600">
-                      {/* Your content here */}
-                    </div>
-                    <div className="text-gray-500 ml-4">
-                      <span className="text-purple-400">&lt;/body&gt;</span>
-                    </div>
-                    <div className="text-gray-500">
-                      <span className="text-purple-400">&lt;/html&gt;</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <p className="mt-6 text-sm text-gray-500">
-                That's it. Really. Your AI assistant is live in under 60 seconds.
-              </p>
+          {/* Stats */}
+          <div className="flex flex-wrap items-center justify-center gap-8 md:gap-16 text-sm text-[#2E3538] font-medium animate-fade-in-up delay-700">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-[#478EDB]"></div>
+              <span>12,500+ websites</span>
             </div>
-
-            {/* Stats */}
-            <div className="flex items-center justify-center gap-12 text-sm text-gray-500">
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                <span>12,500+ websites</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                <span>1M+ conversations</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <svg className="w-5 h-5 text-green-500" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                </svg>
-                <span>99.9% uptime SLA</span>
-              </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-[#8691CA]"></div>
+              <span>1M+ conversations</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-[#8EBFF2]"></div>
+              <span>99.9% uptime SLA</span>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* How it works - Step by step */}
-        <section className="py-24 px-6 bg-white/50 backdrop-blur-sm">
-          <div className="max-w-6xl mx-auto">
-            <div className="text-center mb-20">
-              <h2 className="text-4xl md:text-6xl font-bold text-gray-900 mb-4">
-                Intelligence in 3 steps
-              </h2>
-              <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-                The easiest way to add a smart chatbot to your website
-              </p>
-            </div>
-
-            <div className="grid md:grid-cols-3 gap-12">
-              {[
-                {
-                  step: "1",
-                  title: "Paste the script",
-                  description: "Copy one line of code into your website's HTML. Works with any platform—WordPress, Shopify, custom sites, you name it.",
-                  visual: (
-                    <div className="relative">
-                      <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-6 border border-blue-100">
-                        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200 font-mono text-xs">
-                          <div className="text-purple-600">&lt;script</div>
-                          <div className="ml-4 text-green-600">src="..."</div>
-                          <div className="text-purple-600">&gt;&lt;/script&gt;</div>
-                        </div>
-                        <div className="mt-4 flex items-center justify-center">
-                          <div className="text-blue-600 animate-bounce">
-                            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-                            </svg>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                },
-                {
-                  step: "2",
-                  title: "We crawl your site",
-                  description: "Our AI automatically reads your website, learns your products, and understands your brand voice. Zero manual input required.",
-                  visual: (
-                    <div className="relative">
-                      <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-2xl p-6 border border-purple-100">
-                        <div className="relative">
-                          {[0, 1, 2].map((i) => (
-                            <div
-                              key={i}
-                              className="absolute inset-0 border-2 border-purple-400 rounded-xl animate-ping"
-                              style={{
-                                animationDelay: `${i * 0.3}s`,
-                                animationDuration: '2s'
-                              }}
-                            ></div>
-                          ))}
-                          <div className="relative bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-                            <div className="space-y-2">
-                              <div className="h-2 bg-gray-200 rounded w-3/4"></div>
-                              <div className="h-2 bg-gray-200 rounded w-1/2"></div>
-                              <div className="h-2 bg-purple-400 rounded w-2/3 animate-pulse"></div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                },
-                {
-                  step: "3",
-                  title: "Start chatting",
-                  description: "Your visitors get instant, accurate answers. The bot appears automatically and handles customer questions 24/7.",
-                  visual: (
-                    <div className="relative">
-                      <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-2xl p-6 border border-green-100">
-                        <div className="relative bg-white/80 backdrop-blur-xl rounded-xl p-4 shadow-lg border border-gray-200/50">
-                          <div className="flex items-start gap-3 mb-3">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-xs font-bold">
-                              N
-                            </div>
-                            <div className="flex-1 bg-gray-100 rounded-2xl rounded-tl-sm p-3 text-xs text-gray-700">
-                              Hi! How can I help?
-                            </div>
-                          </div>
-                          <div className="flex items-start gap-3 justify-end">
-                            <div className="bg-blue-600 text-white rounded-2xl rounded-tr-sm p-3 text-xs">
-                              What's your return policy?
-                            </div>
-                          </div>
-                          <div className="mt-2 flex gap-1">
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                            <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                }
-              ].map((item, i) => (
-                <div key={i} className="group">
-                  <div className="mb-6">
-                    {item.visual}
-                  </div>
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-indigo-600 text-white font-bold text-lg shadow-lg">
-                      {item.step}
-                    </div>
-                    <h3 className="text-2xl font-bold text-gray-900">{item.title}</h3>
-                  </div>
-                  <p className="text-gray-600 leading-relaxed">
-                    {item.description}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Features Grid */}
-        <section className="py-24 px-6">
-          <div className="max-w-6xl mx-auto">
-            <div className="text-center mb-20">
-              <h2 className="text-4xl md:text-6xl font-bold text-gray-900 mb-4">
-                Built for modern websites
-              </h2>
-              <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-                Everything you need to turn visitors into conversations
-              </p>
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-8">
-              {[
-                {
-                  icon: "🧠",
-                  title: "Learns from your content",
-                  description: "Automatically understands your products, pricing, policies, and brand voice by reading your website. No manual training required."
-                },
-                {
-                  icon: "⚡",
-                  title: "Instant responses",
-                  description: "Sub-second reply times powered by GPT-4. Your customers get answers faster than they can finish typing their question."
-                },
-                {
-                  icon: "🎨",
-                  title: "Matches your brand",
-                  description: "Customize colors, position, and tone to blend seamlessly with your design. Or use our beautiful defaults—they just work."
-                },
-                {
-                  icon: "📊",
-                  title: "Analytics that matter",
-                  description: "See what questions people ask most, track conversation quality, and identify content gaps on your site."
-                },
-                {
-                  icon: "🔒",
-                  title: "Privacy-first",
-                  description: "Your data stays yours. We don't train on your conversations. Full GDPR compliance built in from day one."
-                },
-                {
-                  icon: "🌍",
-                  title: "Works everywhere",
-                  description: "One script works on WordPress, Shopify, Webflow, custom builds—anything with HTML. No frameworks required."
-                }
-              ].map((feature, i) => (
-                <div
-                  key={i}
-                  onMouseEnter={() => setActiveFeature(i)}
-                  onMouseLeave={() => setActiveFeature(null)}
-                  className={`relative p-8 rounded-3xl bg-white/60 backdrop-blur-sm border transition-all duration-500 cursor-pointer ${
-                    activeFeature === i 
-                      ? 'border-blue-200 shadow-2xl shadow-blue-100/50 scale-[1.02]' 
-                      : 'border-gray-200 shadow-lg hover:shadow-xl'
-                  }`}
-                >
-                  <div className="text-5xl mb-4">{feature.icon}</div>
-                  <h3 className="text-2xl font-bold text-gray-900 mb-3">{feature.title}</h3>
-                  <p className="text-gray-600 leading-relaxed">{feature.description}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* CTA Section */}
-        <section className="py-24 px-6 bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white relative overflow-hidden">
-          <div className="absolute inset-0 opacity-10">
-            <div className="absolute top-0 left-1/4 w-96 h-96 bg-white rounded-full blur-3xl"></div>
-            <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-white rounded-full blur-3xl"></div>
-          </div>
-          
-          <div className="max-w-4xl mx-auto text-center relative z-10">
-            <h2 className="text-5xl md:text-7xl font-bold mb-6 leading-tight">
-              Ready to stop losing customers to unanswered questions?
+      {/* How it Works Section */}
+      <section className="py-24 bg-white relative">
+        <div className="container mx-auto px-6">
+          <div className="text-center mb-20">
+            <h2 className="font-serif text-4xl md:text-5xl font-light text-[#2E3538] mb-6">
+              Intelligence in <span className="italic text-[#478EDB]">3 steps</span>
             </h2>
-            <p className="text-2xl text-white/90 mb-12 max-w-2xl mx-auto">
-              Join 12,500+ websites already using NavBot to automate customer support
-            </p>
-            
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <button className="px-10 py-4 bg-white text-blue-600 rounded-full font-semibold text-lg hover:bg-gray-50 transition-all hover:scale-105 shadow-2xl">
-                Start Free Trial
-              </button>
-              <button className="px-10 py-4 bg-transparent text-white rounded-full font-semibold text-lg border-2 border-white hover:bg-white/10 transition-all">
-                View Live Demo
-              </button>
-            </div>
-            
-            <p className="mt-8 text-white/70 text-sm">
-              No credit card required • Free forever plan • 2 minute setup
+            <p className="text-lg text-slate-500 max-w-2xl mx-auto font-light">
+              No complex workflows. Just pure utility.
             </p>
           </div>
-        </section>
 
-        {/* Footer */}
-        <footer className="py-12 px-6 bg-gray-50 border-t border-gray-200">
-          <div className="max-w-6xl mx-auto">
-            <div className="flex flex-col md:flex-row justify-between items-center gap-6">
-              <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center">
-                  <span className="text-white text-sm font-bold">N</span>
+          <div className="grid md:grid-cols-3 gap-8">
+            {[
+              {
+                step: "01",
+                title: "Paste the script",
+                desc: "Add one line of code to your HTML. Compatible with any platform.",
+                visual: (
+                  <div className="relative w-full h-full flex items-center justify-center bg-gradient-to-br from-[#8EBFF2]/20 to-[#478EDB]/20 p-6">
+                    <div className="bg-white rounded-xl p-4 shadow-sm border border-[#478EDB]/20 font-mono text-[10px] w-full max-w-[180px] transform rotate-[-2deg] transition-transform group-hover:rotate-0">
+                      <div className="flex gap-1 mb-2">
+                        <div className="w-2 h-2 rounded-full bg-[#FF5F56]"></div>
+                        <div className="w-2 h-2 rounded-full bg-[#FFBD2E]"></div>
+                        <div className="w-2 h-2 rounded-full bg-[#27C93F]"></div>
+                      </div>
+                      <div className="text-[#8691CA]">&lt;script&gt;</div>
+                      <div className="ml-2 text-[#478EDB] truncate">src="cdn.navbot..."</div>
+                      <div className="text-[#8691CA]">&lt;/script&gt;</div>
+                    </div>
+                    <div className="absolute bottom-6 right-8 text-[#478EDB] animate-bounce bg-white/50 p-2 rounded-full shadow-sm backdrop-blur-sm">
+                      <ArrowRight className="w-4 h-4 transform rotate-90 md:rotate-0" />
+                    </div>
+                  </div>
+                )
+              },
+              {
+                step: "02",
+                title: "Auto-Training",
+                desc: "Our engine crawls your site to learn your content.",
+                visual: (
+                  <div className="relative w-full h-full p-8 flex items-center justify-center bg-gradient-to-br from-[#8691CA]/10 to-[#478EDB]/10 overflow-hidden">
+                    <div className="relative">
+                      {[0, 1, 2].map((i) => (
+                        <div
+                          key={i}
+                          className="absolute inset-0 border-2 border-[#478EDB]/40 rounded-xl animate-ping"
+                          style={{
+                            animationDelay: `${i * 0.3}s`,
+                            animationDuration: '2s'
+                          }}
+                        ></div>
+                      ))}
+                      <div className="relative bg-white rounded-xl p-6 shadow-sm border border-[#8691CA]/20 w-40">
+                        <div className="space-y-3">
+                          <div className="h-2 bg-slate-100 rounded w-3/4"></div>
+                          <div className="h-2 bg-slate-100 rounded w-1/2"></div>
+                          <div className="h-2 bg-[#478EDB] rounded w-2/3 animate-pulse"></div>
+                          <div className="h-2 bg-slate-100 rounded w-full"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              },
+              {
+                step: "03",
+                title: "Go Live",
+                desc: "Instant automated support for your visitors.",
+                visual: (
+                  <div className="relative w-full h-full flex items-center justify-center bg-gradient-to-br from-[#478EDB]/20 to-[#8EBFF2]/20 p-6">
+                    <div className="bg-white/90 backdrop-blur-md rounded-xl p-3 shadow-sm border border-[#478EDB]/20 w-full max-w-[200px]">
+                      <div className="flex items-start gap-2 mb-2">
+                        <div className="w-6 h-6 rounded-full bg-[#478EDB] flex items-center justify-center text-white text-[10px] font-bold">N</div>
+                        <div className="bg-[#F9F9FA] rounded-lg rounded-tl-none p-2 text-[10px] text-[#2E3538] flex-1">
+                          Helping you today?
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 ml-8">
+                        <div className="w-1.5 h-1.5 bg-[#8691CA] rounded-full animate-bounce"></div>
+                        <div className="w-1.5 h-1.5 bg-[#8691CA] rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                        <div className="w-1.5 h-1.5 bg-[#8691CA] rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              }
+            ].map((item, i) => (
+              <div key={i} className="group relative">
+                <div className="bg-[#F9F9FA] rounded-[2rem] p-2 border border-slate-100 hover:border-[#8EBFF2]/30 transition-all duration-300 hover:shadow-xl hover:shadow-[#8EBFF2]/10 h-full flex flex-col">
+                  <div className="relative h-48 rounded-[1.5rem] overflow-hidden mb-6 flex items-center justify-center">
+                    {item.visual}
+                    <div className="absolute top-4 left-4 font-mono font-bold text-xl text-[#478EDB] bg-white/50 backdrop-blur-sm px-2 rounded-lg">{item.step}</div>
+                  </div>
+                  <div className="px-6 pb-8 text-center flex-grow">
+                    <h3 className="font-serif text-2xl font-bold text-[#2E3538] mb-3">{item.title}</h3>
+                    <p className="text-slate-500 leading-relaxed">{item.desc}</p>
+                  </div>
                 </div>
-                <span className="text-gray-900 font-semibold">NavBot</span>
               </div>
-              
-              <div className="flex gap-8 text-sm text-gray-600">
-                <a href="#" className="hover:text-gray-900 transition-colors">Privacy</a>
-                <a href="#" className="hover:text-gray-900 transition-colors">Terms</a>
-                <a href="#" className="hover:text-gray-900 transition-colors">Docs</a>
-                <a href="#" className="hover:text-gray-900 transition-colors">Twitter</a>
-              </div>
-              
-              <span className="text-sm text-gray-500">
-                © 2026 NavBot. All rights reserved.
-              </span>
-            </div>
+            ))}
           </div>
-        </footer>
-      </div>
+        </div>
+      </section>
 
-      {/* Glassmorphic Chat Widget
-      <ChatWidget /> */}
-    </>
+      {/* Features Grid */}
+      <section className="py-32 bg-[#F9F9FA]">
+        <div className="container mx-auto px-6">
+          <div className="text-center mb-20">
+            <h2 className="font-serif text-4xl md:text-5xl font-light text-[#2E3538] mb-6">
+              Built for <span className="italic text-[#8691CA]">modern</span> websites
+            </h2>
+          </div>
+
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {[
+              {
+                title: "Context-Aware",
+                desc: "Remembers conversation history for natural, human-like interactions.",
+                icon: <MessageSquare className="w-6 h-6 text-[#478EDB]" />
+              },
+              {
+                title: "Instant Setup",
+                desc: "No flowcharts or decision trees. AI figures it out automatically.",
+                icon: <Zap className="w-6 h-6 text-[#478EDB]" />
+              },
+              {
+                title: "Brand Matching",
+                desc: "Customize colors, avatars, and tone to fit your brand identity seamlessly.",
+                icon: <Sparkles className="w-6 h-6 text-[#478EDB]" />
+              },
+              {
+                title: "Deep Analytics",
+                desc: "Track engagement, sentiment, and resolution rates in real-time.",
+                icon: <BarChart3 className="w-6 h-6 text-[#478EDB]" />
+              },
+              {
+                title: "Privacy Focused",
+                desc: "Enterprise-grade security. Your data is encrypted and isolated.",
+                icon: <Shield className="w-6 h-6 text-[#478EDB]" />
+              },
+              {
+                title: "Multi-Language",
+                desc: "Speak your customers' language with auto-translation support.",
+                icon: <Globe className="w-6 h-6 text-[#478EDB]" />
+              }
+            ].map((feature, i) => (
+              <div key={i} className="group p-8 bg-white rounded-[2rem] border border-slate-100/50 shadow-sm hover:shadow-xl hover:shadow-[#478EDB]/5 transition-all duration-300 hover:-translate-y-1">
+                <div className="w-12 h-12 bg-[#8EBFF2]/10 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-[#478EDB] group-hover:text-white transition-colors duration-300">
+                  <div className="group-hover:text-white transition-colors duration-300">
+                    {feature.icon}
+                  </div>
+                </div>
+                <h3 className="font-serif text-xl font-bold text-[#2E3538] mb-3">{feature.title}</h3>
+                <p className="text-slate-500 leading-relaxed text-sm">{feature.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CTA Section */}
+      <section className="py-32 bg-[#2E3538] relative overflow-hidden">
+        <div className="absolute inset-0 overflow-hidden">
+          <div className="absolute top-1/4 left-1/4 w-[500px] h-[500px] bg-[#478EDB] opacity-20 rounded-full blur-[120px] animate-pulse" />
+          <div className="absolute bottom-1/4 right-1/4 w-[500px] h-[500px] bg-[#8691CA] opacity-20 rounded-full blur-[120px]" />
+        </div>
+
+        <div className="container mx-auto px-6 relative z-10 text-center">
+          <h2 className="font-serif text-5xl md:text-6xl lg:text-7xl font-light text-white mb-8 leading-tight">
+            Ready to automate
+            <br />
+            <span className="italic text-[#8EBFF2]">your support?</span>
+          </h2>
+
+          <p className="text-xl md:text-2xl text-slate-300 mb-12 max-w-2xl mx-auto leading-relaxed font-light">
+            Join 12,500+ websites already using NavBot.
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-6 justify-center">
+            <button className="group inline-flex items-center justify-center px-10 py-5 bg-[#478EDB] text-white rounded-full font-bold text-lg hover:bg-[#3b7ac2] transition-all duration-300 shadow-xl shadow-[#478EDB]/20 hover:shadow-[#478EDB]/40 hover:-translate-y-1">
+              Start Free Trial
+              <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
+            </button>
+
+            <button className="group inline-flex items-center justify-center px-10 py-5 bg-transparent border border-white/20 text-white rounded-full font-bold text-lg hover:bg-white/10 transition-all duration-300">
+              View Demo
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="py-12 bg-white border-t border-slate-100">
+        <div className="container mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-2">
+            <span className="text-lg font-medium italic text-[#2E3538] font-serif">navbot</span>
+          </div>
+          <div className="flex gap-8 text-sm text-slate-500">
+            <a href="#" className="hover:text-[#478EDB] transition-colors">Privacy</a>
+            <a href="#" className="hover:text-[#478EDB] transition-colors">Terms</a>
+            <a href="#" className="hover:text-[#478EDB] transition-colors">Twitter</a>
+          </div>
+          <div className="text-sm text-slate-400">© 2026 NavBot Inc.</div>
+        </div>
+      </footer>
+    </div>
   );
 };
 
