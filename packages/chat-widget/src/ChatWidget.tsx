@@ -79,125 +79,142 @@ export const ChatWidget: React.FC = () => {
 
   if (!mounted) return null;
 
+  // Cluely-style minimalist design
   return createPortal(
-    <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-end font-sans text-slate-200 antialiased">
-      {/* Chat Window - Glassmorphic */}
+    <div className="fixed bottom-6 right-6 z-[9999] font-sans antialiased text-slate-200">
+      {/* Privacy-first Glass Panel */}
       <div
-        className={`w-[360px] flex flex-col bg-[#0a0a0f]/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ease-out origin-bottom-right mb-4 ${isOpen
+        className={`
+          flex flex-col
+          w-[380px] h-[500px]
+          bg-gray-900 bg-clip-padding backdrop-filter backdrop-blur-xl bg-opacity-30 border border-white/20
+          rounded-2xl
+          shadow-[0_20px_50px_-12px_rgba(0,0,0,0.5)]
+          overflow-hidden
+          transition-all duration-400 ease-[cubic-bezier(0.16,1,0.3,1)]
+          origin-bottom-right
+          mb-4
+          ${isOpen
             ? "translate-y-0 opacity-100 scale-100 pointer-events-auto"
-            : "translate-y-4 opacity-0 scale-95 pointer-events-none h-0"
-          }`}
-        style={{ maxHeight: "calc(100vh - 120px)", height: isOpen ? "580px" : "0px" }}
+            : "translate-y-4 opacity-0 scale-95 pointer-events-none h-0"}
+        `}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-white/10 bg-white/5 backdrop-blur-md sticky top-0 z-10">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20 animate-fade-in">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
-              </svg>
-            </div>
-            <div>
-              <div className="font-semibold text-white text-[15px] leading-tight">NavBot</div>
-              <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
-                Online
-              </div>
-            </div>
-          </div>
+        {/* Minimal Header (No icons, just purpose) */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-white/5 bg-white/[0.02]">
+          <span className="font-medium text-sm text-slate-400 tracking-wide">NavBot Assistant</span>
           <button
-            className="p-2 -mr-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
             onClick={() => setIsOpen(false)}
-            aria-label="Close chat"
+            className="text-slate-500 hover:text-white transition-colors text-xs uppercase tracking-wider font-semibold"
           >
-            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-            </svg>
+            Close
           </button>
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4 scroll-smooth">
+        {/* Content Area */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`flex items-end gap-2.5 animate-slide-up ${message.sender === "user" ? "flex-row-reverse" : ""
-                }`}
+              className={`flex flex-col ${message.sender === "user" ? "items-end" : "items-start"} animate-slide-up`}
             >
-              {message.sender === "bot" && (
-                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center flex-shrink-0 text-white/90 text-[10px] mt-1 shadow-sm">
-                  <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
-                  </svg>
-                </div>
-              )}
               <div
-                className={`max-w-[80%] px-4 py-2.5 text-sm leading-relaxed shadow-sm ${message.sender === "bot"
-                    ? "bg-white/10 border border-white/5 rounded-2xl rounded-bl-sm text-slate-200"
-                    : "bg-gradient-to-br from-indigo-600 to-purple-600 rounded-2xl rounded-br-sm text-white shadow-lg shadow-indigo-500/10"
-                  }`}
+                className={`
+                  max-w-[85%] px-4 py-2.5 text-[14px] leading-6 rounded-2xl
+                  ${message.sender === "bot"
+                    ? "bg-white/5 text-slate-300 rounded-tl-sm border border-white/5"
+                    : "bg-blue-600/80 text-white rounded-tr-sm shadow-lg shadow-blue-900/20 backdrop-blur-sm"}
+                `}
               >
                 {message.text}
               </div>
+              <span className="text-[10px] text-slate-600 mt-1.5 px-1">
+                {message.sender === "user" ? "You" : "NavBot"}
+              </span>
             </div>
           ))}
 
           {isTyping && (
-            <div className="flex items-end gap-2.5 animate-pulse">
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-indigo-500/80 to-purple-600/80 flex items-center justify-center flex-shrink-0 text-white/90 text-[10px] mt-1">
-                <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
-                </svg>
-              </div>
-              <div className="bg-white/10 border border-white/5 rounded-2xl rounded-bl-sm px-4 py-3 flex gap-1.5 h-[38px] items-center">
-                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></span>
-                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:0.2s]"></span>
-                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce [animation-delay:0.4s]"></span>
+            <div className="flex flex-col items-start animate-pulse">
+              <div className="bg-white/5 border border-white/5 px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1 items-center h-[36px]">
+                <span className="w-1 h-1 bg-slate-500 rounded-full animate-bounce"></span>
+                <span className="w-1 h-1 bg-slate-500 rounded-full animate-bounce delay-75"></span>
+                <span className="w-1 h-1 bg-slate-500 rounded-full animate-bounce delay-150"></span>
               </div>
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
-        <div className="p-4 border-t border-white/10 bg-white/5 backdrop-blur-md flex gap-2.5">
-          <input
-            type="text"
-            placeholder="Ask me anything..."
-            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-500 outline-none focus:border-indigo-500/50 focus:bg-white/10 focus:ring-1 focus:ring-indigo-500/20 transition-all shadow-inner"
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyPress={handleKeyPress}
-          />
-          <button
-            className="p-2.5 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 hover:scale-[1.02] active:scale-95 flex items-center justify-center"
-            onClick={handleSend}
-            disabled={!inputValue.trim()}
-            aria-label="Send message"
-          >
-            <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-            </svg>
-          </button>
+        {/* Floating Input Area */}
+        <div className="p-4 bg-gradient-to-t from-slate-900/80 to-transparent">
+          <div className="relative group">
+            <input
+              type="text"
+              placeholder="Ask for assistance..."
+              className="
+                w-full
+                bg-black/20 hover:bg-black/30 focus:bg-black/40
+                border border-white/10 focus:border-blue-500/50
+                backdrop-blur-md
+                rounded-xl
+                py-3.5 pl-4 pr-12
+                text-sm text-slate-200 placeholder:text-slate-600
+                outline-none
+                transition-all duration-300
+                shadow-inner
+              "
+              value={inputValue}
+              onChange={(e) => setInputValue(e.target.value)}
+              onKeyPress={handleKeyPress}
+            />
+            <button
+              onClick={handleSend}
+              disabled={!inputValue.trim()}
+              className="
+                absolute right-2 top-1/2 -translate-y-1/2
+                p-1.5 rounded-lg
+                text-slate-500 hover:text-blue-400
+                disabled:opacity-30 disabled:hover:text-slate-500
+                transition-colors
+              "
+            >
+              {/* Minimal arrow icon */}
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M8 13V3M8 3L3.5 7.5M8 3L12.5 7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Pill-Shaped Button Container */}
+      {/* Modern Pill Launcher */}
       <div
-        className={`transition-all duration-500 ease-out ${isOpen ? "opacity-0 translate-y-4 pointer-events-none" : "opacity-100 translate-y-0"
-          }`}
+        className={`flex justify-end transition-all duration-500 ease-out ${isOpen ? "opacity-0 translate-y-4 pointer-events-none" : "opacity-100 translate-y-0"}`}
       >
         <button
-          className="group flex items-center gap-2.5 bg-white/10 hover:bg-white/15 backdrop-blur-lg border border-white/10 text-white pl-4 pr-5 py-3 rounded-full shadow-lg hover:shadow-xl hover:shadow-indigo-500/10 hover:-translate-y-0.5 transition-all duration-300 cursor-pointer"
           onClick={() => setIsOpen(true)}
-          aria-label="Ask question"
+          className="
+            flex items-center gap-3
+            bg-slate-800/80 backdrop-blur-xl
+            hover:bg-slate-700/80
+            border border-white/10 hover:border-white/20
+            py-3 px-5
+            rounded-full
+            shadow-2xl shadow-black/50
+            transition-all duration-300 hover:scale-[1.02] active:scale-95
+            group
+          "
         >
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25 group-hover:shadow-indigo-500/50 transition-all">
-            <svg className="text-white" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-              <path d="M12 2l2.4 7.2H22l-6 4.8 2.4 7.2L12 16.8 5.6 21.2 8 14l-6-4.8h7.6z" />
+          <span className="relative flex h-2 w-2">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+          </span>
+          <span className="font-medium text-sm text-slate-200">Start NavBot</span>
+          <div className="w-5 h-5 rounded-full bg-white/10 flex items-center justify-center group-hover:bg-blue-500 group-hover:text-white transition-colors">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" className="rotate-90">
+              <path d="M5 1V9M5 1L1 5M5 1L9 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </div>
-          <span className="font-semibold text-[15px] tracking-wide text-slate-100 group-hover:text-white">Ask NavBot</span>
         </button>
       </div>
     </div>,
