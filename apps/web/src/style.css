@@ -105,3 +105,44 @@ button, a, input {
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 200ms;
 }
+
+@keyframes float {
+  0%,100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.animate-float {
+  animation: float 6s ease-in-out infinite;
+}
+
+
+@keyframes scan {
+  0% { top: -5%; opacity: 0; }
+  50% { opacity: 1; }
+  100% { top: 105%; opacity: 0; }
+}
+
+.animate-scan {
+  position: absolute;
+  animation: scan 3s linear infinite;
+}
+
+
+@keyframes grow {
+  from { height: 0; }
+  to { height: 100%; }
+}
+
+.animate-grow {
+  animation: grow 1.2s ease-out forwards;
+}
+
+
+@keyframes wave {
+  0%,100% { transform: scaleY(0.4); }
+  50% { transform: scaleY(1); }
+}
+
+.animate-wave {
+  animation: wave 1.3s ease-in-out infinite;
+}

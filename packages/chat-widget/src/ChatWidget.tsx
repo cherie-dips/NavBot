@@ -79,7 +79,6 @@ export const ChatWidget: React.FC = () => {
 
   if (!mounted) return null;
 
-  // Universal Blended / Neutral Glassmorphic Design
   return createPortal(
     <div className="fixed bottom-6 right-6 z-[9999] font-sans antialiased text-slate-800">
       {/* Glassmorphic Chat Panel */}
@@ -101,13 +100,11 @@ export const ChatWidget: React.FC = () => {
         `}
       >
         {/* Minimal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-white/10 backdrop-blur-md">
+        <div className="flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-white/30 flex items-center justify-center border border-white/20">
-              <span className="text-slate-700 font-serif italic font-bold text-xs">n</span>
-            </div>
+            {/* Minimalist Geometric Logo */}
             <div>
-              <span className="font-medium text-sm text-slate-700 font-serif italic">navbot</span>
+              <span className="font-medium text-sm font-italic text-slate-700 tracking-tight">navbot</span>
             </div>
           </div>
           <button
@@ -156,7 +153,7 @@ export const ChatWidget: React.FC = () => {
         </div>
 
         {/* Input Area */}
-        <div className="p-4 bg-white/10 backdrop-blur-md border-t border-white/10">
+        <div className="p-4">
           <div className="relative group">
             <input
               type="text"
@@ -195,26 +192,42 @@ export const ChatWidget: React.FC = () => {
         </div>
       </div>
 
-      {/* Minimal Launcher */}
+      {/* Minimalist Launcher Button */}
       <div
         className={`flex justify-end transition-all duration-500 ease-out ${isOpen ? "opacity-0 translate-y-4 pointer-events-none" : "opacity-100 translate-y-0"}`}
       >
         <button
           onClick={() => setIsOpen(true)}
           className="
-            flex items-center gap-2
+            group
+            relative
             bg-white/40 backdrop-blur-xl
             hover:bg-white/50
-            py-2.5 px-5
+            p-3.5
             rounded-full
             shadow-lg shadow-black/5
             transition-all duration-300 hover:scale-105 active:scale-95
-            group
             border border-white/30
+            overflow-hidden
           "
+          aria-label="Open chat"
         >
-          <span className="w-2 h-2 rounded-full bg-slate-800 animate-pulse"></span>
-          <span className="font-serif italic text-sm text-slate-700">Questions?</span>
+          {/* Subtle gradient overlay */}
+          <div className="absolute inset-0 bg-gradient-to-tr from-slate-900/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+          
+          {/* Chat Icon */}
+          <svg 
+            className="w-5 h-5 text-slate-700 relative z-10 transition-transform group-hover:scale-110" 
+            fill="none" 
+            viewBox="0 0 24 24" 
+            stroke="currentColor" 
+            strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+          </svg>
+          
+          {/* Active indicator dot */}
+          <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-slate-400 border-2 border-white shadow-sm"></span>
         </button>
       </div>
     </div>,
