@@ -2,6 +2,10 @@ import { defineConfig, Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import fs from "fs";
 import path from "path";
+import { fileURLToPath } from "url";
+import tailwindcss from "@tailwindcss/vite";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Plugin to serve chat-widget dist file
 function serveChatWidget(): Plugin {
@@ -16,8 +20,11 @@ function serveChatWidget(): Plugin {
           );
           if (fs.existsSync(filePath)) {
             res.setHeader("Content-Type", "application/javascript");
+            res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
             fs.createReadStream(filePath).pipe(res);
             return;
+          } else {
+            console.error("Chat widget file not found at:", filePath);
           }
         }
         next();
@@ -27,5 +34,5 @@ function serveChatWidget(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), serveChatWidget()],
+  plugins: [react(), serveChatWidget(), tailwindcss()],
 });
