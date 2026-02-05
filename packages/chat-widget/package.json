@@ -14,15 +14,19 @@
     },
     "./script": "./dist/chat-widget.iife.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "dev": "vite build --watch",
     "build": "tsc && vite build",
     "lint": "eslint \"src/**/*.ts\""
   },
   "dependencies": {
+    "@tailwindcss/vite": "^4.1.18",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
