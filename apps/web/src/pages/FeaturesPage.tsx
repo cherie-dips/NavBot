@@ -1,4 +1,5 @@
 import { Code, Globe, MessageSquare, Mic } from "lucide-react";
+import React from "react";
 
 export const FeaturesPage = () => (
     <div className="animate-fade-in-up min-h-screen pt-32 pb-20">
@@ -68,11 +69,11 @@ export const FeaturesPage = () => (
                                 and adapts itself without configuration.
                             </p>
 
-                            <ul className="space-y-3 text-sm text-slate-500 font-medium">
-                                <li>• Reads CSS variables</li>
-                                <li>• Matches fonts & radius</li>
-                                <li>• Respects layout system</li>
-                            </ul>
+                            <div className="space-y-2 text-sm text-slate-500">
+                                <p className="italic">Reads CSS variables</p>
+                                <p className="italic">Matches fonts & radius</p>
+                                <p className="italic">Respects layout system</p>
+                            </div>
 
                         </div>
 
@@ -197,11 +198,11 @@ export const FeaturesPage = () => (
                                 ready for real conversations.
                             </p>
 
-                            <ul className="space-y-3 text-sm text-slate-500 font-medium">
-                                <li>• Semantic chunking</li>
-                                <li>• Vector embeddings</li>
-                                <li>• Instant retrieval</li>
-                            </ul>
+                            <div className="space-y-2 text-sm text-slate-500">
+                                <p className="italic">Semantic chunking</p>
+                                <p className="italic">Vector embeddings</p>
+                                <p className="italic">Instant retrieval</p>
+                            </div>
 
                         </div>
 
@@ -236,11 +237,11 @@ export const FeaturesPage = () => (
                                 what they ask, skip, and revisit.
                             </p>
 
-                            <ul className="space-y-3 text-sm text-slate-500 font-medium">
-                                <li>• Engagement tracking</li>
-                                <li>• Completion metrics</li>
-                                <li>• Improvement signals</li>
-                            </ul>
+                            <div className="space-y-2 text-sm text-slate-500">
+                                <p className="italic">Engagement tracking</p>
+                                <p className="italic">Completion metrics</p>
+                                <p className="italic">Improvement signals</p>
+                            </div>
 
                         </div>
 
@@ -357,11 +358,135 @@ export const FeaturesPage = () => (
                                 with instant, accurate audio responses.
                             </p>
 
-                            <ul className="space-y-3 text-sm text-slate-500 font-medium">
-                                <li>• Real-time speech</li>
-                                <li>• Multilingual support</li>
-                                <li>• Studio-quality output</li>
-                            </ul>
+                            <div className="space-y-2 text-sm text-slate-500">
+                                <p className="italic">Real-time speech</p>
+                                <p className="italic">Multilingual support</p>
+                                <p className="italic">Studio-quality output</p>
+                            </div>
+
+                        </div>
+
+                    </div>
+
+
+
+                    {/* ========== Feature 5 - Social Media Integration ========== */}
+                    <div className="grid md:grid-cols-2 gap-20 items-center">
+
+                        {/* Text */}
+                        <div>
+
+                            <span className="text-sm tracking-widest uppercase text-[#478EDB] font-medium mb-4 block">
+                                Social sync
+                            </span>
+
+                            <h3
+                                className="group relative inline-block font-serif text-4xl font-semibold text-[#2E3538] mb-8
+                           after:absolute after:left-0 after:-bottom-2
+                           after:w-full after:h-[2px]
+                           after:bg-gradient-to-r after:from-[#478EDB] after:to-[#8691CA]
+                           after:scale-x-0 after:origin-left
+                           after:transition-transform after:duration-500
+                           hover:after:scale-x-100"
+                            >
+                                Live social media updates
+                            </h3>
+
+                            <p className="text-lg text-slate-600 leading-relaxed mb-8 max-w-md">
+                                Connect your social channels and keep your chatbot current with your latest posts, updates, and announcements.
+                            </p>
+
+                            <div className="space-y-2 text-sm text-slate-500">
+                                <p className="italic">Auto-sync from platforms</p>
+                                <p className="italic">Real-time feed updates</p>
+                                <p className="italic">Multi-platform support</p>
+                            </div>
+
+                        </div>
+
+
+                        {/* Visual */}
+                        <div className="relative">
+
+                            <div className="relative w-full h-[340px] rounded-[2rem] overflow-hidden
+                              bg-gradient-to-br from-[#478EDB]/20 to-[#8EBFF2]/20">
+
+                                {/* Floating glow */}
+                                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-[#8691CA]/20 blur-3xl animate-pulse" />
+
+                                {/* Main card */}
+                                <div className="absolute inset-0 flex items-center justify-center">
+
+                                    <div className="relative bg-white rounded-2xl p-6 shadow-xl border w-72">
+
+                                        {/* Social icons orbit */}
+                                        <div className="relative h-32 mb-4">
+                                            
+                                            {/* Center hub */}
+                                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 bg-gradient-to-br from-[#478EDB]/80 to-[#8691CA]/80 rounded-xl flex items-center justify-center shadow-lg">
+                                                <MessageSquare className="w-6 h-6 text-white" />
+                                            </div>
+
+                                            {/* Orbiting social icons */}
+                                            {/* Twitter/X */}
+                                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center shadow-sm border border-slate-200/50 animate-orbit-1">
+                                                <svg className="w-4 h-4 text-slate-400" fill="currentColor" viewBox="0 0 24 24">
+                                                    <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+                                                </svg>
+                                            </div>
+                                            
+                                            {/* Facebook */}
+                                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center shadow-sm border border-blue-100/50 animate-orbit-2">
+                                                <svg className="w-5 h-5 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                                                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                                                </svg>
+                                            </div>
+                                            
+                                            {/* LinkedIn */}
+                                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center shadow-sm border border-blue-100/50 animate-orbit-3">
+                                                <svg className="w-4 h-4 text-blue-400" fill="currentColor" viewBox="0 0 24 24">
+                                                    <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                                                </svg>
+                                            </div>
+                                            
+                                            {/* Instagram */}
+                                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 bg-pink-50 rounded-full flex items-center justify-center shadow-sm border border-pink-100/50 animate-orbit-4">
+                                                <svg className="w-5 h-5 text-pink-400" fill="currentColor" viewBox="0 0 24 24">
+                                                    <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+                                                </svg>
+                                            </div>
+
+                                        </div>
+
+                                        {/* Sync status */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between text-xs">
+                                                <span className="text-slate-600">Syncing posts...</span>
+                                                <span className="text-[#478EDB] font-medium">Live</span>
+                                            </div>
+                                            <div className="h-1 bg-slate-100 rounded-full overflow-hidden">
+                                                <div className="h-full bg-gradient-to-r from-[#478EDB]/70 to-[#8691CA]/70 rounded-full animate-progress" style={{ width: '70%' }}></div>
+                                            </div>
+                                        </div>
+
+                                    </div>
+
+                                </div>
+
+                                {/* Floating update badges */}
+                                <div className="absolute top-8 right-8 bg-white/90 backdrop-blur
+                                px-3 py-1.5 rounded-full text-xs shadow-lg animate-float flex items-center gap-1.5">
+                                    <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
+                                    New post
+                                </div>
+
+                                <div className="absolute bottom-8 left-8 bg-white/90 backdrop-blur
+                                px-3 py-1.5 rounded-full text-xs shadow-lg animate-float delay-700 flex items-center gap-1.5">
+                                    <div className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse"></div>
+                                    Updated
+                                </div>
+
+                            </div>
 
                         </div>
 
@@ -376,163 +501,3 @@ export const FeaturesPage = () => (
 
     </div>
 );
-
-// import { BarChart2, MessageCircle, Mic, Sparkles } from "lucide-react";
-
-// const features = [
-//   {
-//     id: 1,
-//     tag: "Seamless design",
-//     title: "Blends naturally with your website",
-//     description:
-//       "The chatbot uses a soft glass-style interface that fits into your website without standing out. It feels native, clean, and intentional.",
-//     points: [
-//       "Matches your colors and layout",
-//       "Glass-style transparent interface",
-//       "Clean and distraction-free",
-//     ],
-//     icon: <Sparkles className="w-6 h-6" />,
-//     image: "/images/glass-ui.png",
-//   },
-//   {
-//     id: 2,
-//     tag: "Knowledge engine",
-//     title: "Understands your website content",
-//     description:
-//       "Your chatbot learns from your pages and gives clear, relevant answers based on your actual content.",
-//     points: [
-//       "Learns from your pages automatically",
-//       "Context-aware replies",
-//       "Auto-updates when content changes",
-//     ],
-//     icon: <MessageCircle className="w-6 h-6" />,
-//     image: "/images/knowledge.png",
-//   },
-//   {
-//     id: 3,
-//     tag: "Insights",
-//     title: "Track what users really need",
-//     description:
-//       "Understand how visitors interact with your chatbot and improve your content using real data.",
-//     points: [
-//       "Most asked questions",
-//       "User engagement stats",
-//       "Conversation performance",
-//     ],
-//     icon: <BarChart2 className="w-6 h-6" />,
-//     image: "/images/dashboard.png",
-//     animated: true,
-//   },
-//   {
-//     id: 4,
-//     tag: "Voice support",
-//     title: "Talk to your chatbot naturally",
-//     description:
-//       "Let users speak instead of typing and receive fast, clear voice responses in real time.",
-//     points: [
-//       "Real-time voice support",
-//       "Multiple languages",
-//       "Natural sounding audio",
-//     ],
-//     icon: <Mic className="w-6 h-6" />,
-//     image: "/images/voice.png",
-//   },
-// ];
-
-// export default function FeaturesSection() {
-//   return (
-//     <section className="py-32 bg-[#F9F9FA] overflow-hidden">
-//       <div className="container mx-auto px-6">
-
-//         <div className="text-center mb-28">
-//           <h2 className="font-serif text-5xl md:text-6xl font-light text-[#2E3538] mb-6">
-//             Built to feel effortless
-//           </h2>
-
-//           <p className="text-xl text-slate-500 max-w-2xl mx-auto font-light">
-//             Powerful features that stay out of your way and blend into your
-//             product naturally.
-//           </p>
-//         </div>
-
-//         <div className="space-y-36 max-w-6xl mx-auto">
-
-//           {features.map((feature, index) => {
-//             const reverse = index % 2 !== 0;
-
-//             return (
-//               <div
-//                 key={feature.id}
-//                 className={`group grid md:grid-cols-2 gap-20 items-center ${
-//                   reverse ? "md:flex-row-reverse" : ""
-//                 }`}
-//               >
-//                 <div
-//                   className={`relative rounded-3xl p-10 bg-gradient-to-br from-white/60 to-white/30 backdrop-blur-xl border border-white/40 shadow-lg transition-all duration-500 ${
-//                     feature.animated
-//                       ? "group-hover:scale-105 group-hover:shadow-2xl group-hover:shadow-[#478EDB]/20"
-//                       : "group-hover:shadow-xl"
-//                   }`}
-//                 >
-//                   <div
-//                     className={`w-full h-full rounded-2xl bg-cover bg-center transition-transform duration-700 ${
-//                       feature.animated
-//                         ? "group-hover:scale-110"
-//                         : "group-hover:scale-105"
-//                     }`}
-//                     style={{
-//                       backgroundImage: `url(${feature.image})`,
-//                       minHeight: "280px",
-//                     }}
-//                   />
-
-//                   {feature.animated && (
-//                     <div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-[#478EDB]/10 to-[#8691CA]/10 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
-//                   )}
-//                 </div>
-
-//                 <div>
-
-//                   <span className="text-sm tracking-widest uppercase text-[#478EDB] font-medium mb-4 block">
-//                     {feature.tag}
-//                   </span>
-
-//                   <h3
-//                     className="relative inline-block font-serif text-4xl md:text-5xl font-semibold text-[#2E3538] mb-8 leading-snug
-//                                after:absolute after:left-0 after:-bottom-2
-//                                after:w-full after:h-[2px]
-//                                after:bg-gradient-to-r after:from-[#478EDB] after:to-[#8691CA]
-//                                after:scale-x-0 after:origin-left
-//                                after:transition-transform after:duration-500
-//                                group-hover:after:scale-x-100"
-//                   >
-//                     {feature.title}
-//                   </h3>
-
-//                   <p className="text-lg md:text-xl text-slate-600 leading-relaxed mb-8 max-w-md">
-//                     {feature.description}
-//                   </p>
-
-//                   <ul className="space-y-4 text-base md:text-lg text-slate-600 font-medium">
-//                     {feature.points.map((point, i) => (
-//                       <li
-//                         key={i}
-//                         className="flex items-center gap-3 transition-transform duration-300 group-hover:translate-x-1"
-//                       >
-//                         <span className="w-2 h-2 rounded-full bg-[#478EDB]" />
-//                         {point}
-//                       </li>
-//                     ))}
-//                   </ul>
-
-//                 </div>
-//               </div>
-//             );
-//           })}
-
-//         </div>
-//       </div>
-//     </section>
-//   );
-// }
-

@@ -146,3 +146,69 @@ button, a, input {
 .animate-wave {
   animation: wave 1.3s ease-in-out infinite;
 }
+
+@keyframes orbit-1 {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg) translateX(50px) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg) translateX(50px) rotate(-360deg);
+  }
+}
+
+@keyframes orbit-2 {
+  0% {
+    transform: translate(-50%, -50%) rotate(90deg) translateX(50px) rotate(-90deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(450deg) translateX(50px) rotate(-450deg);
+  }
+}
+
+@keyframes orbit-3 {
+  0% {
+    transform: translate(-50%, -50%) rotate(180deg) translateX(50px) rotate(-180deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(540deg) translateX(50px) rotate(-540deg);
+  }
+}
+
+@keyframes orbit-4 {
+  0% {
+    transform: translate(-50%, -50%) rotate(270deg) translateX(50px) rotate(-270deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(630deg) translateX(50px) rotate(-630deg);
+  }
+}
+
+@keyframes progress {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: 70%;
+  }
+}
+
+.animate-orbit-1 {
+  animation: orbit-1 8s linear infinite;
+}
+
+.animate-orbit-2 {
+  animation: orbit-2 8s linear infinite;
+}
+
+.animate-orbit-3 {
+  animation: orbit-3 8s linear infinite;
+}
+
+.animate-orbit-4 {
+  animation: orbit-4 8s linear infinite;
+}
+
+.animate-progress {
+  animation: progress 2s ease-in-out infinite alternate;
+}
+
