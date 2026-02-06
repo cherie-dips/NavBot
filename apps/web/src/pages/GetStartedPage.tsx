@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ArrowRight, Sparkles, Copy, Check } from "lucide-react";
-import { CodeSnippet } from "../components/CodeSnippet";
+import { CodeSnippet } from "../components/Codesnippet";
 
 export const GetStartedPage = () => {
     const [websiteUrl, setWebsiteUrl] = useState("");
