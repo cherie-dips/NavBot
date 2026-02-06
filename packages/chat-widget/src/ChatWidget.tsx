@@ -191,7 +191,7 @@ export const ChatWidget: React.FC = () => {
           <div className="flex items-center gap-3">
             {/* Minimalist Geometric Logo */}
             <div>
-              <span className="font-medium text-sm font-italic text-slate-700 tracking-tight">navbot</span>
+              <span className="font-medium text-sm italic text-[#2E3538] tracking-tight font-serif">navbot</span>
             </div>
           </div>
           <button
