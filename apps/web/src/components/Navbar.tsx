@@ -45,7 +45,7 @@ export const Navbar = ({ onViewChange, currentView }: NavbarProps) => {
                 </div>
 
                 <div className="hidden md:flex items-center gap-8">
-                    {["Home", "Features", "How it works", "Contact"].map((item) => (
+                    {["Home", "Features", "How it works"].map((item) => (
                         <a
                             key={item}
                             href={`#${item.toLowerCase().replace(/\s/g, "-")}`}
@@ -62,10 +62,10 @@ export const Navbar = ({ onViewChange, currentView }: NavbarProps) => {
 
                 <div className="flex items-center gap-4">
                     <button
-                        onClick={(e) => handleNavClick(e, "contact")}
+                        onClick={(e) => handleNavClick(e, "get-started")}
                         className="px-6 py-2.5 rounded-full bg-[#2E3538] text-white text-sm font-medium hover:bg-[#478EDB] transition-colors shadow-lg shadow-[#2E3538]/10 hover:shadow-[#478EDB]/30 duration-300"
                     >
-                        Contact
+                        Get Started
                     </button>
                 </div>
             </div>

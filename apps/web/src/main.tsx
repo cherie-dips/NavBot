@@ -5,6 +5,7 @@ import { Footer } from "./components/Footer";
 import { HomePage } from "./pages/HomePage";
 import { ContactPage } from "./pages/ContactPage";
 import { FeaturesPage} from "./pages/FeaturesPage";
+import { GetStartedPage } from "./pages/GetStartedPage";
 import "./style.css";
 
 const App = () => {
@@ -17,6 +18,7 @@ const App = () => {
       {currentView === "home" && <HomePage onViewChange={setCurrentView} />}
       {currentView === "contact" && <ContactPage />}
       {currentView === "features" && <FeaturesPage />}
+      {currentView === "get-started" && <GetStartedPage />}
 
       <Footer onViewChange={setCurrentView} />
     </div>
