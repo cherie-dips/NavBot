@@ -6,6 +6,7 @@ interface Message {
   text: string;
   sender: "user" | "bot";
   timestamp: Date;
+  isVoice?: boolean;
 }
 
 const mockResponses = [
@@ -29,7 +30,11 @@ export const ChatWidget: React.FC = () => {
   ]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -38,6 +43,14 @@ export const ChatWidget: React.FC = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    return () => {
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+    };
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -70,11 +83,85 @@ export const ChatWidget: React.FC = () => {
     }, 1000 + Math.random() * 1000);
   };
 
+  const startRecording = () => {
+    navigator.mediaDevices.getUserMedia({ audio: true })
+      .then((stream) => {
+        const mediaRecorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = mediaRecorder;
+
+        const audioChunks: Blob[] = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          audioChunks.push(event.data);
+        };
+
+        mediaRecorder.onstop = () => {
+          const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+          
+          // Simulate voice message
+          const userMessage: Message = {
+            id: Date.now(),
+            text: `🎤 Voice message (${recordingTime}s)`,
+            sender: "user",
+            timestamp: new Date(),
+            isVoice: true,
+          };
+
+          setMessages((prev) => [...prev, userMessage]);
+          setIsTyping(true);
+
+          // Simulate bot response
+          setTimeout(() => {
+            const botMessage: Message = {
+              id: Date.now() + 1,
+              text: "I received your voice message! In a production app, this would be transcribed and processed.",
+              sender: "bot",
+              timestamp: new Date(),
+            };
+            setMessages((prev) => [...prev, botMessage]);
+            setIsTyping(false);
+          }, 1500);
+
+          // Stop all tracks
+          stream.getTracks().forEach(track => track.stop());
+        };
+
+        mediaRecorder.start();
+        setIsRecording(true);
+        setRecordingTime(0);
+
+        // Start timer
+        recordingIntervalRef.current = window.setInterval(() => {
+          setRecordingTime((prev) => prev + 1);
+        }, 1000);
+      })
+      .catch((error) => {
+        console.error("Error accessing microphone:", error);
+        alert("Could not access microphone. Please check your permissions.");
+      });
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (recordingIntervalRef.current) {
+        clearInterval(recordingIntervalRef.current);
+      }
+    }
+  };
+
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' + secs : secs}`;
   };
 
   if (!mounted) return null;
@@ -130,6 +217,7 @@ export const ChatWidget: React.FC = () => {
                   ${message.sender === "bot"
                     ? "bg-white/40 text-slate-700 rounded-tl-sm border border-white/20"
                     : "bg-black/5 text-slate-800 rounded-tr-sm border border-black/5 font-medium"}
+                  ${message.isVoice ? "flex items-center gap-2" : ""}
                 `}
               >
                 {message.text}
@@ -152,19 +240,32 @@ export const ChatWidget: React.FC = () => {
           <div ref={messagesEndRef} />
         </div>
 
+        {/* Recording Indicator */}
+        {isRecording && (
+          <div className="px-4 pb-2">
+            <div className="bg-red-500/20 backdrop-blur-md border border-red-500/30 rounded-xl px-4 py-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
+                <span className="text-sm text-slate-700 font-medium">Recording</span>
+              </div>
+              <span className="text-sm text-slate-600 font-mono">{formatTime(recordingTime)}</span>
+            </div>
+          </div>
+        )}
+
         {/* Input Area */}
         <div className="p-4">
           <div className="relative group">
             <input
               type="text"
-              placeholder="Type a message..."
+              placeholder={isRecording ? "Recording..." : "Type a message..."}
               className="
                 w-full
                 bg-white/20 hover:bg-white/30 focus:bg-white/40
                 backdrop-blur-xl
                 border border-white/20 focus:border-white/40
                 rounded-xl
-                py-3 pl-4 pr-12
+                py-3 pl-4 pr-24
                 text-sm text-slate-800 placeholder:text-slate-500
                 outline-none
                 transition-all duration-300
@@ -172,10 +273,37 @@ export const ChatWidget: React.FC = () => {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyPress={handleKeyPress}
+              disabled={isRecording}
             />
+            
+            {/* Voice Button */}
+            <button
+              onClick={isRecording ? stopRecording : startRecording}
+              className={`
+                absolute right-12 top-1/2 -translate-y-1/2
+                p-1.5 rounded-lg
+                transition-all duration-300
+                ${isRecording 
+                  ? "text-red-500 hover:text-red-600 bg-red-500/10" 
+                  : "text-slate-500 hover:text-slate-800"}
+              `}
+              title={isRecording ? "Stop recording" : "Record voice message"}
+            >
+              {isRecording ? (
+                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                </svg>
+              )}
+            </button>
+
+            {/* Send Button */}
             <button
               onClick={handleSend}
-              disabled={!inputValue.trim()}
+              disabled={!inputValue.trim() || isRecording}
               className="
                 absolute right-2 top-1/2 -translate-y-1/2
                 p-1.5 rounded-lg
