@@ -21,6 +21,16 @@
         "$TURBO_DEFAULT$",
         "../../packages/chat-widget/dist/**"
       ]
+    },
+
+    "server#dev": {
+      "cache": false,
+      "persistent": true
+    },
+
+    "api#dev": {
+      "cache": false,
+      "persistent": true
     }
   }
 }
