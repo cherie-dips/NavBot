@@ -21,6 +21,7 @@ function serveChatWidget(): Plugin {
           if (fs.existsSync(filePath)) {
             res.setHeader("Content-Type", "application/javascript");
             res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+            res.setHeader("Access-Control-Allow-Origin", "*");
             fs.createReadStream(filePath).pipe(res);
             return;
           } else {
