@@ -9,15 +9,34 @@ interface Message {
   isVoice?: boolean;
 }
 
-const mockResponses = [
-  "I'm here to help! What would you like to know?",
-  "That's a great question! Let me think about that... ",
-  "I can assist you with navigation and general queries.",
-  "Feel free to ask me anything!",
-  "I'm NavBot, your virtual assistant. How can I help you today?",
-];
+type ChatRole = "user" | "assistant";
+
+type NavbotConfig = {
+  apiBase?: string;
+  siteId?: string;
+};
+
+declare global {
+  interface Window {
+    NAVBOT_CONFIG?: NavbotConfig;
+  }
+}
+
+const getConfig = (): Required<NavbotConfig> => {
+  const globalConfig = typeof window !== "undefined" ? window.NAVBOT_CONFIG || {} : {};
+  const apiBase =
+    globalConfig.apiBase ??
+    (typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}:3001` : "http://localhost:3001");
+  const siteId =
+    globalConfig.siteId ??
+    (typeof window !== "undefined" ? window.location.hostname || "unknown-site" : "unknown-site");
+
+  return { apiBase, siteId };
+};
 
 export const ChatWidget: React.FC = () => {
+  const { apiBase, siteId } = getConfig();
+
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
@@ -32,6 +51,8 @@ export const ChatWidget: React.FC = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingIntervalRef = useRef<number | null>(null);
@@ -56,8 +77,18 @@ export const ChatWidget: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
+  const buildHistory = (): Array<{ role: ChatRole; content: string }> =>
+    messages
+      .filter((m) => !m.isVoice)
+      .map((m) => ({
+        role: m.sender === "user" ? "user" : "assistant",
+        content: m.text,
+      }));
+
   const handleSend = () => {
     if (!inputValue.trim()) return;
+
+    setError(null);
 
     const userMessage: Message = {
       id: Date.now(),
@@ -70,21 +101,55 @@ export const ChatWidget: React.FC = () => {
     setInputValue("");
     setIsTyping(true);
 
-    // Simulate bot response
-    setTimeout(() => {
-      const botMessage: Message = {
-        id: Date.now() + 1,
-        text: mockResponses[Math.floor(Math.random() * mockResponses.length)],
-        sender: "bot",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, botMessage]);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${apiBase}/api/chat`);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.onload = () => {
+      try {
+        if (xhr.status < 200 || xhr.status >= 300) {
+          throw new Error(`Chat request failed with status ${xhr.status}`);
+        }
+        const data = JSON.parse(xhr.responseText) as { answer: string };
+        const botMessage: Message = {
+          id: Date.now() + 1,
+          text: data.answer || "Sorry, I couldn't generate a response.",
+          sender: "bot",
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, botMessage]);
+      } catch (e) {
+        console.error("Chat error:", e);
+        setError("Something went wrong talking to the assistant. Please try again.");
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now() + 2,
+            text: "I'm having trouble connecting right now. Please try again in a moment.",
+            sender: "bot",
+            timestamp: new Date(),
+          },
+        ]);
+      } finally {
+        setIsTyping(false);
+      }
+    };
+    xhr.onerror = () => {
+      console.error("Chat network error");
+      setError("Something went wrong talking to the assistant. Please try again.");
       setIsTyping(false);
-    }, 1000 + Math.random() * 1000);
+    };
+    xhr.send(
+      JSON.stringify({
+        siteId,
+        message: userMessage.text,
+        history: buildHistory(),
+      })
+    );
   };
 
   const startRecording = () => {
-    navigator.mediaDevices.getUserMedia({ audio: true })
+    navigator.mediaDevices
+      .getUserMedia({ audio: true })
       .then((stream) => {
         const mediaRecorder = new MediaRecorder(stream);
         mediaRecorderRef.current = mediaRecorder;
@@ -97,8 +162,7 @@ export const ChatWidget: React.FC = () => {
 
         mediaRecorder.onstop = () => {
           const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
-          
-          // Simulate voice message
+
           const userMessage: Message = {
             id: Date.now(),
             text: `🎤 Voice message (${recordingTime}s)`,
@@ -110,27 +174,47 @@ export const ChatWidget: React.FC = () => {
           setMessages((prev) => [...prev, userMessage]);
           setIsTyping(true);
 
-          // Simulate bot response
-          setTimeout(() => {
-            const botMessage: Message = {
-              id: Date.now() + 1,
-              text: "I received your voice message! In a production app, this would be transcribed and processed.",
-              sender: "bot",
-              timestamp: new Date(),
-            };
-            setMessages((prev) => [...prev, botMessage]);
+          const formData = new FormData();
+          formData.append("audio", audioBlob, "voice.webm");
+          formData.append("siteId", siteId);
+
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", `${apiBase}/api/chat/voice`);
+          xhr.onload = () => {
+            try {
+              if (xhr.status < 200 || xhr.status >= 300) {
+                throw new Error(`Voice chat request failed with status ${xhr.status}`);
+              }
+              const data = JSON.parse(xhr.responseText) as { answer: string; transcript?: string };
+              const botMessage: Message = {
+                id: Date.now() + 1,
+                text: data.answer || "I received your voice message.",
+                sender: "bot",
+                timestamp: new Date(),
+              };
+              setMessages((prev) => [...prev, botMessage]);
+            } catch (error) {
+              console.error("Voice chat error:", error);
+              setError("Could not process voice message. Please try typing instead.");
+            } finally {
+              setIsTyping(false);
+            }
+          };
+          xhr.onerror = () => {
+            console.error("Voice chat network error");
+            setError("Could not process voice message. Please try typing instead.");
             setIsTyping(false);
-          }, 1500);
+          };
+          xhr.send(formData);
 
           // Stop all tracks
-          stream.getTracks().forEach(track => track.stop());
+          stream.getTracks().forEach((track) => track.stop());
         };
 
         mediaRecorder.start();
         setIsRecording(true);
         setRecordingTime(0);
 
-        // Start timer
         recordingIntervalRef.current = window.setInterval(() => {
           setRecordingTime((prev) => prev + 1);
         }, 1000);
@@ -161,7 +245,7 @@ export const ChatWidget: React.FC = () => {
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins}:${secs < 10 ? '0' + secs : secs}`;
+    return `${mins}:${secs < 10 ? "0" + secs : secs}`;
   };
 
   if (!mounted) return null;
@@ -191,7 +275,9 @@ export const ChatWidget: React.FC = () => {
           <div className="flex items-center gap-3">
             {/* Minimalist Geometric Logo */}
             <div>
-              <span className="font-medium text-sm italic text-[#2E3538] tracking-tight font-serif">navbot</span>
+              <span className="font-medium text-sm italic text-[#2E3538] tracking-tight font-serif">
+                navbot
+              </span>
             </div>
           </div>
           <button
@@ -209,21 +295,25 @@ export const ChatWidget: React.FC = () => {
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`flex flex-col ${message.sender === "user" ? "items-end" : "items-start"} animate-fade-in-up`}
+              className={`flex flex-col ${
+                message.sender === "user" ? "items-end" : "items-start"
+              } animate-fade-in-up`}
             >
               <div
                 className={`
                   max-w-[85%] px-4 py-3 text-sm leading-relaxed rounded-2xl backdrop-blur-md
-                  ${message.sender === "bot"
-                    ? "bg-white/40 text-slate-700 rounded-tl-sm border border-white/20"
-                    : "bg-black/5 text-slate-800 rounded-tr-sm border border-black/5 font-medium"}
+                  ${
+                    message.sender === "bot"
+                      ? "bg-white/40 text-slate-700 rounded-tl-sm border border-white/20"
+                      : "bg-black/5 text-slate-800 rounded-tr-sm border border-black/5 font-medium"
+                  }
                   ${message.isVoice ? "flex items-center gap-2" : ""}
                 `}
               >
                 {message.text}
               </div>
               <span className="text-[10px] text-slate-400 mt-1.5 px-1 opacity-70">
-                {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
               </span>
             </div>
           ))}
@@ -232,8 +322,14 @@ export const ChatWidget: React.FC = () => {
             <div className="flex flex-col items-start animate-pulse">
               <div className="bg-white/40 backdrop-blur-md border border-white/20 px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1.5 items-center">
                 <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></span>
-                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></span>
-                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></span>
+                <span
+                  className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"
+                  style={{ animationDelay: "0.1s" }}
+                ></span>
+                <span
+                  className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"
+                  style={{ animationDelay: "0.2s" }}
+                ></span>
               </div>
             </div>
           )}
@@ -255,6 +351,11 @@ export const ChatWidget: React.FC = () => {
 
         {/* Input Area */}
         <div className="p-4">
+          {error && (
+            <div className="mb-2 text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
           <div className="relative group">
             <input
               type="text"
@@ -275,7 +376,7 @@ export const ChatWidget: React.FC = () => {
               onKeyPress={handleKeyPress}
               disabled={isRecording}
             />
-            
+
             {/* Voice Button */}
             <button
               onClick={isRecording ? stopRecording : startRecording}
@@ -283,9 +384,11 @@ export const ChatWidget: React.FC = () => {
                 absolute right-12 top-1/2 -translate-y-1/2
                 p-1.5 rounded-lg
                 transition-all duration-300
-                ${isRecording 
-                  ? "text-red-500 hover:text-red-600 bg-red-500/10" 
-                  : "text-slate-500 hover:text-slate-800"}
+                ${
+                  isRecording
+                    ? "text-red-500 hover:text-red-600 bg-red-500/10"
+                    : "text-slate-500 hover:text-slate-800"
+                }
               `}
               title={isRecording ? "Stop recording" : "Record voice message"}
             >
@@ -294,8 +397,18 @@ export const ChatWidget: React.FC = () => {
                   <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>
               ) : (
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+                <svg
+                  className="w-5 h-5"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                  />
                 </svg>
               )}
             </button>
@@ -322,7 +435,9 @@ export const ChatWidget: React.FC = () => {
 
       {/* Minimalist Launcher Button */}
       <div
-        className={`flex justify-end transition-all duration-500 ease-out ${isOpen ? "opacity-0 translate-y-4 pointer-events-none" : "opacity-100 translate-y-0"}`}
+        className={`flex justify-end transition-all duration-500 ease-out ${
+          isOpen ? "opacity-0 translate-y-4 pointer-events-none" : "opacity-100 translate-y-0"
+        }`}
       >
         <button
           onClick={() => setIsOpen(true)}
@@ -342,18 +457,22 @@ export const ChatWidget: React.FC = () => {
         >
           {/* Subtle gradient overlay */}
           <div className="absolute inset-0 bg-gradient-to-tr from-slate-900/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-          
+
           {/* Chat Icon */}
-          <svg 
-            className="w-5 h-5 text-slate-700 relative z-10 transition-transform group-hover:scale-110" 
-            fill="none" 
-            viewBox="0 0 24 24" 
-            stroke="currentColor" 
+          <svg
+            className="w-5 h-5 text-slate-700 relative z-10 transition-transform group-hover:scale-110"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
             strokeWidth={2}
           >
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+            />
           </svg>
-          
+
           {/* Active indicator dot */}
           <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-slate-400 border-2 border-white shadow-sm"></span>
         </button>
@@ -362,3 +481,4 @@ export const ChatWidget: React.FC = () => {
     document.body
   );
 };
+

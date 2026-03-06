@@ -6,7 +6,17 @@ dist
 dist-ssr
 *.local
 .env
+.env.local
+.env.*.local
 .cache
 server/dist
 public/dist
 .vscode
+.pnpm-store
+
+# Local ChromaDB data
+chroma/
+
+# Test & tooling
+coverage/
+*.tsbuildinfo
