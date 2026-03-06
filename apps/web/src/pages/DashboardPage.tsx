@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import {
-  LogOut, LayoutDashboard, Globe, Plus, BarChart3, MessageSquare,
+  LayoutDashboard, Globe, Plus, BarChart3, MessageSquare,
   Share2, Mic, Users, Brain, ArrowRight, ExternalLink, CheckCircle2,
   AlertCircle, TrendingUp, Clock, Target, ChevronRight, Search,
-  Volume2, VolumeX, RefreshCw, FileText, Zap, ArrowUpRight
+  Volume2, VolumeX, FileText, Zap, ArrowUpRight
 } from "lucide-react";
 import { authClient } from "../lib/auth-client";
 import { ScrapingPage } from "./ScrapingPage";
+import { IntegrationPanel } from "../components/IntegrationPanel";
 import {
   mockWebsites, mockStats, mockQueryHistory, mockTopQueries,
   mockFaqs, mockSocialMedia, mockLeads, mockRecentConversations
@@ -19,6 +20,23 @@ interface DashboardPageProps {
 
 type Tab = "overview" | "websites" | "analytics" | "social" | "leads" | "settings";
 
+type Website = (typeof mockWebsites)[number];
+
+interface IntegrationInfo {
+  siteId: string;
+  url: string;
+  consoleCode: string;
+  scriptTag: string;
+}
+
+const API_BASE =
+  (import.meta as any).env?.VITE_API_URL ?? "http://localhost:3001";
+const WIDGET_SCRIPT_URL =
+  (import.meta as any).env?.VITE_WIDGET_SCRIPT_URL ??
+  (typeof window !== "undefined"
+    ? `${window.location.origin}/chat-widget.iife.js`
+    : "/chat-widget.iife.js");
+
 const TABS: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "websites", label: "Websites", icon: Globe },
@@ -28,16 +46,28 @@ const TABS: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "settings", label: "Settings", icon: Mic },
 ];
 
-export const DashboardPage = ({ onViewChange, onSignOut }: DashboardPageProps) => {
-  const [user, setUser] = useState<{ name?: string; email?: string } | null>(null);
+export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProps) => {
+  const [_user, setUser] = useState<{ name?: string; email?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
-  const [websites, setWebsites] = useState(mockWebsites);
+  const [websites, setWebsites] = useState<Website[]>([]);
   const [showAddSite, setShowAddSite] = useState(false);
   const [newSiteUrl, setNewSiteUrl] = useState("");
   const [isScraping, setIsScraping] = useState(false);
   const [scrapingUrl, setScrapingUrl] = useState("");
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [webDataOnly, setWebDataOnly] = useState(true);
+  const [integrationSite, setIntegrationSite] = useState<Website | null>(null);
+  const [indexError, setIndexError] = useState<string | null>(null);
+
+  const buildIntegration = (site: Website): IntegrationInfo => {
+    const siteId = site.id;
+    const consoleCode = `(function(){if(document.getElementById("chat-widget-root")){console.log("NavBot already loaded.");return;}window.NAVBOT_CONFIG={apiBase:"${API_BASE}",siteId:"${siteId}"};var s=document.createElement("script");s.src="${WIDGET_SCRIPT_URL}";s.crossOrigin="anonymous";document.body.appendChild(s);})();`;
+    const scriptTag = `<script>
+  window.NAVBOT_CONFIG = { apiBase: "${API_BASE}", siteId: "${siteId}" };
+</script>
+<script src="${WIDGET_SCRIPT_URL}" crossorigin="anonymous"></script>`;
+    return { siteId, url: site.url, consoleCode, scriptTag };
+  };
 
   useEffect(() => {
     authClient.getSession().then(({ data }) => {
@@ -45,65 +75,105 @@ export const DashboardPage = ({ onViewChange, onSignOut }: DashboardPageProps) =
     });
   }, []);
 
-  const handleSignOut = async () => {
-    await authClient.signOut();
-    onSignOut();
-  };
-
   const handleAddWebsite = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSiteUrl.trim()) return;
-    setScrapingUrl(newSiteUrl);
+    const url = newSiteUrl.trim();
+    setScrapingUrl(url);
     setIsScraping(true);
     setShowAddSite(false);
-  };
+    setIndexError(null);
 
-  const handleScrapingComplete = () => {
-    const hostname = (() => {
-      try { return new URL(scrapingUrl).hostname; } catch { return scrapingUrl; }
+    void (async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/sites`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(
+            data?.error === "failed_to_index_site"
+              ? "Failed to index site. Please check the URL and try again."
+              : data?.error || "Failed to index site."
+          );
+        }
+        const hostname = (() => {
+          try {
+            return new URL(url).hostname;
+          } catch {
+            return url;
+          }
+        })();
+        const siteId: string = data.siteId || hostname;
+        const pagesIndexed: number =
+          typeof data.stored === "number"
+            ? data.stored
+            : typeof data.pageCount === "number"
+            ? data.pageCount
+            : 0;
+
+        setWebsites((prev) => [
+          ...prev,
+          {
+            id: siteId,
+            url,
+            hostname,
+            status: "active" as const,
+            pagesIndexed,
+            lastCrawled: "Just now",
+            addedAt: new Date().toISOString().split("T")[0],
+          },
+        ]);
+      } catch (err: any) {
+        setIndexError(
+          err?.message || "Something went wrong while indexing the site."
+        );
+      } finally {
+        setIsScraping(false);
+        setNewSiteUrl("");
+        setActiveTab("websites");
+      }
     })();
-    setWebsites(prev => [...prev, {
-      id: "ws_" + Date.now(),
-      url: scrapingUrl,
-      hostname,
-      status: "active" as const,
-      pagesIndexed: Math.floor(Math.random() * 40) + 10,
-      lastCrawled: "Just now",
-      addedAt: new Date().toISOString().split("T")[0],
-    }]);
-    setIsScraping(false);
-    setNewSiteUrl("");
-    setActiveTab("overview");
   };
 
   // If currently scraping, show the scraping animation full-screen in dashboard
   if (isScraping) {
-    return <ScrapingPage websiteUrl={scrapingUrl} onComplete={handleScrapingComplete} />;
+    return <ScrapingPage websiteUrl={scrapingUrl} onComplete={() => {}} />;
   }
 
   const maxQueries = Math.max(...mockQueryHistory.map(d => d.queries));
 
-  return (
-    <div className="min-h-screen bg-[#F9F9FA] pt-20">
-      {/* Top Bar */}
-      <div className="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-xl border-b border-slate-100 py-3 px-6">
-        <div className="max-w-[1400px] mx-auto flex items-center justify-between">
-          <button onClick={() => onViewChange("home")} className="text-xl font-medium italic text-[#2E3538] font-serif tracking-tight hover:text-[#478EDB] transition-colors">
-            navbot
+  if (integrationSite) {
+    const info = buildIntegration(integrationSite);
+    return (
+      <div className="min-h-screen bg-[#F9F9FA] pt-28">
+        <div className="max-w-[1400px] mx-auto px-6 pb-4">
+          <button
+            type="button"
+            onClick={() => setIntegrationSite(null)}
+            className="text-sm text-slate-500 hover:text-[#478EDB] inline-flex items-center gap-1 mb-4"
+          >
+            <span className="text-lg leading-none">←</span> Back to dashboard
           </button>
-          <div className="flex items-center gap-4">
-            <div className="text-right mr-2 hidden sm:block">
-              <p className="text-sm font-medium text-[#2E3538]">{user?.name || "User"}</p>
-              <p className="text-xs text-slate-400">{user?.email}</p>
-            </div>
-            <button onClick={handleSignOut} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white hover:bg-red-50 hover:border-red-200 hover:text-red-600 transition-all text-sm text-slate-600">
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Sign Out</span>
-            </button>
-          </div>
+        </div>
+        <div className="max-w-[1400px] mx-auto px-6 pb-12">
+          <IntegrationPanel info={info} />
         </div>
       </div>
+    );
+  }
 
+  return (
+    <div className="min-h-screen bg-[#F9F9FA] pt-28">
+      {indexError && (
+        <div className="max-w-[1400px] mx-auto px-6 pb-4">
+          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">
+            {indexError}
+          </div>
+        </div>
+      )}
       <div className="max-w-[1400px] mx-auto flex gap-6 px-6 pb-12">
         {/* Sidebar */}
         <aside className="w-56 flex-shrink-0 pt-4 hidden lg:block">
@@ -150,7 +220,13 @@ export const DashboardPage = ({ onViewChange, onSignOut }: DashboardPageProps) =
 
         {/* Main Content */}
         <main className="flex-1 min-w-0 pt-4 pb-20 lg:pb-0">
-          {activeTab === "overview" && <OverviewTab websites={websites} onAddSite={() => { setActiveTab("websites"); setShowAddSite(true); }} />}
+          {activeTab === "overview" && (
+            <OverviewTab
+              websites={websites}
+              onAddSite={() => { setActiveTab("websites"); setShowAddSite(true); }}
+              onIntegrate={setIntegrationSite}
+            />
+          )}
           {activeTab === "websites" && (
             <WebsitesTab
               websites={websites}
@@ -159,6 +235,7 @@ export const DashboardPage = ({ onViewChange, onSignOut }: DashboardPageProps) =
               newSiteUrl={newSiteUrl}
               setNewSiteUrl={setNewSiteUrl}
               onAddWebsite={handleAddWebsite}
+              onIntegrate={setIntegrationSite}
             />
           )}
           {activeTab === "analytics" && <AnalyticsTab maxQueries={maxQueries} />}
@@ -173,7 +250,7 @@ export const DashboardPage = ({ onViewChange, onSignOut }: DashboardPageProps) =
 
 /* ─── OVERVIEW TAB ───────────────────────────────────────────────────── */
 
-function OverviewTab({ websites, onAddSite }: { websites: typeof mockWebsites; onAddSite: () => void }) {
+function OverviewTab({ websites, onAddSite, onIntegrate }: { websites: Website[]; onAddSite: () => void; onIntegrate: (site: Website) => void }) {
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div className="flex items-center justify-between">
@@ -269,15 +346,19 @@ function OverviewTab({ websites, onAddSite }: { websites: typeof mockWebsites; o
         ) : (
           <div className="space-y-3">
             {websites.map(site => (
-              <div key={site.id} className="flex items-center gap-4 p-4 rounded-xl bg-[#F9F9FA] border border-slate-50">
-                <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center">
+              <div
+                key={site.id}
+                className="relative flex items-center gap-4 p-4 rounded-xl bg-[#F9F9FA] border border-slate-50 cursor-pointer"
+                onClick={() => onIntegrate(site)}
+              >
+                <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
                   <Globe className="w-5 h-5 text-green-600" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-[#2E3538]">{site.hostname}</p>
                   <p className="text-xs text-slate-400">{site.pagesIndexed} pages indexed · Last crawled {site.lastCrawled}</p>
                 </div>
-                <span className="text-xs font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-full">Active</span>
+                <span className="text-xs font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-full flex-shrink-0">Active</span>
               </div>
             ))}
           </div>
@@ -289,13 +370,14 @@ function OverviewTab({ websites, onAddSite }: { websites: typeof mockWebsites; o
 
 /* ─── WEBSITES TAB ───────────────────────────────────────────────────── */
 
-function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNewSiteUrl, onAddWebsite }: {
-  websites: typeof mockWebsites;
+function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNewSiteUrl, onAddWebsite, onIntegrate }: {
+  websites: Website[];
   showAddSite: boolean;
   setShowAddSite: (v: boolean) => void;
   newSiteUrl: string;
   setNewSiteUrl: (v: string) => void;
   onAddWebsite: (e: React.FormEvent) => void;
+  onIntegrate: (site: Website) => void;
 }) {
   return (
     <div className="space-y-6 animate-fade-in-up">
@@ -330,26 +412,27 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
       {/* Website list */}
       <div className="space-y-3">
         {websites.map(site => (
-          <div key={site.id} className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-            <div className="flex items-start gap-4">
+              <div
+            key={site.id}
+            className="relative bg-white rounded-2xl p-6 border border-slate-100 shadow-sm cursor-pointer"
+            onClick={() => onIntegrate(site)}
+          >
+            <div className="flex items-start gap-4 flex-wrap">
               <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
                 <Globe className="w-6 h-6 text-green-600" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
-                  <h3 className="text-base font-medium text-[#2E3538]">{site.hostname}</h3>
-                  <span className="text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Active</span>
+                  <h3 className="text-base font-medium text-[#2E3538] truncate">{site.hostname}</h3>
+                  <span className="text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full flex-shrink-0">Active</span>
                 </div>
-                <p className="text-xs text-slate-400 mb-3">{site.url}</p>
+                <p className="text-xs text-slate-400 mb-3 truncate">{site.url}</p>
                 <div className="flex flex-wrap gap-4 text-xs text-slate-500">
                   <span className="flex items-center gap-1"><FileText className="w-3 h-3" /> {site.pagesIndexed} pages indexed</span>
                   <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Last crawled {site.lastCrawled}</span>
                   <span className="flex items-center gap-1"><Zap className="w-3 h-3" /> Added {site.addedAt}</span>
                 </div>
               </div>
-              <button className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-slate-200 text-xs text-slate-500 hover:bg-slate-50 transition-colors">
-                <RefreshCw className="w-3 h-3" /> Re-crawl
-              </button>
             </div>
           </div>
         ))}

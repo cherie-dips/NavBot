@@ -46,14 +46,22 @@ export const AuthPage = ({ onViewChange, onAuthSuccess }: AuthPageProps) => {
     };
 
     const handleOAuth = async (provider: "github" | "google") => {
+        setError("");
         setOauthLoading(provider);
         try {
             await authClient.signIn.social({
                 provider,
                 callbackURL: `${window.location.origin}?auth=success`,
             });
-        } catch {
-            setError(`Failed to sign in with ${provider}.`);
+        } catch (e: any) {
+            const msg = e?.message || "";
+            const isNetwork = /fetch|network|failed|refused|ERR_/i.test(msg);
+            setError(
+                isNetwork
+                    ? `Sign-in service unavailable. Run the auth server (pnpm --filter server dev) and set ${provider === "google" ? "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET" : "GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET"} in apps/server/.env. Or sign in with email below.`
+                    : `Failed to sign in with ${provider}. ${msg ? ` ${msg}` : "Try email sign-in or check server config."}`
+            );
+        } finally {
             setOauthLoading(null);
         }
     };
