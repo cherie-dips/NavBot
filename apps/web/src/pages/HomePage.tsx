@@ -181,7 +181,7 @@ export const HomePage = ({ onViewChange }: HomePageProps) => {
                             onClick={() => onViewChange("get-started")}
                             className="group inline-flex items-center justify-center px-10 py-5 bg-[#478EDB] text-white rounded-full font-bold text-lg hover:bg-[#3b7ac2] transition-all duration-300 shadow-xl shadow-[#478EDB]/20 hover:shadow-[#478EDB]/40 hover:-translate-y-1"
                         >
-                            Get Started
+                            Demo
                         </button>
                     </div>
                 </div>

@@ -2,59 +2,32 @@ import { useState } from "react";
 import { ArrowRight, Sparkles, Copy, Check } from "lucide-react";
 import { CodeSnippet } from "../components/Codesnippet";
 
-const API_BASE = (import.meta as any).env?.VITE_API_URL ?? "http://localhost:3001";
-const WIDGET_SCRIPT_URL = (import.meta as any).env?.VITE_WIDGET_SCRIPT_URL ?? (typeof window !== "undefined" ? `${window.location.origin}/chat-widget.iife.js` : "/chat-widget.iife.js");
-
 export const GetStartedPage = () => {
     const [websiteUrl, setWebsiteUrl] = useState("");
     const [generatedId, setGeneratedId] = useState<string | null>(null);
-    const [indexResult, setIndexResult] = useState<{ siteId: string; pageCount: number; stored: number; failed: number } | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
-    const [codeType, setCodeType] = useState<"script" | "console">("script");
+    const [codeType, setCodeType] = useState<"script" | "console">("console");
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!websiteUrl.trim()) return;
 
         setIsLoading(true);
-        setError(null);
-        setGeneratedId(null);
-        setIndexResult(null);
-
-        try {
-            const url = websiteUrl.trim();
-            const res = await fetch(`${API_BASE}/api/sites`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ url }),
-            });
-            const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data.error === "failed_to_index_site" ? "Failed to index site. Please check the URL and try again." : data.error || "Failed to index site.");
-            }
-            setGeneratedId(data.siteId);
-            setIndexResult({
-                siteId: data.siteId,
-                pageCount: data.pageCount ?? 0,
-                stored: data.stored ?? 0,
-                failed: data.failed ?? 0,
-            });
-        } catch (err) {
-            setError(err instanceof Error ? err.message : "Failed to index site. Please try again.");
-        } finally {
+        
+        // Simulate API call - hardcoded ID for now
+        setTimeout(() => {
+            const mockId = "nb_" + Math.random().toString(36).substring(2, 15);
+            setGeneratedId(mockId);
             setIsLoading(false);
-        }
-    };
-
-    const getConsoleCode = () => {
-        if (!generatedId) return "";
-        return `(function(){if(document.getElementById("chat-widget-root")){console.log("NavBot already loaded.");return;}window.NAVBOT_CONFIG={apiBase:"${API_BASE}",siteId:"${generatedId}"};var s=document.createElement("script");s.src="${WIDGET_SCRIPT_URL}";s.crossOrigin="anonymous";document.body.appendChild(s);})();`;
+        }, 1000);
     };
 
     const handleCopyCode = () => {
-        navigator.clipboard.writeText(getConsoleCode());
+        const code = `var script = document.createElement('script');
+script.src = 'https://aj.gourav.sh/chat-widget.iife.js';
+document.body.appendChild(script);`;
+        navigator.clipboard.writeText(code);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
@@ -106,12 +79,6 @@ export const GetStartedPage = () => {
                                     </p>
                                 </div>
 
-                                {error && (
-                                    <div className="rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
-                                        {error}
-                                    </div>
-                                )}
-
                                 <button
                                     type="submit"
                                     disabled={isLoading}
@@ -162,11 +129,6 @@ export const GetStartedPage = () => {
                                     <div>
                                         <h2 className="text-2xl font-serif text-[#2E3538]">Your code is ready!</h2>
                                         <p className="text-slate-500">Website: {websiteUrl}</p>
-                                        {indexResult && (
-                                            <p className="text-sm text-slate-600 mt-1">
-                                                Indexed {indexResult.pageCount} pages ({indexResult.stored} stored{indexResult.failed > 0 ? `, ${indexResult.failed} skipped` : ""})
-                                            </p>
-                                        )}
                                     </div>
                                 </div>
 
@@ -220,7 +182,37 @@ export const GetStartedPage = () => {
                                                 </div>
 
                                                 <div className="relative bg-[#478EDB]/10 border border-[#478EDB]/30 rounded-xl p-4 group/code transition-all hover:bg-[#478EDB]/15">
-                                                    <pre className="font-mono text-sm text-slate-300 whitespace-pre-wrap break-all">{getConsoleCode() || " "}</pre>
+                                                    <div className="font-mono text-sm text-slate-300 space-y-2">
+                                                        <div>
+                                                            <span className="text-[#8EBFF2]">var</span>
+                                                            <span className="text-white"> script </span>
+                                                            <span className="text-slate-500">=</span>
+                                                            <span className="text-white"> document</span>
+                                                            <span className="text-slate-500">.</span>
+                                                            <span className="text-[#8EBFF2]">createElement</span>
+                                                            <span className="text-slate-500">(</span>
+                                                            <span className="text-[#F2994A]">'script'</span>
+                                                            <span className="text-slate-500">);</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-white">script</span>
+                                                            <span className="text-slate-500">.</span>
+                                                            <span className="text-white">src </span>
+                                                            <span className="text-slate-500">=</span>
+                                                            <span className="text-[#F2994A]"> 'https://aj.gourav.sh/chat-widget.iife.js'</span>
+                                                            <span className="text-slate-500">;</span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-white">document</span>
+                                                            <span className="text-slate-500">.</span>
+                                                            <span className="text-white">body</span>
+                                                            <span className="text-slate-500">.</span>
+                                                            <span className="text-[#8EBFF2]">appendChild</span>
+                                                            <span className="text-slate-500">(</span>
+                                                            <span className="text-white">script</span>
+                                                            <span className="text-slate-500">);</span>
+                                                        </div>
+                                                    </div>
                                                     <button
                                                         onClick={handleCopyCode}
                                                         className="absolute right-3 top-3 opacity-0 group-hover/code:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 p-1.5 rounded-lg text-white"
@@ -232,7 +224,7 @@ export const GetStartedPage = () => {
                                         </div>
                                     ) : (
                                         /* Script Tag */
-                                        <CodeSnippet siteId={generatedId} apiBase={API_BASE} widgetScriptUrl={WIDGET_SCRIPT_URL} />
+                                        <CodeSnippet scriptId={generatedId} />
                                     )}
                                 </div>
 
@@ -246,9 +238,7 @@ export const GetStartedPage = () => {
                                 <button
                                     onClick={() => {
                                         setGeneratedId(null);
-                                        setIndexResult(null);
                                         setWebsiteUrl("");
-                                        setError(null);
                                         setCopied(false);
                                     }}
                                     className="w-full py-3 bg-[#F9F9FA] text-[#2E3538] rounded-xl font-medium hover:bg-slate-200 transition-colors"

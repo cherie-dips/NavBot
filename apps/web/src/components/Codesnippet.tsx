@@ -2,21 +2,15 @@ import { useState } from "react";
 import { Copy, Check } from "lucide-react";
 
 interface CodeSnippetProps {
-    siteId: string;
-    apiBase: string;
-    widgetScriptUrl: string;
+    scriptId?: string;
 }
 
-export const CodeSnippet = ({ siteId, apiBase, widgetScriptUrl }: CodeSnippetProps) => {
+export const CodeSnippet = ({ scriptId = "YOUR_ID" }: CodeSnippetProps) => {
     const [copied, setCopied] = useState(false);
 
-    const snippet = `<script>
-  window.NAVBOT_CONFIG = { apiBase: "${apiBase}", siteId: "${siteId}" };
-</script>
-<script src="${widgetScriptUrl}" crossorigin="anonymous"></script>`;
-
     const handleCopy = () => {
-        navigator.clipboard.writeText(snippet);
+        const code = `<script src="https://cdn.navbot.ai/widget.js" data-id="${scriptId}"></script>`;
+        navigator.clipboard.writeText(code);
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
     };
@@ -55,8 +49,17 @@ export const CodeSnippet = ({ siteId, apiBase, widgetScriptUrl }: CodeSnippetPro
                         <span className="text-[#8691CA]">&lt;/title&gt;</span>
                     </div>
 
-                    <div className="ml-8 bg-[#478EDB]/10 border border-[#478EDB]/30 rounded-xl p-4 my-4 relative group/code transition-all hover:bg-[#478EDB]/15 space-y-2">
-                        <pre className="text-slate-300 whitespace-pre-wrap break-all text-xs">{snippet}</pre>
+                    <div className="ml-8 bg-[#478EDB]/10 border border-[#478EDB]/30 rounded-xl p-4 my-4 relative group/code transition-all hover:bg-[#478EDB]/15">
+                        <div className="text-slate-300 break-all">
+                            <span className="text-[#8691CA]">&lt;script </span>
+                            <span className="text-[#8EBFF2]">src</span>
+                            <span className="text-slate-500">=</span>
+                            <span className="text-[#F2994A]">"https://cdn.navbot.ai/widget.js"</span>
+                            <span className="text-[#8EBFF2] ml-2">data-id</span>
+                            <span className="text-slate-500">=</span>
+                            <span className="text-[#F2994A]">"{scriptId}"</span>
+                            <span className="text-[#8691CA]">&gt;&lt;/script&gt;</span>
+                        </div>
                         <button
                             onClick={handleCopy}
                             className="absolute right-3 top-3 opacity-0 group-hover/code:opacity-100 transition-opacity bg-white/10 hover:bg-white/20 p-1.5 rounded-lg text-white"
@@ -67,15 +70,6 @@ export const CodeSnippet = ({ siteId, apiBase, widgetScriptUrl }: CodeSnippetPro
 
                     <div className="text-slate-500 ml-4">
                         <span className="text-[#8691CA]">&lt;/head&gt;</span>
-                    </div>
-                    <div className="text-slate-500 ml-4">
-                        <span className="text-[#8691CA]">&lt;body&gt;</span>
-                    </div>
-                    <div className="text-slate-500 ml-4">
-                        <span className="text-[#8691CA]">&lt;/body&gt;</span>
-                    </div>
-                    <div className="text-slate-500">
-                        <span className="text-[#8691CA]">&lt;/html&gt;</span>
                     </div>
                 </div>
             </div>

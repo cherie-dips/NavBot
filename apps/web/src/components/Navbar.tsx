@@ -62,10 +62,16 @@ export const Navbar = ({ onViewChange, currentView }: NavbarProps) => {
 
                 <div className="flex items-center gap-4">
                     <button
+                        onClick={(e) => handleNavClick(e, "auth")}
+                        className="text-sm font-medium text-slate-500 hover:text-[#478EDB] transition-colors"
+                    >
+                        Sign In
+                    </button>
+                    <button
                         onClick={(e) => handleNavClick(e, "get-started")}
                         className="px-6 py-2.5 rounded-full bg-[#2E3538] text-white text-sm font-medium hover:bg-[#478EDB] transition-colors shadow-lg shadow-[#2E3538]/10 hover:shadow-[#478EDB]/30 duration-300"
                     >
-                        Get Started
+                        Demo
                     </button>
                 </div>
             </div>
