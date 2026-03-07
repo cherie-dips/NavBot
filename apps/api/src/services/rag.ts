@@ -1,31 +1,23 @@
-import Groq from "groq-sdk";
+import { SarvamAIClient } from "sarvamai";
 import { querySiteDocs, type RetrievedDoc } from "./vectorstore";
 
 // ---------------------------------------------------------------------------
-// Groq client
+// Sarvam AI client
 // ---------------------------------------------------------------------------
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
+const sarvam = new SarvamAIClient({
+  apiSubscriptionKey: process.env.SARVAM_API_KEY ?? "",
 });
 
-if (!process.env.GROQ_API_KEY) {
+if (!process.env.SARVAM_API_KEY) {
   console.warn(
-    "GROQ_API_KEY is not set. Chat endpoints will not work correctly."
+    "SARVAM_API_KEY is not set. Chat endpoints will not work correctly."
   );
 }
 
-/**
- * Model selection:
- * - "openai/gpt-oss-120b"  — highest quality (your current model)
- * - "llama-3.3-70b-versatile" — good fallback if quota hit
- */
-const CHAT_MODEL =
-  process.env.GROQ_CHAT_MODEL || "openai/gpt-oss-120b";
+const CHAT_MODEL = (process.env.SARVAM_CHAT_MODEL || "sarvam-m") as any;
 
 // ---------------------------------------------------------------------------
 // Domain-specific query expansion rules.
-// When the user's question matches a pattern, we add a second targeted query
-// to improve recall for that topic in ChromaDB.
 // ---------------------------------------------------------------------------
 interface ExpansionRule {
   pattern: RegExp;
@@ -34,38 +26,28 @@ interface ExpansionRule {
 
 const QUERY_EXPANSION_RULES: ExpansionRule[] = [
   {
-    // Deadline / date / admission round queries
     pattern: /\b(deadline|date|when|admission|apply|round|open|close|submit)\b/i,
     expansion: (q) =>
       `admission rounds application deadline dates schedule ${q}`,
   },
   {
-    // Fee / scholarship / financial aid queries
     pattern: /\b(fee|cost|tuition|scholarship|financial|aid|funding|stipend)\b/i,
     expansion: (q) => `tuition fee scholarship financial aid funding ${q}`,
   },
   {
-    // Eligibility / requirements queries
     pattern: /\b(eligib|requir|criteria|qualify|gpa|gmat|gre|score|minimum)\b/i,
     expansion: (q) => `eligibility criteria requirements qualifications ${q}`,
   },
   {
-    // Program / curriculum queries
     pattern: /\b(program|course|curriculum|syllabus|module|credit|semester)\b/i,
     expansion: (q) => `program curriculum courses modules structure ${q}`,
   },
   {
-    // Contact / location queries
     pattern: /\b(contact|email|phone|address|location|campus|office)\b/i,
     expansion: (q) => `contact information address email phone campus ${q}`,
   },
 ];
 
-/**
- * Build a list of query strings for retrieval.
- * Always includes the original query + any domain expansions that match.
- * Deduplicates identical queries.
- */
 function buildRetrievalQueries(message: string): string[] {
   const queries = new Set<string>([message]);
 
@@ -80,16 +62,13 @@ function buildRetrievalQueries(message: string): string[] {
 
 // ---------------------------------------------------------------------------
 // Format retrieved docs into a context block for the LLM.
-// Each block includes its source number, title, URL and content.
-// The enriched document already contains the page title (from vectorstore),
-// so we just pass it straight through.
 // ---------------------------------------------------------------------------
 function buildContextString(docs: RetrievedDoc[]): string {
   return docs
     .map(
       (d, idx) =>
         `[Source ${idx + 1}]\nTitle: ${d.title}\nURL: ${d.url}\n\n${d.content
-          .slice(0, 1200) // cap per source to stay under token budget
+          .slice(0, 1200)
           .trim()}`
     )
     .join("\n\n---\n\n");
@@ -111,7 +90,7 @@ function deduplicateSources(
 }
 
 // ---------------------------------------------------------------------------
-// Simple retry wrapper for Groq calls (handles transient 500s)
+// Simple retry wrapper for Sarvam calls (handles transient errors)
 // ---------------------------------------------------------------------------
 async function withRetry<T>(
   fn: () => Promise<T>,
@@ -134,7 +113,7 @@ async function withRetry<T>(
       if (!isRetryable || attempt === maxAttempts) throw err;
 
       console.warn(
-        `Groq request failed (attempt ${attempt}/${maxAttempts}): ${msg}. Retrying in ${delayMs}ms...`
+        `Sarvam request failed (attempt ${attempt}/${maxAttempts}): ${msg}. Retrying in ${delayMs}ms...`
       );
       await new Promise((r) => setTimeout(r, delayMs * attempt));
     }
@@ -169,11 +148,11 @@ export async function answerQuestionWithRag(params: {
       : "1 query"
   );
 
-  // 2. Retrieve relevant chunks (vectorstore handles multi-query + dedup)
+  // 2. Retrieve relevant chunks
   const docs = await querySiteDocs({
     siteId,
     query: retrievalQueries,
-    topK: 8, // top 8 per query; vectorstore dedupes and re-ranks
+    topK: 8,
   });
 
   if (docs.length === 0) {
@@ -188,7 +167,7 @@ export async function answerQuestionWithRag(params: {
   // 3. Build context block
   const contextString = buildContextString(docs);
 
-  // 4. System prompt — concise and instruction-focused
+  // 4. System prompt
   const systemPrompt = `
 You are NavBot, a helpful assistant that answers questions ONLY using content retrieved from the website with siteId: "${siteId}".
 
@@ -202,29 +181,38 @@ RULES:
 7. If the user's question is conversational or a greeting, respond naturally without citing sources.
 `.trim();
 
-  const contextSystemMessage = `WEBSITE CONTEXT (your only knowledge source):\n\n${contextString}`;
+  const combinedSystemPrompt = `${systemPrompt}\n\nWEBSITE CONTEXT (your only knowledge source):\n\n${contextString}`;
 
   // 5. Build message array — keep last 6 history turns to manage token budget
+  // Sarvam requires: one system message first, then user/assistant alternating,
+  // with the first non-system message being "user".
   const recentHistory = history.slice(-6);
 
-  const chatMessages: Groq.Chat.Completions.ChatCompletionMessageParam[] = [
-    { role: "system", content: systemPrompt },
-    { role: "system", content: contextSystemMessage },
-    ...recentHistory.map((h) => ({ role: h.role, content: h.content })),
+  // Drop any leading assistant messages so the first non-system msg is always "user"
+  let trimmedHistory = [...recentHistory];
+  while (trimmedHistory.length > 0 && trimmedHistory[0]!.role === "assistant") {
+    trimmedHistory.shift();
+  }
+
+  type SarvamMessage = { role: "system" | "user" | "assistant"; content: string };
+
+  const chatMessages: SarvamMessage[] = [
+    { role: "system", content: combinedSystemPrompt },
+    ...trimmedHistory.map((h) => ({ role: h.role as "user" | "assistant", content: h.content })),
     { role: "user", content: message },
   ];
 
-  // 6. Call Groq with retry
+  // 6. Call Sarvam AI with retry
   const completion = await withRetry(() =>
-    groq.chat.completions.create({
+    sarvam.chat.completions({
       model: CHAT_MODEL,
       messages: chatMessages,
-      temperature: 0.2, // lower = more factual / less hallucination
+      temperature: 0.2,
       max_tokens: 600,
     })
   );
 
-  const answer = completion.choices[0]?.message?.content ?? "";
+  const answer = (completion as any).choices?.[0]?.message?.content ?? "";
 
   return {
     answer,
@@ -233,7 +221,7 @@ RULES:
 }
 
 // ---------------------------------------------------------------------------
-// Voice input stub — plug in real STT (Whisper, Deepgram, etc.) here
+// Voice input stub — plug in real STT (Whisper, Sarvam STT, etc.) here
 // ---------------------------------------------------------------------------
 export async function transcribeAndAnswer(params: {
   siteId: string;
@@ -241,26 +229,17 @@ export async function transcribeAndAnswer(params: {
   mimeType: string;
   history?: ChatHistoryItem[];
 }) {
-  const { siteId, audioBuffer, mimeType, history = [] } = params;
+  const { siteId, audioBuffer: _audioBuffer, mimeType: _mimeType, history = [] } = params;
 
   let transcript: string;
 
-  // --- Swap this block for a real STT provider ---
-  // Example with Groq Whisper:
-  //
-  // const audioFile = new File([audioBuffer], "audio.webm", { type: mimeType });
-  // const transcription = await groq.audio.transcriptions.create({
-  //   file: audioFile,
-  //   model: "whisper-large-v3",
-  // });
-  // transcript = transcription.text;
-  //
-  // Or with OpenAI Whisper:
-  // const transcription = await openai.audio.transcriptions.create({
+  // --- Swap this block for Sarvam STT ---
+  // const response = await sarvam.speechToText.transcribe({
   //   file: new File([audioBuffer], "audio.webm", { type: mimeType }),
-  //   model: "whisper-1",
+  //   model: "saaras:v3",
+  //   mode: "transcribe",
   // });
-  // transcript = transcription.text;
+  // transcript = response.transcript;
   // ------------------------------------------------
 
   transcript =
