@@ -344,10 +344,6 @@ NavBot/
 | **ChromaDB** | An open-source vector database designed for AI/ML. Stores text as embeddings and lets you search by meaning (semantic search). | Purpose-built for RAG. One `query()` call returns the most relevant content chunks for any question. |
 | **Sarvam AI** | An Indian AI company providing LLMs with native Indian language support. We use their `sarvam-m` model for answer generation. | Supports Indian languages out of the box, which is important for our Plaksha use case. Affordable API. |
 | **better-auth** | A TypeScript auth library that handles sign-up, login, sessions, and OAuth with minimal config. | Saves us from building auth from scratch. Works with SQLite, handles token management, session cookies, and OAuth flows. |
-| **Vite** | A modern frontend build tool. Handles React dev server with hot reload and produces optimized production builds. | Extremely fast dev experience. Also builds our chat widget as an IIFE (a single JS file that can be embedded anywhere). |
-| **Express.js** | The most popular Node.js web framework for building APIs. | Simple, mature, tons of middleware available. Both our API server and auth server use Express. |
-| **multer** | Express middleware for handling file uploads (`multipart/form-data`). | We use it to receive voice audio files sent from the chat widget for speech-to-text processing. |
-| **node-fetch** | A lightweight HTTP client for Node.js (like the browser's `fetch` API). | We use it in the crawler to download web pages. Simple API, no heavy dependencies. |
 
 ### Key Files
 
