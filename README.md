@@ -49,7 +49,7 @@ NavBot crawls your website, indexes all content into a vector database, and serv
 
 **Why they log in**: To set up, manage, and monitor their chatbot(s).
 
-**How they were doing this earlier**: Manually answering visitor queries via email, contact forms, or hiring support staff. Some used rule-based chatbots with rigid decision trees that required manual FAQ authoring.
+**How they were doing this earlier**: Manually answering visitor queries via email, contact forms, or hiring support staff. No insights on FAQs.
 
 **User Journey**:
 
@@ -81,7 +81,7 @@ Dashboard → Overview: see total queries, accuracy rate, active visitors
 
 **Why they interact**: To quickly find specific information without navigating through multiple pages.
 
-**How they were doing this earlier**: Manually browsing through pages, using Ctrl+F, reading long FAQ pages, or emailing the organization.
+**How they were doing this earlier**: Manually browsing through pages, reading long FAQ pages, or emailing the organization.
 
 **User Journey**:
 
@@ -123,7 +123,7 @@ Visit website (e.g. plaksha.edu.in) → see floating chat icon (bottom-right)
 
 ### Database 2: ChromaDB (Vector Store)
 
-**Location**: Chroma Cloud (or local `http://localhost:8000`)
+**Location**: Chroma Cloud
 **Purpose**: Stores website content as vector embeddings for semantic search (RAG retrieval)
 
 | Concept | Details |
@@ -153,12 +153,6 @@ User question → Query expansion → Semantic search (top-8 chunks)
 ## 4. API Endpoints
 
 **Base URL**: `http://localhost:3001`
-
-### Health Check
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `GET` | `/health` | Server health check → `{ status: "ok" }` |
 
 ### Site Indexing
 
@@ -216,7 +210,7 @@ User question → Query expansion → Semantic search (top-8 chunks)
 ### Architecture Overview
 
 ```
-┌─────────────┐   ┌─────────────┐   ┌──────────────┐
+┌─────────────┐    ┌─────────────┐    ┌──────────────┐
 │  Web App     │   │  Auth Server │   │  API Server   │
 │  (React)     │   │  (Express)   │   │  (Express)    │
 │  :5173       │   │  :3000       │   │  :3001        │
@@ -224,9 +218,9 @@ User question → Query expansion → Semantic search (top-8 chunks)
        │                  │                   │
        │  Auth requests   │                   │
        │─────────────────→│                   │
-       │                  │   SQLite          │
-       │                  │   (users/sessions)│
-       │                  │                   │
+       │                   SQLite             │
+       │                  (users/sessions)    │
+       │                                      │
        │  Site/Chat requests                  │
        │─────────────────────────────────────→│
        │                                      │
