@@ -7,12 +7,21 @@ NavBot is an **AI-powered chatbot-as-a-service** that lets any website owner add
 ### The Problem
 
 - Website visitors can't find information quickly (buried in nested pages, PDFs, FAQs).
-- Building a custom chatbot requires ML expertise, infrastructure, and months of work.
-- Generic chatbots (like ChatGPT) hallucinate answers not found on the site.
 
 ### The Solution
 
 NavBot crawls your website, indexes all content into a vector database, and serves a RAG-powered chatbot that answers **strictly from your site's content** — with source citations.
+
+### Features
+
+1. Answer Queries Instantly & Accurately
+2. Summary of Content on the page
+3. Redirect Users
+4. Just the Website Data and No Google/Web Data
+5. Connects Social Media Handles
+6. Voice Enabled Chatbot
+7. Data Analytics → FAQs → Model Training
+8. Data Collection → To follow up with the new users separately
 
 ### How Organizations Onboard
 
@@ -40,7 +49,7 @@ NavBot crawls your website, indexes all content into a vector database, and serv
 
 **Why they log in**: To set up, manage, and monitor their chatbot(s).
 
-**How they were doing this earlier**: Manually answering visitor queries via email, contact forms, or hiring support staff. Some used rule-based chatbots with rigid decision trees that required manual FAQ authoring.
+**How they were doing this earlier**: Manually answering visitor queries via email, contact forms, or hiring support staff. No insights on FAQs.
 
 **User Journey**:
 
@@ -72,7 +81,7 @@ Dashboard → Overview: see total queries, accuracy rate, active visitors
 
 **Why they interact**: To quickly find specific information without navigating through multiple pages.
 
-**How they were doing this earlier**: Manually browsing through pages, using Ctrl+F, reading long FAQ pages, or emailing the organization.
+**How they were doing this earlier**: Manually browsing through pages, reading long FAQ pages, or emailing the organization.
 
 **User Journey**:
 
@@ -114,7 +123,7 @@ Visit website (e.g. plaksha.edu.in) → see floating chat icon (bottom-right)
 
 ### Database 2: ChromaDB (Vector Store)
 
-**Location**: Chroma Cloud (or local `http://localhost:8000`)
+**Location**: Chroma Cloud
 **Purpose**: Stores website content as vector embeddings for semantic search (RAG retrieval)
 
 | Concept | Details |
@@ -144,12 +153,6 @@ User question → Query expansion → Semantic search (top-8 chunks)
 ## 4. API Endpoints
 
 **Base URL**: `http://localhost:3001`
-
-### Health Check
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `GET` | `/health` | Server health check → `{ status: "ok" }` |
 
 ### Site Indexing
 
@@ -207,7 +210,7 @@ User question → Query expansion → Semantic search (top-8 chunks)
 ### Architecture Overview
 
 ```
-┌─────────────┐   ┌─────────────┐   ┌──────────────┐
+┌─────────────┐    ┌─────────────┐    ┌──────────────┐
 │  Web App     │   │  Auth Server │   │  API Server   │
 │  (React)     │   │  (Express)   │   │  (Express)    │
 │  :5173       │   │  :3000       │   │  :3001        │
@@ -215,9 +218,9 @@ User question → Query expansion → Semantic search (top-8 chunks)
        │                  │                   │
        │  Auth requests   │                   │
        │─────────────────→│                   │
-       │                  │   SQLite          │
-       │                  │   (users/sessions)│
-       │                  │                   │
+       │                   SQLite             │
+       │                  (users/sessions)    │
+       │                                      │
        │  Site/Chat requests                  │
        │─────────────────────────────────────→│
        │                                      │
