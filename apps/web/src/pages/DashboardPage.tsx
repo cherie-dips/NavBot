@@ -47,7 +47,7 @@ const TABS: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
 ];
 
 export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProps) => {
-  const [_user, setUser] = useState<{ name?: string; email?: string } | null>(null);
+  const [user, setUser] = useState<{ id?: string; name?: string; email?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [websites, setWebsites] = useState<Website[]>([]);
   const [showAddSite, setShowAddSite] = useState(false);
@@ -71,7 +71,26 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
 
   useEffect(() => {
     authClient.getSession().then(({ data }) => {
-      if (data?.user) setUser(data.user);
+      if (data?.user) {
+        setUser(data.user);
+        // Load previously saved websites for this user
+        fetch(`${API_BASE}/api/sites?userId=${encodeURIComponent(data.user.id)}`)
+          .then((r) => r.json())
+          .then((sites: any[]) => {
+            setWebsites(
+              sites.map((s: any) => ({
+                id: s.id,
+                url: s.url,
+                hostname: s.hostname,
+                status: s.status,
+                pagesIndexed: s.pagesIndexed,
+                lastCrawled: s.lastCrawled,
+                addedAt: s.addedAt,
+              }))
+            );
+          })
+          .catch(() => {});
+      }
     });
   }, []);
 
@@ -89,7 +108,7 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
         const res = await fetch(`${API_BASE}/api/sites`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url }),
+          body: JSON.stringify({ url, userId: user?.id }),
         });
         const data = await res.json();
         if (!res.ok) {
