@@ -7,12 +7,21 @@ NavBot is an **AI-powered chatbot-as-a-service** that lets any website owner add
 ### The Problem
 
 - Website visitors can't find information quickly (buried in nested pages, PDFs, FAQs).
-- Building a custom chatbot requires ML expertise, infrastructure, and months of work.
-- Generic chatbots (like ChatGPT) hallucinate answers not found on the site.
 
 ### The Solution
 
 NavBot crawls your website, indexes all content into a vector database, and serves a RAG-powered chatbot that answers **strictly from your site's content** — with source citations.
+
+### Features
+
+1. Answer Queries Instantly & Accurately
+2. Summary of Content on the page
+3. Redirect Users
+4. Just the Website Data and No Google/Web Data
+5. Connects Social Media Handles
+6. Voice Enabled Chatbot
+7. Data Analytics → FAQs → Model Training
+8. Data Collection → To follow up with the new users separately
 
 ### How Organizations Onboard
 
