@@ -5,7 +5,7 @@ interface Message {
   id: number;
   text: string;
   sender: "user" | "bot";
-  timestamp: Date;
+  timestamp: string; // ISO string for safe serialization to localStorage
   isVoice?: boolean;
 }
 
@@ -23,30 +23,85 @@ declare global {
 }
 
 const getConfig = (): Required<NavbotConfig> => {
-  const globalConfig = typeof window !== "undefined" ? window.NAVBOT_CONFIG || {} : {};
+  const globalConfig =
+    typeof window !== "undefined" ? window.NAVBOT_CONFIG || {} : {};
   const apiBase =
     globalConfig.apiBase ??
-    (typeof window !== "undefined" ? `${window.location.protocol}//${window.location.hostname}:3001` : "http://localhost:3001");
+    (typeof window !== "undefined"
+      ? `${window.location.protocol}//${window.location.hostname}:3001`
+      : "http://localhost:3001");
   const siteId =
     globalConfig.siteId ??
-    (typeof window !== "undefined" ? window.location.hostname || "unknown-site" : "unknown-site");
+    (typeof window !== "undefined"
+      ? window.location.hostname || "unknown-site"
+      : "unknown-site");
 
   return { apiBase, siteId };
 };
 
+// ---------------------------------------------------------------------------
+// localStorage helpers — keyed by siteId so different sites never share state
+// ---------------------------------------------------------------------------
+function getHistoryKey(siteId: string) {
+  return `navbot_history_${siteId}`;
+}
+
+function loadHistory(siteId: string): Message[] {
+  try {
+    const raw = localStorage.getItem(getHistoryKey(siteId));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Message[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveHistory(siteId: string, messages: Message[]) {
+  try {
+    // Keep last 50 messages to avoid storage quota issues
+    const trimmed = messages.slice(-50);
+    localStorage.setItem(getHistoryKey(siteId), JSON.stringify(trimmed));
+  } catch {
+    // Storage quota exceeded or unavailable — fail silently
+  }
+}
+
+function clearHistory(siteId: string) {
+  try {
+    localStorage.removeItem(getHistoryKey(siteId));
+  } catch {
+    // ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Default welcome message
+// ---------------------------------------------------------------------------
+const WELCOME_MESSAGE: Message = {
+  id: 1,
+  text: "Hi there! 👋 How can I help you today?",
+  sender: "bot",
+  timestamp: new Date().toISOString(),
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 export const ChatWidget: React.FC = () => {
   const { apiBase, siteId } = getConfig();
 
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-  const [messages, setMessages] = useState<Message[]>([
-    {
-      id: 1,
-      text: "Hi there! 👋 How can I help you today?",
-      sender: "bot",
-      timestamp: new Date(),
-    },
-  ]);
+
+  // Restore history from localStorage on first mount — this is what keeps
+  // chat intact across page navigations and refreshes.
+  const [messages, setMessages] = useState<Message[]>(() => {
+    if (typeof window === "undefined") return [WELCOME_MESSAGE];
+    const saved = loadHistory(siteId);
+    return saved.length > 0 ? saved : [WELCOME_MESSAGE];
+  });
+
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -77,14 +132,43 @@ export const ChatWidget: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  const buildHistory = (): Array<{ role: ChatRole; content: string }> =>
-    messages
+  // ---------------------------------------------------------------------------
+  // Add a message and immediately persist to localStorage
+  // ---------------------------------------------------------------------------
+  const addMessage = (msg: Message) => {
+    setMessages((prev) => {
+      const updated = [...prev, msg];
+      saveHistory(siteId, updated);
+      return updated;
+    });
+  };
+
+  // ---------------------------------------------------------------------------
+  // Build the history payload for the API — only role + content, last 10 turns
+  // ---------------------------------------------------------------------------
+  const buildApiHistory = (
+    currentMessages: Message[]
+  ): Array<{ role: ChatRole; content: string }> =>
+    currentMessages
       .filter((m) => !m.isVoice)
+      .slice(-10)
       .map((m) => ({
         role: m.sender === "user" ? "user" : "assistant",
         content: m.text,
       }));
 
+  // ---------------------------------------------------------------------------
+  // Clear chat and reset to welcome message
+  // ---------------------------------------------------------------------------
+  const handleClearChat = () => {
+    clearHistory(siteId);
+    setMessages([{ ...WELCOME_MESSAGE, timestamp: new Date().toISOString() }]);
+    setError(null);
+  };
+
+  // ---------------------------------------------------------------------------
+  // Send text message
+  // ---------------------------------------------------------------------------
   const handleSend = () => {
     if (!inputValue.trim()) return;
 
@@ -94,10 +178,12 @@ export const ChatWidget: React.FC = () => {
       id: Date.now(),
       text: inputValue,
       sender: "user",
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
-    setMessages((prev) => [...prev, userMessage]);
+    // Capture current messages + new user message to build history
+    const messagesWithUser = [...messages, userMessage];
+    addMessage(userMessage);
     setInputValue("");
     setIsTyping(true);
 
@@ -114,39 +200,44 @@ export const ChatWidget: React.FC = () => {
           id: Date.now() + 1,
           text: data.answer || "Sorry, I couldn't generate a response.",
           sender: "bot",
-          timestamp: new Date(),
+          timestamp: new Date().toISOString(),
         };
-        setMessages((prev) => [...prev, botMessage]);
+        addMessage(botMessage);
       } catch (e) {
         console.error("Chat error:", e);
-        setError("Something went wrong talking to the assistant. Please try again.");
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now() + 2,
-            text: "I'm having trouble connecting right now. Please try again in a moment.",
-            sender: "bot",
-            timestamp: new Date(),
-          },
-        ]);
+        setError(
+          "Something went wrong talking to the assistant. Please try again."
+        );
+        addMessage({
+          id: Date.now() + 2,
+          text: "I'm having trouble connecting right now. Please try again in a moment.",
+          sender: "bot",
+          timestamp: new Date().toISOString(),
+        });
       } finally {
         setIsTyping(false);
       }
     };
     xhr.onerror = () => {
       console.error("Chat network error");
-      setError("Something went wrong talking to the assistant. Please try again.");
+      setError(
+        "Something went wrong talking to the assistant. Please try again."
+      );
       setIsTyping(false);
     };
     xhr.send(
       JSON.stringify({
         siteId,
         message: userMessage.text,
-        history: buildHistory(),
+        // Send history built from the snapshot that includes the user message
+        history: buildApiHistory(messagesWithUser),
       })
     );
   };
 
+  // ---------------------------------------------------------------------------
+  // Voice recording
+  // ---------------------------------------------------------------------------
   const startRecording = () => {
     navigator.mediaDevices
       .getUserMedia({ audio: true })
@@ -167,11 +258,11 @@ export const ChatWidget: React.FC = () => {
             id: Date.now(),
             text: `🎤 Voice message (${recordingTime}s)`,
             sender: "user",
-            timestamp: new Date(),
+            timestamp: new Date().toISOString(),
             isVoice: true,
           };
 
-          setMessages((prev) => [...prev, userMessage]);
+          addMessage(userMessage);
           setIsTyping(true);
 
           const formData = new FormData();
@@ -183,31 +274,39 @@ export const ChatWidget: React.FC = () => {
           xhr.onload = () => {
             try {
               if (xhr.status < 200 || xhr.status >= 300) {
-                throw new Error(`Voice chat request failed with status ${xhr.status}`);
+                throw new Error(
+                  `Voice chat request failed with status ${xhr.status}`
+                );
               }
-              const data = JSON.parse(xhr.responseText) as { answer: string; transcript?: string };
+              const data = JSON.parse(xhr.responseText) as {
+                answer: string;
+                transcript?: string;
+              };
               const botMessage: Message = {
                 id: Date.now() + 1,
                 text: data.answer || "I received your voice message.",
                 sender: "bot",
-                timestamp: new Date(),
+                timestamp: new Date().toISOString(),
               };
-              setMessages((prev) => [...prev, botMessage]);
+              addMessage(botMessage);
             } catch (error) {
               console.error("Voice chat error:", error);
-              setError("Could not process voice message. Please try typing instead.");
+              setError(
+                "Could not process voice message. Please try typing instead."
+              );
             } finally {
               setIsTyping(false);
             }
           };
           xhr.onerror = () => {
             console.error("Voice chat network error");
-            setError("Could not process voice message. Please try typing instead.");
+            setError(
+              "Could not process voice message. Please try typing instead."
+            );
             setIsTyping(false);
           };
           xhr.send(formData);
 
-          // Stop all tracks
           stream.getTracks().forEach((track) => track.stop());
         };
 
@@ -248,6 +347,18 @@ export const ChatWidget: React.FC = () => {
     return `${mins}:${secs < 10 ? "0" + secs : secs}`;
   };
 
+  // Parse ISO timestamp safely for display
+  const formatMessageTime = (timestamp: string) => {
+    try {
+      return new Date(timestamp).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "";
+    }
+  };
+
   if (!mounted) return null;
 
   return createPortal(
@@ -265,29 +376,61 @@ export const ChatWidget: React.FC = () => {
           transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
           origin-bottom-right
           mb-4
-          ${isOpen
-            ? "translate-y-0 opacity-100 scale-100 pointer-events-auto"
-            : "translate-y-8 opacity-0 scale-95 pointer-events-none h-0"}
+          ${
+            isOpen
+              ? "translate-y-0 opacity-100 scale-100 pointer-events-auto"
+              : "translate-y-8 opacity-0 scale-95 pointer-events-none h-0"
+          }
         `}
       >
-        {/* Minimal Header */}
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4">
           <div className="flex items-center gap-3">
-            {/* Minimalist Geometric Logo */}
-            <div>
-              <span className="font-medium text-sm italic text-[#2E3538] tracking-tight font-serif">
-                navbot
-              </span>
-            </div>
+            <span className="font-medium text-sm italic text-[#2E3538] tracking-tight font-serif">
+              navbot
+            </span>
           </div>
-          <button
-            onClick={() => setIsOpen(false)}
-            className="text-slate-500 hover:text-slate-800 transition-colors p-2 rounded-full hover:bg-white/20"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1">
+            {/* Clear chat button */}
+            <button
+              onClick={handleClearChat}
+              className="text-slate-400 hover:text-slate-700 transition-colors p-2 rounded-full hover:bg-white/20"
+              title="Clear chat history"
+            >
+              <svg
+                className="w-3.5 h-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                />
+              </svg>
+            </button>
+            {/* Close button */}
+            <button
+              onClick={() => setIsOpen(false)}
+              className="text-slate-500 hover:text-slate-800 transition-colors p-2 rounded-full hover:bg-white/20"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Messages Area */}
@@ -313,7 +456,7 @@ export const ChatWidget: React.FC = () => {
                 {message.text}
               </div>
               <span className="text-[10px] text-slate-400 mt-1.5 px-1 opacity-70">
-                {message.timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                {formatMessageTime(message.timestamp)}
               </span>
             </div>
           ))}
@@ -342,9 +485,13 @@ export const ChatWidget: React.FC = () => {
             <div className="bg-red-500/20 backdrop-blur-md border border-red-500/30 rounded-xl px-4 py-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                <span className="text-sm text-slate-700 font-medium">Recording</span>
+                <span className="text-sm text-slate-700 font-medium">
+                  Recording
+                </span>
               </div>
-              <span className="text-sm text-slate-600 font-mono">{formatTime(recordingTime)}</span>
+              <span className="text-sm text-slate-600 font-mono">
+                {formatTime(recordingTime)}
+              </span>
             </div>
           </div>
         )}
@@ -425,8 +572,18 @@ export const ChatWidget: React.FC = () => {
                 transition-all duration-300
               "
             >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M5 12h14M12 5l7 7-7 7"
+                />
               </svg>
             </button>
           </div>
@@ -436,7 +593,9 @@ export const ChatWidget: React.FC = () => {
       {/* Minimalist Launcher Button */}
       <div
         className={`flex justify-end transition-all duration-500 ease-out ${
-          isOpen ? "opacity-0 translate-y-4 pointer-events-none" : "opacity-100 translate-y-0"
+          isOpen
+            ? "opacity-0 translate-y-4 pointer-events-none"
+            : "opacity-100 translate-y-0"
         }`}
       >
         <button
@@ -455,10 +614,7 @@ export const ChatWidget: React.FC = () => {
           "
           aria-label="Open chat"
         >
-          {/* Subtle gradient overlay */}
           <div className="absolute inset-0 bg-gradient-to-tr from-slate-900/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-
-          {/* Chat Icon */}
           <svg
             className="w-5 h-5 text-slate-700 relative z-10 transition-transform group-hover:scale-110"
             fill="none"
@@ -472,8 +628,6 @@ export const ChatWidget: React.FC = () => {
               d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
             />
           </svg>
-
-          {/* Active indicator dot */}
           <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-slate-400 border-2 border-white shadow-sm"></span>
         </button>
       </div>
@@ -481,4 +635,3 @@ export const ChatWidget: React.FC = () => {
     document.body
   );
 };
-

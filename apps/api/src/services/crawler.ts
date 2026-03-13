@@ -138,7 +138,50 @@ function contentFingerprint(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Main crawl function
+// Selective page crawl — fetch only the given URLs, no link-following
+// ---------------------------------------------------------------------------
+export async function crawlPages(urls: string[]): Promise<CrawledPage[]> {
+  const pages: CrawledPage[] = [];
+
+  for (const rawUrl of urls) {
+    try {
+      const res = await fetch(rawUrl, {
+        redirect: "follow",
+        headers: {
+          "User-Agent": "NavBot/1.0 (site indexer; respectful crawler)",
+          Accept: "text/html",
+        },
+      });
+
+      if (!res.ok) {
+        console.warn(`Skipping ${rawUrl} — HTTP ${res.status}`);
+        continue;
+      }
+
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.includes("text/html")) continue;
+
+      const html = await res.text();
+      const $ = cheerio.load(html);
+      const title =
+        $("title").first().text().replace(/\s+/g, " ").trim() || rawUrl;
+      const content = extractStructuredContent($, rawUrl, title);
+
+      if (content.length === 0) continue;
+      if (SKIP_CONTENT_PATTERNS.some((p) => p.test(content))) continue;
+
+      pages.push({ url: rawUrl, title, content });
+    } catch (err) {
+      console.error("Failed to crawl page", rawUrl, err);
+    }
+  }
+
+  console.log(`Selective crawl complete: ${pages.length} of ${urls.length} pages fetched`);
+  return pages;
+}
+
+// ---------------------------------------------------------------------------
+// Full site BFS crawl — used during initial onboarding
 // ---------------------------------------------------------------------------
 export async function crawlSite(
   rootUrl: string,

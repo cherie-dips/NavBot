@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Globe, Plus, BarChart3, MessageSquare,
   Share2, Mic, Users, Brain, ArrowRight, ExternalLink, CheckCircle2,
   AlertCircle, TrendingUp, Clock, Target, ChevronRight, Search,
-  Volume2, VolumeX, FileText, Zap, ArrowUpRight
+  Volume2, VolumeX, FileText, Zap, ArrowUpRight, RefreshCw, Loader2
 } from "lucide-react";
 import { authClient } from "../lib/auth-client";
 import { ScrapingPage } from "./ScrapingPage";
@@ -248,6 +248,118 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
   );
 };
 
+/* ─── UPDATE PAGES PANEL (inline per-site) ──────────────────────────── */
+
+function UpdatePagesPanel({ site }: { site: Website }) {
+  const [expanded, setExpanded] = useState(false);
+  const [urlsText, setUrlsText] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [result, setResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const urls = urlsText
+      .split("\n")
+      .map((u) => u.trim())
+      .filter((u) => u.length > 0);
+
+    if (urls.length === 0) return;
+
+    setIsUpdating(true);
+    setResult(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/sites/${encodeURIComponent(site.id)}/pages`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls }),
+      });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data?.error || "Update failed");
+
+      setResult({
+        success: true,
+        message: `Updated ${data.stored} chunks from ${data.pagesFound} of ${data.requestedUrls} pages`,
+      });
+      setUrlsText("");
+    } catch (err: any) {
+      setResult({
+        success: false,
+        message: err?.message || "Something went wrong",
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  return (
+    <div onClick={(e) => e.stopPropagation()}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          setExpanded(!expanded);
+          setResult(null);
+        }}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#478EDB] bg-[#478EDB]/10 hover:bg-[#478EDB]/20 transition-colors"
+      >
+        <RefreshCw className="w-3 h-3" />
+        Update Pages
+      </button>
+
+      {expanded && (
+        <div className="mt-3 p-4 bg-[#F9F9FA] rounded-xl border border-slate-200">
+          <form onSubmit={handleSubmit}>
+            <label className="block text-xs font-medium text-slate-600 mb-1.5">
+              Enter page URLs to recrawl (one per line)
+            </label>
+            <textarea
+              value={urlsText}
+              onChange={(e) => setUrlsText(e.target.value)}
+              onClick={(e) => e.stopPropagation()}
+              placeholder={`https://${site.hostname}/about\nhttps://${site.hostname}/admissions`}
+              rows={4}
+              className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 focus:border-[#478EDB] outline-none text-sm text-[#2E3538] placeholder:text-slate-400 font-mono resize-none"
+            />
+            <div className="flex items-center justify-between mt-3">
+              <button
+                type="submit"
+                disabled={isUpdating || !urlsText.trim()}
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#2E3538] text-white text-xs font-medium hover:bg-[#478EDB] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUpdating ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" /> Updating...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-3 h-3" /> Recrawl & Update
+                  </>
+                )}
+              </button>
+              {result && (
+                <span
+                  className={`text-xs font-medium ${
+                    result.success ? "text-green-600" : "text-red-600"
+                  }`}
+                >
+                  {result.success ? <CheckCircle2 className="w-3 h-3 inline mr-1" /> : <AlertCircle className="w-3 h-3 inline mr-1" />}
+                  {result.message}
+                </span>
+              )}
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── OVERVIEW TAB ───────────────────────────────────────────────────── */
 
 function OverviewTab({ websites, onAddSite, onIntegrate }: { websites: Website[]; onAddSite: () => void; onIntegrate: (site: Website) => void }) {
@@ -348,17 +460,24 @@ function OverviewTab({ websites, onAddSite, onIntegrate }: { websites: Website[]
             {websites.map(site => (
               <div
                 key={site.id}
-                className="relative flex items-center gap-4 p-4 rounded-xl bg-[#F9F9FA] border border-slate-50 cursor-pointer"
-                onClick={() => onIntegrate(site)}
+                className="relative p-4 rounded-xl bg-[#F9F9FA] border border-slate-50"
               >
-                <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
-                  <Globe className="w-5 h-5 text-green-600" />
+                <div
+                  className="flex items-center gap-4 cursor-pointer"
+                  onClick={() => onIntegrate(site)}
+                >
+                  <div className="w-10 h-10 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
+                    <Globe className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[#2E3538]">{site.hostname}</p>
+                    <p className="text-xs text-slate-400">{site.pagesIndexed} pages indexed · Last crawled {site.lastCrawled}</p>
+                  </div>
+                  <span className="text-xs font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-full flex-shrink-0">Active</span>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-[#2E3538]">{site.hostname}</p>
-                  <p className="text-xs text-slate-400">{site.pagesIndexed} pages indexed · Last crawled {site.lastCrawled}</p>
+                <div className="mt-3">
+                  <UpdatePagesPanel site={site} />
                 </div>
-                <span className="text-xs font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-full flex-shrink-0">Active</span>
               </div>
             ))}
           </div>
@@ -412,12 +531,14 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
       {/* Website list */}
       <div className="space-y-3">
         {websites.map(site => (
-              <div
+          <div
             key={site.id}
-            className="relative bg-white rounded-2xl p-6 border border-slate-100 shadow-sm cursor-pointer"
-            onClick={() => onIntegrate(site)}
+            className="relative bg-white rounded-2xl p-6 border border-slate-100 shadow-sm"
           >
-            <div className="flex items-start gap-4 flex-wrap">
+            <div
+              className="flex items-start gap-4 flex-wrap cursor-pointer"
+              onClick={() => onIntegrate(site)}
+            >
               <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center flex-shrink-0">
                 <Globe className="w-6 h-6 text-green-600" />
               </div>
@@ -433,6 +554,9 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
                   <span className="flex items-center gap-1"><Zap className="w-3 h-3" /> Added {site.addedAt}</span>
                 </div>
               </div>
+            </div>
+            <div className="mt-4">
+              <UpdatePagesPanel site={site} />
             </div>
           </div>
         ))}

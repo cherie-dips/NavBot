@@ -272,6 +272,30 @@ export type UpsertResult = ReturnType<typeof upsertSitePages> extends Promise<in
   : never;
 
 // ---------------------------------------------------------------------------
+// Delete chunks for specific page URLs (used for selective page updates)
+// ---------------------------------------------------------------------------
+export async function deletePagesFromSite(
+  siteId: string,
+  pageUrls: string[]
+): Promise<number> {
+  const collection = await getSiteCollection(siteId);
+  let deletedCount = 0;
+
+  for (const url of pageUrls) {
+    try {
+      await collection.delete({ where: { url } });
+      deletedCount++;
+      console.log(`Deleted chunks for: ${url}`);
+    } catch (err) {
+      console.error(`Failed to delete chunks for ${url}:`, err);
+    }
+  }
+
+  console.log(`Deleted chunks for ${deletedCount}/${pageUrls.length} URLs from site "${siteId}"`);
+  return deletedCount;
+}
+
+// ---------------------------------------------------------------------------
 // Retrieved document shape
 // ---------------------------------------------------------------------------
 export interface RetrievedDoc {
