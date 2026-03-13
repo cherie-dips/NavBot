@@ -1,93 +1,165 @@
 # NavBot
 
-### What is NavBot?
+## 1. Product Pitch
 
-NavBot is an **AI-powered chatbot-as-a-service** that lets any website owner add an intelligent Q&A chatbot to their site in under 5 minutes. The chatbot answers visitor questions using **only the content from that specific website** — no hallucinations, no generic answers.
+**NavBot** is an AI chatbot-as-a-service. Any website owner can add a smart Q&A chatbot to their site in under 5 minutes — no ML knowledge, no backend changes.
 
 ### The Problem
 
-- Website visitors can't find information quickly (buried in nested pages, PDFs, FAQs).
-- Building a custom chatbot requires ML expertise, infrastructure, and months of work.
-- Generic chatbots (like ChatGPT) hallucinate answers not found on the site.
+- Visitors can't find information quickly (nested pages, PDFs, scattered FAQs).
 
-### The Solution
+### What NavBot Does
 
-NavBot crawls your website, indexes all content into a vector database, and serves a RAG-powered chatbot that answers **strictly from your site's content** — with source citations.
+NavBot crawls your website, indexes the content into a vector database, and gives you a chatbot that answers **only from your site's content** — with source links.
 
-### How Organizations Onboard
+Here's what the landing page looks like:
 
-1. **Sign up** on the NavBot web app (email/password or Google/GitHub OAuth).
+![NavBot Landing Page](images/landing1.png)
+
+![NavBot Landing Page 2](images/landing2.png)
+
+
+### How You Onboard
+
+1. **Sign up** (email/password or Google/GitHub OAuth).
 2. **Paste your website URL** in the dashboard.
-3. NavBot **automatically crawls** all linked pages, extracts text (including tables), and stores chunked embeddings in ChromaDB.
-4. **Copy one script tag** and paste it into your website's HTML.
-5. A floating chatbot widget appears on your site — visitors can ask questions via text or voice.
+3. NavBot **crawls** your pages, extracts text (including tables), and stores embeddings.
+4. **Copy one `<script>` tag** into your HTML.
+5. A floating chatbot appears on your site — visitors ask questions via text or voice.
 
-### Key Differentiators
+### Why NavBot
 
-- **Website-only answers**: RAG ensures the bot never makes up information.
-- **One-line integration**: A single `<script>` tag — no backend changes needed by the customer.
-- **Multi-site support**: One account can manage chatbots for multiple websites.
-- **Voice support**: Visitors can speak their questions (via browser microphone).
-- **Indian language support**: Powered by Sarvam AI, with native Indian language capabilities.
+| Feature | Description |
+|---------|-------------|
+| Website-only answers | RAG ensures the bot never makes things up |
+| One-line integration | Single `<script>` tag — no backend changes |
+| Multi-site support | One account, unlimited websites |
+| Voice input | Visitors speak questions via browser mic |
+| Indian language support | Powered by Sarvam AI |
+
+Here's our features page that explains what NavBot can do:
+
+![NavBot Landing Page 3](images/landing3.png)
+
+![NavBot Landing Page 4](images/landing4.png)
+
+![NavBot Features](images/landing5.png)
+
+![NavBot Features 2](images/landing6.png)
+
+### Future Scope
+
+- Admin dashboard for platform-wide usage monitoring
+- Billing and subscription tiers
+- Custom bot appearance editor
+- Analytics export and email reports
 
 ---
 
 ## 2. User Journeys
 
-### User Type 1: Website Owner (Primary User)
+### User 1: Website Owner (Primary)
 
-**Who**: A business owner, developer, or marketing team member who wants to add a chatbot to their website.
+**Who:** Business owner, developer, or marketing team member.
 
+**Why they log in:** Set up, manage, and monitor chatbot(s) on their website(s).
+
+**Before NavBot:** Answered visitor queries manually via email/contact forms, hired support staff, or used rigid rule-based chatbots that needed manual FAQ authoring.
 **Why they log in**: To set up, manage, and monitor their chatbot(s).
 
-**How they were doing this earlier**: Manually answering visitor queries via email, contact forms, or hiring support staff. Some used rule-based chatbots with rigid decision trees that required manual FAQ authoring.
+**How they were doing this earlier**: Manually answering visitor queries via email, contact forms, or hiring support staff. No insights on FAQs.
 
-**User Journey**:
-
-```
-Landing Page → "Get Started" button
-    → Sign Up / Sign In (email or Google OAuth)
-    → Dashboard (Overview tab)
-    → Click "Add Website" → paste URL (e.g. https://www.leapai.club)
-    → Scraping animation (fetching pages → analyzing → building index → ready)
-    → Site appears in Websites list (e.g. "17 pages indexed")
-    → Click on site card → Integration page
-    → Copy the HTML <script> snippet
-    → Paste into their website's HTML
-    → Chatbot is live on their site
-```
-
-**Post-setup flow**:
+**Journey:**
 
 ```
-Dashboard → Overview: see total queries, accuracy rate, active visitors
-         → Websites: manage multiple sites, view pages indexed
-         → Analytics: query volume charts, top queries, auto-generated FAQs
-         → Settings: toggle voice, toggle "website data only" mode
+Homepage → "Get Started"
+  → Sign Up / Sign In
+  → Dashboard
+  → "Add Website" → paste URL
+  → Scraping runs (fetching → analyzing → indexing → ready)
+  → Site appears in Websites list (e.g. "17 pages indexed")
+  → Click site → Integration panel
+  → Copy <script> snippet → paste into website HTML
+  → Chatbot is live
 ```
 
-### User Type 2: Website Visitor (End User)
+**Step 1 — Sign Up / Sign In:**
 
-**Who**: A person visiting a website that has NavBot installed (e.g., a prospective student visiting a university site).
+Users create an account or sign in with email, Google, or GitHub.
 
-**Why they interact**: To quickly find specific information without navigating through multiple pages.
+![Auth Page](images/signin.png)
 
-**How they were doing this earlier**: Manually browsing through pages, using Ctrl+F, reading long FAQ pages, or emailing the organization.
+**Step 2 — Dashboard Overview:**
 
-**User Journey**:
+After logging in, users land on the dashboard where they can see their stats and manage sites.
+
+![Dashboard Overview](images/overviewdash.png)
+
+**Step 3 — Add a Website & Scraping:**
+
+Users paste a URL. NavBot crawls and indexes all pages automatically with a live progress animation.
+
+![Websites Tab](images/websitesdash.png)
+
+**Step 4 — Get the Integration Code:**
+
+Click on a site to see the integration panel — copy two lines of HTML and paste into your website.
+
+![Integration Panel](images/embed.png)
+
+**After setup — Dashboard Tabs:**
 
 ```
-Visit website (e.g. plaksha.edu.in) → see floating chat icon (bottom-right)
-    → Click icon → chat panel opens
-    → Type question: "What is the admission deadline?"
-    → NavBot retrieves relevant chunks from indexed pages
-    → Sarvam AI generates answer with source citation
-    → User sees: "Round 1 deadline is Jan 15, 2026 (Source: Admissions page)"
-    → Can ask follow-up questions (conversation history maintained)
-    → Can use voice input (microphone button) for hands-free queries
+Dashboard
+  ├── Overview     → total queries, pages indexed, active sites
+  ├── Websites     → manage sites, reindex, delete
+  ├── Analytics    → query volume chart, top questions, FAQs
+  ├── Visitor Insights → recent conversations, interactions
+  ├── Social Media → connect social channels (future)
+  └── Settings     → toggle voice, configure bot behavior
 ```
 
-### User Type 3: Admin (Future Scope)
+![Analytics Tab](images/analyticsdash.png)
+
+![Analytics Tab 2](images/analyticsdash2.png)
+
+![Visitor Insights](images/datacolldash.png)
+
+![Social Media Tab](images/dashboardsocials.png)
+
+![Settings Tab](images/settingsdash.png)
+
+### User 2: Website Visitor (End User)
+
+**Who:** Someone browsing a site that has NavBot installed (e.g., a prospective student on a university site).
+
+**Why they interact:** Find specific info fast, without digging through pages.
+
+**Before NavBot:** Browse multiple pages, Ctrl+F, read FAQ pages, email the organization and wait for a reply.
+**How they were doing this earlier**: Manually browsing through pages, reading long FAQ pages, or emailing the organization.
+
+**Journey:**
+
+```
+Visit website → see floating chat icon (bottom-right)
+  → Click → chat panel opens
+  → Type: "What is the admission deadline?"
+  → NavBot retrieves matching content from indexed pages
+  → Sarvam AI generates an answer with source link
+  → "Round 1 deadline is Jan 15, 2026 (Source: Admissions page)"
+  → Follow-up questions work (conversation history maintained)
+  → Voice input available via mic button
+```
+
+Here's the chatbot widget in action on a real website:
+
+![Chat Widget on Plaksha](images/plaksha.png)
+
+![Chat Widget on Plaksha 2](images/plaksha2.png)
+
+![Chat Widget on LeapAI](images/leap.png)
+
+### User 3: Admin (Future Scope)
 
 **Who**: NavBot platform admin managing all tenants.
 
@@ -97,11 +169,15 @@ Visit website (e.g. plaksha.edu.in) → see floating chat icon (bottom-right)
 
 ## 3. Databases in Use
 
+NavBot uses **three databases**, each for a different purpose:
+
 ### Database 1: SQLite (Authentication)
 
 **Location**: `apps/server/sqlite.db`
 **Purpose**: Stores all user authentication data
 **Managed by**: `better-auth` library
+
+We use **SQLite** — a lightweight file-based database that needs zero setup (no separate DB server). It's managed by **better-auth**, a Node.js auth library that handles user registration, login sessions, and OAuth tokens out of the box.
 
 | Table | Columns | Purpose |
 |-------|---------|---------|
@@ -112,10 +188,23 @@ Visit website (e.g. plaksha.edu.in) → see floating chat icon (bottom-right)
 
 **Why SQLite**: Lightweight, zero-config, perfect for auth in a dev/small-scale deployment. No separate DB server needed.
 
-### Database 2: ChromaDB (Vector Store)
+### Database 2: SQLite (Site Metadata)
 
-**Location**: Chroma Cloud (or local `http://localhost:8000`)
+**Location**: `apps/api/navbot-api.db`
+**Purpose**: Persists which websites each user has indexed, so data survives server restarts
+
+| Table | Key Columns | Purpose |
+|-------|-------------|---------|
+| `site` | `site_id`, `user_id`, `url`, `hostname`, `pages_indexed`, `status`, `added_at`, `last_crawled` | Tracks indexed websites per user |
+
+Unique constraint on `(site_id, user_id)` — each user's site entries are independent.
+
+### Database 3: ChromaDB (Vector Store)
+
+**Location**: Chroma Cloud
 **Purpose**: Stores website content as vector embeddings for semantic search (RAG retrieval)
+
+We use **ChromaDB**, an open-source vector database built for AI applications. It stores website content as **embeddings** (numerical representations of text that capture meaning). This lets us do **semantic search** — finding content that's _related_ to a question, even if the exact words don't match.
 
 | Concept | Details |
 |---------|---------|
@@ -145,18 +234,14 @@ User question → Query expansion → Semantic search (top-8 chunks)
 
 **Base URL**: `http://localhost:3001`
 
-### Health Check
-
-| Method | Endpoint | Purpose |
-|--------|----------|---------|
-| `GET` | `/health` | Server health check → `{ status: "ok" }` |
-
 ### Site Indexing
 
 | Method | Endpoint | Request Body | Response | Purpose |
 |--------|----------|-------------|----------|---------|
+| `GET` | `/api/sites?userId=...` | — | `[{ id, url, hostname, status, pagesIndexed, ... }]` | List user's saved sites |
 | `POST` | `/api/sites` | `{ url: string, siteId?: string }` | `{ siteId, pageCount, stored, failed }` | Crawl a website, chunk content, store in ChromaDB |
 | `POST` | `/api/sites/:siteId/reindex` | `{ url: string }` | `{ siteId, pageCount, stored, failed, reindexed: true }` | Re-crawl and re-index an existing site |
+| `DELETE` | `/api/sites/:siteId?userId=...` | — | `{ ok: true }` | Delete a saved site |
 
 ### Chat (RAG)
 
@@ -202,67 +287,79 @@ User question → Query expansion → Semantic search (top-8 chunks)
 
 ---
 
-## 5. Code Understanding
+## 5. Architecture & Code Map
 
-### Architecture Overview
+### System Architecture
 
 ```
-┌─────────────┐   ┌─────────────┐   ┌──────────────┐
-│  Web App     │   │  Auth Server │   │  API Server   │
-│  (React)     │   │  (Express)   │   │  (Express)    │
-│  :5173       │   │  :3000       │   │  :3001        │
-└──────┬───────┘   └──────┬───────┘   └──────┬────────┘
-       │                  │                   │
-       │  Auth requests   │                   │
-       │─────────────────→│                   │
-       │                  │   SQLite          │
-       │                  │   (users/sessions)│
-       │                  │                   │
-       │  Site/Chat requests                  │
-       │─────────────────────────────────────→│
-       │                                      │
-       │                              ┌───────┴────────┐
-       │                              │                │
-       │                         ChromaDB        Sarvam AI
-       │                         (vectors)       (LLM)
-       │
+┌──────────────┐    ┌──────────────┐    ┌───────────────┐
+│  Web App     │    │  Auth Server │    │  API Server   │
+│  (React)     │    │  (Express)   │    │  (Express)    │
+│  :5173       │    │  :3000       │    │  :3001        │
+└──────┬───────┘    └──────┬───────┘    └──────┬────────┘
+       │                   │                   │
+       │  auth requests    │                   │
+       │──────────────────→│                   │
+       │                   │  SQLite (users)   │
+       │                                       │
+       │  site/chat requests                   │
+       │──────────────────────────────────────→│
+       │                               ┌───────┴───────┐
+       │                               │               │
+       │                          ChromaDB       Sarvam AI
+       │                          (vectors)      (LLM)
+       │                               │
+       │                          SQLite (sites)
 ┌──────┴───────┐
-│ Chat Widget  │  (embedded on customer sites via <script> tag)
-│ (React IIFE) │  → talks to API at :3001
+│ Chat Widget  │   ← embedded on customer sites via <script> tag
+│ (React IIFE) │   → talks to API at :3001
 └──────────────┘
 ```
 
 ### Monorepo Structure
 
+We use **Turborepo** to manage the monorepo — it runs builds/dev scripts across all apps in parallel and caches results. **pnpm workspaces** handles shared dependencies so packages aren't duplicated.
+
 ```
 NavBot/
 ├── apps/
-│   ├── web/          → React dashboard + marketing site (Vite, Tailwind, better-auth client)
-│   ├── api/          → Express API (crawling, RAG, ChromaDB, Sarvam AI)
-│   └── server/       → Auth server (Express, better-auth, SQLite)
+│   ├── web/            → React dashboard + marketing pages (Vite, Tailwind)
+│   ├── api/            → Express API server (crawling, RAG, ChromaDB, Sarvam AI)
+│   └── server/         → Auth server (Express, better-auth, SQLite)
 ├── packages/
-│   ├── chat-widget/  → Embeddable React widget (builds to IIFE)
+│   ├── chat-widget/    → Embeddable chatbot widget (builds to IIFE bundle)
 │   ├── typescript-config/
 │   └── eslint-config/
-├── turbo.json
-└── pnpm-workspace.yaml
+├── turbo.json          → Turborepo task config
+└── pnpm-workspace.yaml → pnpm workspaces
 ```
 
-### Key Files & What They Do
+### Key Technologies We Used (and Why)
 
-| File | What it does | Key functions/concepts |
-|------|-------------|----------------------|
-| `apps/api/src/services/crawler.ts` | Crawls websites using `node-fetch` + `cheerio`. Extracts text, converts tables to Markdown, normalizes URLs, deduplicates by content fingerprint. | `crawlSite()`, `extractStructuredContent()`, `tableToMarkdown()`, `normalizeUrl()`, `contentFingerprint()` |
-| `apps/api/src/services/vectorstore.ts` | Manages ChromaDB. Chunks text (900 chars, 150 overlap), upserts with metadata, queries with semantic search. Handles both local and cloud ChromaDB. | `upsertSitePages()`, `querySiteDocs()`, `chunkText()`, `getOrCreateCollection()` |
-| `apps/api/src/services/rag.ts` | The RAG pipeline. Expands queries by domain (deadlines, fees, etc.), retrieves chunks, builds context, calls Sarvam AI, deduplicates sources. | `answerQuestionWithRag()`, `buildRetrievalQueries()`, `buildContextString()`, `withRetry()` |
-| `apps/api/src/routes/sites.ts` | Express routes for site indexing. Calls crawler then vectorstore. | `POST /api/sites`, `POST /api/sites/:siteId/reindex` |
-| `apps/api/src/routes/chat.ts` | Express routes for chat. Calls RAG pipeline. | `POST /api/chat`, `POST /api/chat/voice` |
-| `apps/web/src/main.tsx` | App root. Manages `currentView` (routing), `isAuthed` state, OAuth callback detection, sign-out handler. | `handleGetStartedNav()`, `handleSignOut()`, `onAuthSuccess()` |
-| `apps/web/src/pages/DashboardPage.tsx` | 855-line dashboard. 6 tabs, real site indexing via API, integration panel per site. | `handleAddWebsite()`, `buildIntegration()`, `OverviewTab`, `WebsitesTab` |
-| `apps/server/src/auth.ts` | Configures `better-auth` with SQLite, conditionally enables Google/GitHub OAuth based on env vars. | `authOptions`, conditional `socialProviders` |
-| `packages/chat-widget/src/ChatWidget.tsx` | The embeddable widget. Reads `window.NAVBOT_CONFIG`, renders floating chat UI, sends messages to API, supports voice recording via `MediaRecorder`. | `sendMessage()`, voice recording, `createPortal()` |
+| Technology | What it is | Why we chose it |
+|-----------|-----------|----------------|
+| **Cheerio** | A fast HTML parser for Node.js (like jQuery for the server). We use it to extract text, headings, and tables from crawled web pages. | Lightweight, no browser needed — just parses raw HTML and lets us pick out content with CSS selectors. |
+| **ChromaDB** | An open-source vector database designed for AI/ML. Stores text as embeddings and lets you search by meaning (semantic search). | Purpose-built for RAG. One `query()` call returns the most relevant content chunks for any question. |
+| **Sarvam AI** | An Indian AI company providing LLMs with native Indian language support. We use their `sarvam-m` model for answer generation. | Supports Indian languages out of the box, which is important for our Plaksha use case. Affordable API. |
+| **better-auth** | A TypeScript auth library that handles sign-up, login, sessions, and OAuth with minimal config. | Saves us from building auth from scratch. Works with SQLite, handles token management, session cookies, and OAuth flows. |
+
+### Key Files
+
+| File | What it does |
+|------|-------------|
+| `apps/api/src/services/crawler.ts` | Crawls websites using `node-fetch` (to download pages) + `cheerio` (to parse HTML and extract text). Converts HTML tables to Markdown format so the chatbot can understand tabular data. Deduplicates pages by hashing content. |
+| `apps/api/src/services/vectorstore.ts` | Splits page text into overlapping chunks (~900 chars each with 180-char overlap so no info is lost at boundaries). Upserts chunks into ChromaDB with metadata (URL, title). Also handles semantic queries at retrieval time. |
+| `apps/api/src/services/rag.ts` | The brain of the chatbot. Takes a user question, expands it with domain-specific terms (e.g., "deadline" → also search "admission rounds schedule"), retrieves relevant chunks from ChromaDB, builds a context string, sends it to Sarvam AI, and returns the answer with source links. |
+| `apps/api/src/services/db.ts` | SQLite persistence layer using `better-sqlite3`. Stores which sites each user has indexed so the data survives server restarts. |
+| `apps/api/src/routes/sites.ts` | REST endpoints: list sites (`GET`), add site (`POST`), reindex (`POST`), delete (`DELETE`). Each calls the crawler → vectorstore pipeline. |
+| `apps/api/src/routes/chat.ts` | Two endpoints: `POST /api/chat` for text questions, `POST /api/chat/voice` for voice (accepts audio via `multer`, transcribes, then runs the same RAG pipeline). |
+| `apps/server/src/auth.ts` | Configures `better-auth` — sets up SQLite as the backing store, enables email/password auth, and conditionally enables Google/GitHub OAuth if API keys are present in env vars. |
+| `apps/web/src/pages/DashboardPage.tsx` | The main React dashboard with 6 tabs - includes the "Add Website" flow, scraping animation, site management, and integration code display. |
+| `packages/chat-widget/src/ChatWidget.tsx` | The embeddable widget that website owners install. Built as an IIFE (Immediately Invoked Function Expression) — a single JS file that creates a floating chat button, reads config from `window.NAVBOT_CONFIG`, and communicates with our API. Supports text and voice input. |
 
 ### How RAG Works (Step by Step)
+
+**RAG = Retrieval-Augmented Generation.** Instead of letting the AI make up answers, we first _retrieve_ relevant content from the website, then give it to the AI as context so it only answers based on real data.
 
 1. **User types a question** in the chat widget.
 2. Widget sends `POST /api/chat` with `{ siteId, message, history }`.
@@ -319,6 +416,8 @@ What happens:
 5. User messages are sent to `POST {apiBase}/api/chat` with the configured `siteId`.
 6. Voice messages use `MediaRecorder` → `POST {apiBase}/api/chat/voice` with FormData.
 
+![Integration Code](images/embed.png)
+
 ### Tech Stack Summary
 
 | Layer | Technology | Purpose |
@@ -358,41 +457,3 @@ What happens:
 | `VITE_AUTH_URL` | Auth server URL (default: `http://localhost:3000`) |
 | `VITE_API_URL` | API server URL (default: `http://localhost:3001`) |
 | `VITE_WIDGET_SCRIPT_URL` | Chat widget script URL |
-
-### Our Website
-
-![Website Screenshot 1](images/Screenshot%202026-03-07%20at%209.13.32%E2%80%AFPM.png)
-
-![Website Screenshot 2](images/Screenshot%202026-03-07%20at%209.13.49%E2%80%AFPM.png)
-
-![Website Screenshot 3](images/Screenshot%202026-03-07%20at%209.14.05%E2%80%AFPM.png)
-
-![Website Screenshot 4](images/Screenshot%202026-03-07%20at%209.14.21%E2%80%AFPM.png)
-
-![Website Screenshot 5](images/Screenshot%202026-03-07%20at%209.14.31%E2%80%AFPM.png)
-
-![Website Screenshot 6](images/Screenshot%202026-03-07%20at%209.14.41%E2%80%AFPM.png)
-
-![Website Screenshot 7](images/Screenshot%202026-03-07%20at%209.15.20%E2%80%AFPM.png)
-
-![Website Screenshot 8](images/Screenshot%202026-03-07%20at%209.08.14%E2%80%AFPM.png)
-
-![Website Screenshot 9](images/Screenshot%202026-03-07%20at%209.08.38%E2%80%AFPM.png)
-
-![Website Screenshot 10](images/Screenshot%202026-03-07%20at%209.09.26%E2%80%AFPM.png)
-
-![Website Screenshot 11](images/Screenshot%202026-03-07%20at%209.11.36%E2%80%AFPM.png)
-
-![Website Screenshot 12](images/Screenshot%202026-03-07%20at%209.11.57%E2%80%AFPM.png)
-
-![Website Screenshot 13](images/Screenshot%202026-03-07%20at%209.12.24%E2%80%AFPM.png)
-
-![Website Screenshot 14](images/Screenshot%202026-03-07%20at%209.12.57%E2%80%AFPM.png)
-
-![Website Screenshot 15](images/Screenshot%202026-03-07%20at%209.13.08%E2%80%AFPM.png)
-
-### NavBot Demo
-
-![NavBot Demo 1](images/Screenshot%202026-03-07%20at%209.24.18%E2%80%AFPM.png)
-
-![NavBot Demo 2](images/Screenshot%202026-03-07%20at%209.30.20%E2%80%AFPM.png)

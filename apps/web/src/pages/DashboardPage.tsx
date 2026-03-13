@@ -1,16 +1,37 @@
 import { useEffect, useState } from "react";
 import {
-  LayoutDashboard, Globe, Plus, BarChart3, MessageSquare,
-  Share2, Mic, Users, Brain, ArrowRight, ExternalLink, CheckCircle2,
-  AlertCircle, TrendingUp, Clock, Target, ChevronRight, Search,
-  Volume2, VolumeX, FileText, Zap, ArrowUpRight, RefreshCw, Loader2
+  LayoutDashboard,
+  Globe,
+  Plus,
+  BarChart3,
+  MessageSquare,
+  Share2,
+  Mic,
+  Users,
+  Brain,
+  ArrowRight,
+  ExternalLink,
+  AlertCircle,
+  TrendingUp,
+  Clock,
+  Target,
+  ChevronRight,
+  Search,
+  Volume2,
+  VolumeX,
+  FileText,
+  Zap,
+  ArrowUpRight,
+  RefreshCw,
+  Loader2,
+  CheckCircle2,
 } from "lucide-react";
 import { authClient } from "../lib/auth-client";
 import { ScrapingPage } from "./ScrapingPage";
 import { IntegrationPanel } from "../components/IntegrationPanel";
 import {
   mockWebsites, mockStats, mockQueryHistory, mockTopQueries,
-  mockFaqs, mockSocialMedia, mockLeads, mockRecentConversations
+  mockFaqs, mockSocialMedia, mockVisitorInteractions, mockRecentConversations
 } from "../lib/mock-data";
 
 interface DashboardPageProps {
@@ -18,7 +39,7 @@ interface DashboardPageProps {
   onSignOut: () => void;
 }
 
-type Tab = "overview" | "websites" | "analytics" | "social" | "leads" | "settings";
+type Tab = "overview" | "websites" | "analytics" | "social" | "visitors" | "settings";
 
 type Website = (typeof mockWebsites)[number];
 
@@ -42,12 +63,12 @@ const TABS: { id: Tab; label: string; icon: typeof LayoutDashboard }[] = [
   { id: "websites", label: "Websites", icon: Globe },
   { id: "analytics", label: "Analytics & FAQs", icon: BarChart3 },
   { id: "social", label: "Social Media", icon: Share2 },
-  { id: "leads", label: "Data Collection", icon: Users },
+  { id: "visitors", label: "Visitor Insights", icon: Users },
   { id: "settings", label: "Settings", icon: Mic },
 ];
 
 export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProps) => {
-  const [_user, setUser] = useState<{ name?: string; email?: string } | null>(null);
+  const [user, setUser] = useState<{ id?: string; name?: string; email?: string } | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("overview");
   const [websites, setWebsites] = useState<Website[]>([]);
   const [showAddSite, setShowAddSite] = useState(false);
@@ -71,7 +92,26 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
 
   useEffect(() => {
     authClient.getSession().then(({ data }) => {
-      if (data?.user) setUser(data.user);
+      if (data?.user) {
+        setUser(data.user);
+        // Load previously saved websites for this user
+        fetch(`${API_BASE}/api/sites?userId=${encodeURIComponent(data.user.id)}`)
+          .then((r) => r.json())
+          .then((sites: any[]) => {
+            setWebsites(
+              sites.map((s: any) => ({
+                id: s.id,
+                url: s.url,
+                hostname: s.hostname,
+                status: s.status,
+                pagesIndexed: s.pagesIndexed,
+                lastCrawled: s.lastCrawled,
+                addedAt: s.addedAt,
+              }))
+            );
+          })
+          .catch(() => {});
+      }
     });
   }, []);
 
@@ -89,7 +129,7 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
         const res = await fetch(`${API_BASE}/api/sites`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url }),
+          body: JSON.stringify({ url, userId: user?.id }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -240,7 +280,7 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
           )}
           {activeTab === "analytics" && <AnalyticsTab maxQueries={maxQueries} />}
           {activeTab === "social" && <SocialTab />}
-          {activeTab === "leads" && <LeadsTab />}
+          {activeTab === "visitors" && <VisitorInsightsTab />}
           {activeTab === "settings" && <SettingsTab voiceEnabled={voiceEnabled} setVoiceEnabled={setVoiceEnabled} webDataOnly={webDataOnly} setWebDataOnly={setWebDataOnly} />}
         </main>
       </div>
@@ -363,6 +403,11 @@ function UpdatePagesPanel({ site }: { site: Website }) {
 /* ─── OVERVIEW TAB ───────────────────────────────────────────────────── */
 
 function OverviewTab({ websites, onAddSite, onIntegrate }: { websites: Website[]; onAddSite: () => void; onIntegrate: (site: Website) => void }) {
+  const totalPages = websites.length > 0
+    ? websites.reduce((sum, w) => sum + (w.pagesIndexed || 0), 0)
+    : mockStats.pagesIndexed;
+  const siteCount = websites.length > 0 ? websites.length : mockStats.activeWebsites;
+
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div className="flex items-center justify-between">
@@ -375,10 +420,10 @@ function OverviewTab({ websites, onAddSite, onIntegrate }: { websites: Website[]
       {/* Stat Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Total Queries", value: mockStats.totalQueries.toLocaleString(), icon: MessageSquare, change: "+12%", color: "#478EDB" },
-          { label: "Accuracy Rate", value: `${mockStats.accuracyRate}%`, icon: Target, change: "+2.3%", color: "#27C93F" },
-          { label: "Redirects", value: mockStats.redirectsTriggered.toString(), icon: ArrowUpRight, change: "+8%", color: "#8691CA" },
-          { label: "Leads Captured", value: mockStats.totalLeads.toString(), icon: Users, change: "+15%", color: "#F59E0B" },
+          { label: "Active Websites", value: siteCount.toString(), icon: Globe, color: "#478EDB" },
+          { label: "Pages Indexed", value: totalPages.toLocaleString(), icon: FileText, color: "#27C93F" },
+          { label: "Conversations", value: mockStats.totalConversations.toLocaleString(), icon: MessageSquare, color: "#8691CA" },
+          { label: "Avg Response", value: mockStats.avgResponseTime, icon: Clock, color: "#F59E0B" },
         ].map(stat => {
           const Icon = stat.icon;
           return (
@@ -387,7 +432,6 @@ function OverviewTab({ websites, onAddSite, onIntegrate }: { websites: Website[]
                 <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ backgroundColor: stat.color + "15" }}>
                   <Icon className="w-4 h-4" style={{ color: stat.color }} />
                 </div>
-                <span className="text-xs font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full">{stat.change}</span>
               </div>
               <p className="text-2xl font-light text-[#2E3538] mb-0.5">{stat.value}</p>
               <p className="text-xs text-slate-400">{stat.label}</p>
@@ -401,48 +445,59 @@ function OverviewTab({ websites, onAddSite, onIntegrate }: { websites: Website[]
         {/* Mini bar chart */}
         <div className="md:col-span-2 bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-sm font-medium text-[#2E3538]">Queries This Week</h3>
-            <span className="text-lg font-light text-[#478EDB]">{mockStats.queriesThisWeek}</span>
+            <h3 className="text-sm font-medium text-[#2E3538]">Conversations This Week</h3>
+            <span className="text-lg font-light text-[#478EDB]">{mockStats.conversationsThisWeek}</span>
           </div>
-          <div className="flex items-end gap-2 h-28">
-            {mockQueryHistory.map(d => {
-              const maxQ = Math.max(...mockQueryHistory.map(x => x.queries));
-              return (
-                <div key={d.day} className="flex-1 flex flex-col items-center gap-1.5">
-                  <div className="w-full rounded-lg transition-all duration-500 hover:opacity-80" style={{ height: `${(d.queries / maxQ) * 100}%`, background: `linear-gradient(to top, #478EDB, #8EBFF2)` }} />
-                  <span className="text-[10px] text-slate-400">{d.day}</span>
-                </div>
-              );
-            })}
-          </div>
+          {mockStats.conversationsThisWeek === 0 ? (
+            <div className="flex items-center justify-center h-28 text-sm text-slate-400">
+              <p>Data will appear once visitors use the chatbot</p>
+            </div>
+          ) : (
+            <div className="flex items-end gap-2" style={{ height: "7rem" }}>
+              {mockQueryHistory.map(d => {
+                const maxQ = Math.max(...mockQueryHistory.map(x => x.queries), 1);
+                const barH = Math.max((d.queries / maxQ) * 100, 4);
+                return (
+                  <div key={d.day} className="flex-1 flex flex-col items-center justify-end" style={{ height: "100%" }}>
+                    <div className="w-full rounded-lg transition-all duration-500 hover:opacity-80" style={{ height: `${barH}%`, minHeight: "4px", background: `linear-gradient(to top, #478EDB, #8EBFF2)` }} />
+                    <span className="text-[10px] text-slate-400 mt-1.5">{d.day}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Recent conversations */}
         <div className="md:col-span-3 bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-medium text-[#2E3538]">Recent Conversations</h3>
-            <div className="flex items-center gap-1 text-xs text-green-600">
-              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-              {mockStats.activeVisitors} active now
+          </div>
+          {mockRecentConversations.length === 0 ? (
+            <div className="text-center py-10">
+              <MessageSquare className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+              <p className="text-sm text-slate-400">No conversations yet</p>
+              <p className="text-xs text-slate-400 mt-1">Conversations will appear here as visitors use your chatbot</p>
             </div>
-          </div>
-          <div className="space-y-3">
-            {mockRecentConversations.slice(0, 3).map(conv => (
-              <div key={conv.id} className="flex items-start gap-3 p-3 rounded-xl bg-[#F9F9FA] border border-slate-50">
-                <div className="w-8 h-8 rounded-lg bg-[#478EDB]/10 flex items-center justify-center flex-shrink-0">
-                  <MessageSquare className="w-3.5 h-3.5 text-[#478EDB]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-xs font-medium text-[#2E3538]">{conv.visitor}</span>
-                    <span className="text-[10px] text-slate-400">{conv.timestamp}</span>
-                    {conv.redirected && <span className="text-[10px] text-[#8691CA] bg-[#8691CA]/10 px-1.5 py-0.5 rounded">redirected</span>}
+          ) : (
+            <div className="space-y-3">
+              {mockRecentConversations.slice(0, 3).map(conv => (
+                <div key={conv.id} className="flex items-start gap-3 p-3 rounded-xl bg-[#F9F9FA] border border-slate-50">
+                  <div className="w-8 h-8 rounded-lg bg-[#478EDB]/10 flex items-center justify-center flex-shrink-0">
+                    <MessageSquare className="w-3.5 h-3.5 text-[#478EDB]" />
                   </div>
-                  <p className="text-xs text-slate-500 truncate">{conv.query}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-xs font-medium text-[#2E3538]">{conv.visitor}</span>
+                      <span className="text-[10px] text-slate-400">{conv.timestamp}</span>
+                      {conv.redirected && <span className="text-[10px] text-[#8691CA] bg-[#8691CA]/10 px-1.5 py-0.5 rounded">redirected</span>}
+                    </div>
+                    <p className="text-xs text-slate-500 truncate">{conv.query}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
@@ -610,52 +665,71 @@ function AnalyticsTab({ maxQueries }: { maxQueries: number }) {
 
       {faqView === "analytics" && (
         <>
-          {/* Query volume chart */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-sm font-medium text-[#2E3538]">Query Volume (7 days)</h3>
-              <div className="flex items-center gap-2 text-xs text-slate-400">
-                <Clock className="w-3 h-3" /> Avg response: {mockStats.avgResponseTime}
+          {/* Conversation Volume (left) + Most Asked Questions (right) */}
+          <div className="grid md:grid-cols-2 gap-4">
+            {/* Query volume chart */}
+            <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-sm font-medium text-[#2E3538]">Conversation Volume (7 days)</h3>
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <Clock className="w-3 h-3" /> Avg: {mockStats.avgResponseTime}
+                </div>
               </div>
-            </div>
-            <div className="flex items-end gap-3 h-40">
-              {mockQueryHistory.map(d => (
-                <div key={d.day} className="flex-1 flex flex-col items-center gap-2">
-                  <span className="text-xs font-medium text-[#2E3538]">{d.queries}</span>
-                  <div className="w-full rounded-xl transition-all duration-500 hover:opacity-80 relative group" style={{ height: `${(d.queries / maxQueries) * 100}%`, background: `linear-gradient(to top, #478EDB, #8EBFF2)` }}>
-                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-[#2E3538] text-white text-[10px] px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                      {d.queries} queries
-                    </div>
+              {maxQueries === 0 ? (
+                <div className="flex items-center justify-center h-40 text-sm text-slate-400">
+                  <div className="text-center">
+                    <BarChart3 className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    <p>Conversation data will appear here once visitors use your chatbot</p>
                   </div>
-                  <span className="text-xs text-slate-400">{d.day}</span>
                 </div>
-              ))}
+              ) : (
+                <div className="flex items-end gap-3" style={{ height: "10rem" }}>
+                  {mockQueryHistory.map(d => {
+                    const barH = Math.max((d.queries / maxQueries) * 100, 4);
+                    return (
+                      <div key={d.day} className="flex-1 flex flex-col items-center justify-end" style={{ height: "100%" }}>
+                        <span className="text-xs font-medium text-[#2E3538] mb-2">{d.queries}</span>
+                        <div className="w-full rounded-xl transition-all duration-500 hover:opacity-80 relative group" style={{ height: `${barH}%`, minHeight: "4px", background: `linear-gradient(to top, #478EDB, #8EBFF2)` }}>
+                          <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-[#2E3538] text-white text-[10px] px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                            {d.queries} conversations
+                          </div>
+                        </div>
+                        <span className="text-xs text-slate-400 mt-2">{d.day}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Top queries table */}
+            <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+              <h3 className="text-sm font-medium text-[#2E3538] mb-4">Most Asked Questions</h3>
+              {mockTopQueries.length === 0 ? (
+                <div className="text-center py-10">
+                  <Search className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                  <p className="text-sm text-slate-400">Top questions will appear here as visitors interact with the chatbot</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {mockTopQueries.map((q, i) => (
+                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl hover:bg-[#F9F9FA] transition-colors">
+                      <span className="text-xs font-mono text-slate-400 w-5">#{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-[#2E3538] truncate">{q.question}</p>
+                      </div>
+                      <span className="text-xs text-slate-500 whitespace-nowrap">{q.count}x</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${q.answered ? "text-green-600 bg-green-50" : "text-amber-600 bg-amber-50"}`}>
+                        {q.answered ? "Answered" : "Review"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Top queries table */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-            <h3 className="text-sm font-medium text-[#2E3538] mb-4">Top Queries</h3>
-            <div className="space-y-2">
-              {mockTopQueries.map((q, i) => (
-                <div key={i} className="flex items-center gap-4 p-3 rounded-xl hover:bg-[#F9F9FA] transition-colors">
-                  <span className="text-xs font-mono text-slate-400 w-5">#{i + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-[#2E3538] truncate">{q.question}</p>
-                  </div>
-                  <span className="text-xs text-slate-500">{q.count} times</span>
-                  <div className="w-16">
-                    <div className="w-full bg-slate-100 rounded-full h-1.5">
-                      <div className="h-full rounded-full bg-green-400" style={{ width: `${q.accuracy}%` }} />
-                    </div>
-                  </div>
-                  <span className="text-xs text-green-600 w-10 text-right">{q.accuracy}%</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Content summary stats */}
+          {/* Content stats */}
           <div className="grid md:grid-cols-3 gap-4">
             <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
               <div className="flex items-center gap-3 mb-3">
@@ -672,7 +746,7 @@ function AnalyticsTab({ maxQueries }: { maxQueries: number }) {
                 <div className="w-9 h-9 rounded-xl bg-[#8691CA]/10 flex items-center justify-center">
                   <ArrowUpRight className="w-4 h-4 text-[#8691CA]" />
                 </div>
-                <span className="text-xs text-slate-400">User Redirects</span>
+                <span className="text-xs text-slate-400">Page Redirects</span>
               </div>
               <p className="text-2xl font-light text-[#2E3538]">{mockStats.redirectsTriggered}</p>
               <p className="text-xs text-slate-400 mt-1">Visitors guided to relevant pages</p>
@@ -682,10 +756,10 @@ function AnalyticsTab({ maxQueries }: { maxQueries: number }) {
                 <div className="w-9 h-9 rounded-xl bg-green-100 flex items-center justify-center">
                   <TrendingUp className="w-4 h-4 text-green-600" />
                 </div>
-                <span className="text-xs text-slate-400">Weekly Growth</span>
+                <span className="text-xs text-slate-400">Active Websites</span>
               </div>
-              <p className="text-2xl font-light text-[#2E3538]">+{mockStats.queriesThisWeek}</p>
-              <p className="text-xs text-slate-400 mt-1">Queries this week vs last</p>
+              <p className="text-2xl font-light text-[#2E3538]">{mockStats.activeWebsites}</p>
+              <p className="text-xs text-slate-400 mt-1">Websites with chatbot deployed</p>
             </div>
           </div>
         </>
@@ -696,28 +770,36 @@ function AnalyticsTab({ maxQueries }: { maxQueries: number }) {
           <div className="bg-[#478EDB]/5 rounded-2xl p-4 border border-[#478EDB]/10">
             <div className="flex items-center gap-2 text-sm text-[#478EDB]">
               <Brain className="w-4 h-4" />
-              <span className="font-medium">Auto-generated FAQs from query analytics</span>
+              <span className="font-medium">Auto-generated FAQs from conversation analytics</span>
             </div>
             <p className="text-xs text-slate-500 mt-1">These FAQs are generated from the most common visitor questions. They're used to improve response accuracy and train the model.</p>
           </div>
 
-          {mockFaqs.map((faq, i) => (
-            <div key={i} className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-lg bg-[#478EDB]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <MessageSquare className="w-4 h-4 text-[#478EDB]" />
-                </div>
-                <div className="flex-1">
-                  <h4 className="text-sm font-medium text-[#2E3538] mb-2">{faq.question}</h4>
-                  <p className="text-sm text-slate-500 leading-relaxed mb-3">{faq.answer}</p>
-                  <div className="flex items-center gap-3 text-xs text-slate-400">
-                    <span>Generated from {faq.generatedFrom} queries</span>
-                    <span className="flex items-center gap-1 text-green-600"><CheckCircle2 className="w-3 h-3" /> Approved</span>
+          {mockFaqs.length === 0 ? (
+            <div className="bg-white rounded-2xl p-12 border border-slate-100 shadow-sm text-center">
+              <Brain className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+              <h3 className="text-base font-medium text-[#2E3538] mb-1">No FAQs generated yet</h3>
+              <p className="text-sm text-slate-400 max-w-md mx-auto">Once your chatbot handles enough conversations, NavBot will automatically identify frequently asked questions and generate FAQ entries here.</p>
+            </div>
+          ) : (
+            mockFaqs.map((faq, i) => (
+              <div key={i} className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-[#478EDB]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <MessageSquare className="w-4 h-4 text-[#478EDB]" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-sm font-medium text-[#2E3538] mb-2">{faq.question}</h4>
+                    <p className="text-sm text-slate-500 leading-relaxed mb-3">{faq.answer}</p>
+                    <div className="flex items-center gap-3 text-xs text-slate-400">
+                      <span>Generated from {faq.generatedFrom} conversations</span>
+                      <span className="flex items-center gap-1 text-green-600"><CheckCircle2 className="w-3 h-3" /> Approved</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       )}
 
@@ -847,22 +929,22 @@ function SocialTab() {
   );
 }
 
-/* ─── DATA COLLECTION / LEADS TAB ────────────────────────────────────── */
+/* ─── VISITOR INSIGHTS TAB ────────────────────────────────────────────── */
 
-function LeadsTab() {
+function VisitorInsightsTab() {
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div>
-        <h1 className="font-serif text-2xl font-light text-[#2E3538] mb-1">Data Collection</h1>
-        <p className="text-sm text-slate-400">Track and follow up with visitors who interact with your chatbot.</p>
+        <h1 className="font-serif text-2xl font-light text-[#2E3538] mb-1">Visitor Insights</h1>
+        <p className="text-sm text-slate-400">See how visitors interact with your chatbot and track conversations for follow-up.</p>
       </div>
 
-      {/* Lead stats */}
+      {/* Summary stats */}
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: "New Leads", value: mockLeads.filter(l => l.status === "new").length.toString(), color: "#478EDB" },
-          { label: "Contacted", value: mockLeads.filter(l => l.status === "contacted").length.toString(), color: "#F59E0B" },
-          { label: "Converted", value: mockLeads.filter(l => l.status === "converted").length.toString(), color: "#27C93F" },
+          { label: "Total Conversations", value: mockStats.totalConversations.toString(), color: "#478EDB" },
+          { label: "This Week", value: mockStats.conversationsThisWeek.toString(), color: "#8691CA" },
+          { label: "Content Summaries", value: mockStats.contentSummaries.toString(), color: "#27C93F" },
         ].map(stat => (
           <div key={stat.label} className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm text-center">
             <p className="text-2xl font-light text-[#2E3538]">{stat.value}</p>
@@ -871,36 +953,48 @@ function LeadsTab() {
         ))}
       </div>
 
-      {/* Leads table */}
+      {/* Visitor interactions */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="p-5 border-b border-slate-100">
-          <h3 className="text-sm font-medium text-[#2E3538]">Recent Visitors</h3>
+          <h3 className="text-sm font-medium text-[#2E3538]">Recent Visitor Interactions</h3>
         </div>
-        <div className="divide-y divide-slate-50">
-          {mockLeads.map(lead => (
-            <div key={lead.id} className="flex items-center gap-4 p-4 hover:bg-[#F9F9FA] transition-colors">
-              <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#478EDB] to-[#8691CA] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                {lead.name.split(" ").map(n => n[0]).join("")}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-[#2E3538]">{lead.name}</span>
-                  <span className="text-[10px] text-slate-400">{lead.timestamp}</span>
+        {mockVisitorInteractions.length <= 1 && mockVisitorInteractions[0]?.query === "No interactions yet" ? (
+          <div className="text-center py-16">
+            <Users className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+            <h3 className="text-base font-medium text-[#2E3538] mb-1">No visitor data yet</h3>
+            <p className="text-sm text-slate-400 max-w-sm mx-auto">Once visitors start using your chatbot, their questions and interactions will appear here so you can follow up.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-50">
+            {mockVisitorInteractions.map(interaction => (
+              <div key={interaction.id} className="flex items-center gap-4 p-4 hover:bg-[#F9F9FA] transition-colors">
+                <div className="w-9 h-9 rounded-full bg-[#478EDB]/10 flex items-center justify-center text-[#478EDB] flex-shrink-0">
+                  <MessageSquare className="w-4 h-4" />
                 </div>
-                <p className="text-xs text-slate-400 truncate">{lead.email} · "{lead.query}"</p>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-[#2E3538]">{interaction.visitor}</span>
+                    <span className="text-[10px] text-slate-400">{interaction.timestamp}</span>
+                  </div>
+                  <p className="text-xs text-slate-400 truncate">"{interaction.query}"</p>
+                </div>
+                <span className="text-[10px] font-medium px-2.5 py-1 rounded-full bg-[#478EDB]/10 text-[#478EDB]">
+                  {interaction.source}
+                </span>
               </div>
-              <span className={`text-[10px] font-medium px-2.5 py-1 rounded-full ${
-                lead.status === "new" ? "bg-[#478EDB]/10 text-[#478EDB]" :
-                lead.status === "contacted" ? "bg-amber-50 text-amber-600" :
-                "bg-green-50 text-green-600"
-              }`}>
-                {lead.status}
-              </span>
-              <button className="p-2 rounded-lg hover:bg-slate-100 transition-colors">
-                <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-              </button>
-            </div>
-          ))}
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Info card */}
+      <div className="bg-[#F9F9FA] rounded-2xl p-6 border border-slate-100">
+        <div className="flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-[#478EDB] flex-shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-medium text-[#2E3538] mb-1">How visitor insights work</h4>
+            <p className="text-xs text-slate-500 leading-relaxed">NavBot tracks every chatbot conversation so you can understand what visitors are looking for. Use these insights to improve your website content, identify common questions, and follow up with interested visitors.</p>
+          </div>
         </div>
       </div>
     </div>

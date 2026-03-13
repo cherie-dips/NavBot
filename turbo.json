@@ -22,7 +22,6 @@
         "../../packages/chat-widget/dist/**"
       ]
     },
-
     "server#dev": {
       "cache": false,
       "persistent": true

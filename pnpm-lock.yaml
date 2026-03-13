@@ -20,6 +20,9 @@ importers:
 
   apps/api:
     dependencies:
+      better-sqlite3:
+        specifier: ^12.0.0
+        version: 12.6.2
       cheerio:
         specifier: ^1.0.0-rc.12
         version: 1.2.0
@@ -54,12 +57,15 @@ importers:
         specifier: ^3.3.2
         version: 3.3.2
       sarvamai:
-        specifier: ^1.1.5
-        version: 1.1.5
+        specifier: ^1.1.6
+        version: 1.1.6
     devDependencies:
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config
+      '@types/better-sqlite3':
+        specifier: ^7.6.0
+        version: 7.6.13
       '@types/cors':
         specifier: ^2.8.17
         version: 2.8.19
@@ -4534,8 +4540,8 @@ packages:
     resolution: {integrity: sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==}
     dev: false
 
-  /sarvamai@1.1.5:
-    resolution: {integrity: sha512-VjpsMpjjfRiQ2jiMQ85cLowKhVyHL7E4sHyMP5x7PFaHbACmgIxBiCu4Qzjo5puEgT9zimQIRIOIatOyniDyPA==}
+  /sarvamai@1.1.6:
+    resolution: {integrity: sha512-kfrKQIk8xlUwvWeuhMF4ljwjuMWPelzuBe+4BlUD3qeoEisCfKLTq/MX2FfkcJ6spnMrwPDix96ngmhyLj2Q9w==}
     engines: {node: '>=18.0.0'}
     dependencies:
       ws: 8.19.0

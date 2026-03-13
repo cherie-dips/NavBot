@@ -223,6 +223,9 @@ export const ChatWidget: React.FC = () => {
       setError(
         "Something went wrong talking to the assistant. Please try again."
       );
+      setError(
+        "Something went wrong talking to the assistant. Please try again."
+      );
       setIsTyping(false);
     };
     xhr.send(
@@ -235,39 +238,69 @@ export const ChatWidget: React.FC = () => {
     );
   };
 
-  // ---------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
   // Voice recording
-  // ---------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
   const startRecording = () => {
+    setError(null);
     navigator.mediaDevices
       .getUserMedia({ audio: true })
       .then((stream) => {
-        const mediaRecorder = new MediaRecorder(stream);
+        // Prefer audio/webm; fall back to whatever the browser supports
+        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : "";
+
+        const mediaRecorder = mimeType
+          ? new MediaRecorder(stream, { mimeType })
+          : new MediaRecorder(stream);
+
         mediaRecorderRef.current = mediaRecorder;
 
         const audioChunks: Blob[] = [];
 
         mediaRecorder.ondataavailable = (event) => {
-          audioChunks.push(event.data);
+          if (event.data.size > 0) audioChunks.push(event.data);
         };
 
         mediaRecorder.onstop = () => {
-          const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+          const resolvedMime =
+            mediaRecorder.mimeType || mimeType || "audio/webm";
+          const audioBlob = new Blob(audioChunks, { type: resolvedMime });
 
-          const userMessage: Message = {
-            id: Date.now(),
-            text: `🎤 Voice message (${recordingTime}s)`,
+          // Show a placeholder while we wait for transcription
+          const placeholderId = Date.now();
+          const placeholder: Message = {
+            id: placeholderId,
+            text: `🎤 Voice message (${recordingTime}s) — transcribing…`,
             sender: "user",
             timestamp: new Date().toISOString(),
             isVoice: true,
           };
-
-          addMessage(userMessage);
+          setMessages((prev) => [...prev, placeholder]);
           setIsTyping(true);
 
+          // Capture history BEFORE appending the placeholder (voice msgs are excluded anyway)
+          const historySnapshot = buildApiHistory(messages);
+
           const formData = new FormData();
-          formData.append("audio", audioBlob, "voice.webm");
+          // formData.append("audio", audioBlob, `voice.${resolvedMime.includes("ogg") ? "ogg" : resolvedMime.includes("wav") ? "wav" : "webm"}`);
+          formData.append(
+            "audio",
+            audioBlob,
+            `voice.${
+              resolvedMime.indexOf("ogg") !== -1
+                ? "ogg"
+                : resolvedMime.indexOf("wav") !== -1
+                ? "wav"
+                : "webm"
+            }`
+          );
           formData.append("siteId", siteId);
+          // Send history so the bot has context
+          formData.append("history", JSON.stringify(historySnapshot));
 
           const xhr = new XMLHttpRequest();
           xhr.open("POST", `${apiBase}/api/chat/voice`);
@@ -275,24 +308,44 @@ export const ChatWidget: React.FC = () => {
             try {
               if (xhr.status < 200 || xhr.status >= 300) {
                 throw new Error(
-                  `Voice chat request failed with status ${xhr.status}`
+                  `Voice request failed with status ${xhr.status}`
                 );
               }
               const data = JSON.parse(xhr.responseText) as {
                 answer: string;
-                transcript?: string;
+                transcript?: string | null;
+                error?: string;
               };
+
+              // Replace the placeholder with the real transcript (if available)
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === placeholderId
+                    ? {
+                        ...m,
+                        text: data.transcript
+                          ? `🎤 "${data.transcript}"`
+                          : `🎤 Voice message (${recordingTime}s)`,
+                      }
+                    : m
+                )
+              );
+
               const botMessage: Message = {
                 id: Date.now() + 1,
                 text: data.answer || "I received your voice message.",
                 sender: "bot",
                 timestamp: new Date().toISOString(),
               };
-              addMessage(botMessage);
-            } catch (error) {
-              console.error("Voice chat error:", error);
+              setMessages((prev) => [...prev, botMessage]);
+            } catch (err) {
+              console.error("Voice chat error:", err);
               setError(
                 "Could not process voice message. Please try typing instead."
+              );
+              // Remove the placeholder on error
+              setMessages((prev) =>
+                prev.filter((m) => m.id !== placeholderId)
               );
             } finally {
               setIsTyping(false);
@@ -303,10 +356,12 @@ export const ChatWidget: React.FC = () => {
             setError(
               "Could not process voice message. Please try typing instead."
             );
+            setMessages((prev) => prev.filter((m) => m.id !== placeholderId));
             setIsTyping(false);
           };
           xhr.send(formData);
 
+          // Release mic
           stream.getTracks().forEach((track) => track.stop());
         };
 
@@ -318,9 +373,11 @@ export const ChatWidget: React.FC = () => {
           setRecordingTime((prev) => prev + 1);
         }, 1000);
       })
-      .catch((error) => {
-        console.error("Error accessing microphone:", error);
-        alert("Could not access microphone. Please check your permissions.");
+      .catch((err) => {
+        console.error("Error accessing microphone:", err);
+        setError(
+          "Could not access microphone. Please check your browser permissions."
+        );
       });
   };
 
@@ -376,6 +433,11 @@ export const ChatWidget: React.FC = () => {
           transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
           origin-bottom-right
           mb-4
+          ${
+            isOpen
+              ? "translate-y-0 opacity-100 scale-100 pointer-events-auto"
+              : "translate-y-8 opacity-0 scale-95 pointer-events-none h-0"
+          }
           ${
             isOpen
               ? "translate-y-0 opacity-100 scale-100 pointer-events-auto"
@@ -450,7 +512,7 @@ export const ChatWidget: React.FC = () => {
                       ? "bg-white/40 text-slate-700 rounded-tl-sm border border-white/20"
                       : "bg-black/5 text-slate-800 rounded-tr-sm border border-black/5 font-medium"
                   }
-                  ${message.isVoice ? "flex items-center gap-2" : ""}
+                  ${message.isVoice ? "italic text-slate-500" : ""}
                 `}
               >
                 {message.text}
@@ -506,7 +568,7 @@ export const ChatWidget: React.FC = () => {
           <div className="relative group">
             <input
               type="text"
-              placeholder={isRecording ? "Recording..." : "Type a message..."}
+              placeholder={isRecording ? "Recording… tap ■ to stop" : "Type a message…"}
               className="
                 w-full
                 bg-white/20 hover:bg-white/30 focus:bg-white/40
@@ -520,7 +582,7 @@ export const ChatWidget: React.FC = () => {
               "
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
+              onKeyDown={handleKeyPress}
               disabled={isRecording}
             />
 
@@ -533,17 +595,19 @@ export const ChatWidget: React.FC = () => {
                 transition-all duration-300
                 ${
                   isRecording
-                    ? "text-red-500 hover:text-red-600 bg-red-500/10"
+                    ? "text-red-500 hover:text-red-600 bg-red-500/10 animate-pulse"
                     : "text-slate-500 hover:text-slate-800"
                 }
               `}
               title={isRecording ? "Stop recording" : "Record voice message"}
             >
               {isRecording ? (
+                /* Stop icon */
                 <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                   <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>
               ) : (
+                /* Mic icon */
                 <svg
                   className="w-5 h-5"
                   fill="none"

@@ -184,8 +184,6 @@ RULES:
   const combinedSystemPrompt = `${systemPrompt}\n\nWEBSITE CONTEXT (your only knowledge source):\n\n${contextString}`;
 
   // 5. Build message array — keep last 6 history turns to manage token budget
-  // Sarvam requires: one system message first, then user/assistant alternating,
-  // with the first non-system message being "user".
   const recentHistory = history.slice(-6);
 
   // Drop any leading assistant messages so the first non-system msg is always "user"
@@ -221,7 +219,56 @@ RULES:
 }
 
 // ---------------------------------------------------------------------------
-// Voice input stub — plug in real STT (Whisper, Sarvam STT, etc.) here
+// Sarvam saaras:v3 Speech-to-Text transcription
+// ---------------------------------------------------------------------------
+async function transcribeAudio(
+  audioBuffer: Buffer,
+  mimeType: string
+): Promise<string> {
+  // Determine a sensible filename extension from the MIME type
+  const ext = mimeType.includes("ogg")
+    ? "ogg"
+    : mimeType.includes("mp4") || mimeType.includes("mp4a")
+    ? "mp4"
+    : mimeType.includes("mpeg") || mimeType.includes("mp3")
+    ? "mp3"
+    : mimeType.includes("wav")
+    ? "wav"
+    : "webm"; // default — browsers use webm for MediaRecorder
+
+  const filename = `audio.${ext}`;
+
+  // Build a proper File object from the buffer
+  const audioFile = new File([new Uint8Array(audioBuffer)], filename, { type: mimeType });
+
+  console.log(
+    `[STT] Sending ${(audioBuffer.length / 1024).toFixed(1)} KB of ${mimeType} to Sarvam saaras:v3`
+  );
+
+  const response = await withRetry(() =>
+    sarvam.speechToText.transcribe({
+      file: audioFile,
+      model: "saaras:v3" as any,
+      mode: "transcribe" as any,
+    })
+  );
+
+  // The SDK returns { transcript, language_code, request_id }
+  const transcript = (response as any).transcript as string | undefined;
+
+  if (!transcript || transcript.trim() === "") {
+    throw new Error("Sarvam STT returned an empty transcript.");
+  }
+
+  console.log(
+    `[STT] Transcript (lang: ${(response as any).language_code ?? "unknown"}): "${transcript}"`
+  );
+
+  return transcript.trim();
+}
+
+// ---------------------------------------------------------------------------
+// Voice input: transcribe with Sarvam saaras:v3, then run RAG pipeline
 // ---------------------------------------------------------------------------
 export async function transcribeAndAnswer(params: {
   siteId: string;
@@ -229,21 +276,27 @@ export async function transcribeAndAnswer(params: {
   mimeType: string;
   history?: ChatHistoryItem[];
 }) {
-  const { siteId, audioBuffer: _audioBuffer, mimeType: _mimeType, history = [] } = params;
+  const { siteId, audioBuffer, mimeType, history = [] } = params;
 
   let transcript: string;
 
-  // --- Swap this block for Sarvam STT ---
-  // const response = await sarvam.speechToText.transcribe({
-  //   file: new File([audioBuffer], "audio.webm", { type: mimeType }),
-  //   model: "saaras:v3",
-  //   mode: "transcribe",
-  // });
-  // transcript = response.transcript;
-  // ------------------------------------------------
+  try {
+    transcript = await transcribeAudio(audioBuffer, mimeType);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("[STT] Transcription failed:", msg);
 
-  transcript =
-    "Voice message received, but transcription is not yet configured. Please type your question.";
+    // Surface a friendly error to the client rather than a server 500
+    return {
+      transcript: null,
+      answer:
+        "Sorry, I couldn't transcribe your voice message. " +
+        "Please check that your SARVAM_API_KEY is set and the audio format is supported (WebM, MP3, WAV, OGG). " +
+        "You can also type your question instead.",
+      sources: [],
+      error: msg,
+    };
+  }
 
   const result = await answerQuestionWithRag({
     siteId,
