@@ -7,8 +7,6 @@
 ### The Problem
 
 - Visitors can't find information quickly (nested pages, PDFs, scattered FAQs).
-- Building a custom chatbot takes months and ML expertise.
-- Generic chatbots (ChatGPT, etc.) hallucinate answers that aren't on the site.
 
 ### What NavBot Does
 
