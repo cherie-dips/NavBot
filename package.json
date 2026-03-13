@@ -2,7 +2,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev --filter=web --filter=server --filter=api --filter=@repo/chat-widget",
+    "dev": "turbo run dev --filter=web --filter=server --filter=api",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\""
   },
