@@ -130,6 +130,40 @@ export interface ChatHistoryItem {
 }
 
 // ---------------------------------------------------------------------------
+// Enforce strict user/assistant alternation required by Sarvam AI.
+// Drops consecutive same-role messages and ensures the first non-system
+// message is always "user" and the last message is always "user".
+// ---------------------------------------------------------------------------
+type SarvamMessage = { role: "system" | "user" | "assistant"; content: string };
+
+function enforceAlternation(msgs: SarvamMessage[]): SarvamMessage[] {
+  // 1. Collect system messages and non-system messages separately
+  const system = msgs.filter((m) => m.role === "system");
+  const conversation = msgs.filter((m) => m.role !== "system");
+
+  // 2. Drop leading assistant messages — first non-system msg must be "user"
+  while (conversation.length > 0 && conversation[0]!.role === "assistant") {
+    conversation.shift();
+  }
+
+  // 3. Drop consecutive same-role messages (keep the first of each run)
+  const deduped: SarvamMessage[] = [];
+  for (const msg of conversation) {
+    if (deduped.length > 0 && deduped[deduped.length - 1]!.role === msg.role) {
+      continue;
+    }
+    deduped.push(msg);
+  }
+
+  // 4. Ensure the last message is from the user (the current question)
+  while (deduped.length > 0 && deduped[deduped.length - 1]!.role === "assistant") {
+    deduped.pop();
+  }
+
+  return [...system, ...deduped];
+}
+
+// ---------------------------------------------------------------------------
 // Main RAG function
 // ---------------------------------------------------------------------------
 export async function answerQuestionWithRag(params: {
@@ -184,21 +218,13 @@ RULES:
   const combinedSystemPrompt = `${systemPrompt}\n\nWEBSITE CONTEXT (your only knowledge source):\n\n${contextString}`;
 
   // 5. Build message array — keep last 6 history turns to manage token budget
-  const recentHistory = history.slice(-6);
-
-  // Drop any leading assistant messages so the first non-system msg is always "user"
-  let trimmedHistory = [...recentHistory];
-  while (trimmedHistory.length > 0 && trimmedHistory[0]!.role === "assistant") {
-    trimmedHistory.shift();
-  }
-
-  type SarvamMessage = { role: "system" | "user" | "assistant"; content: string };
-
-  const chatMessages: SarvamMessage[] = [
+  const rawMessages: SarvamMessage[] = [
     { role: "system", content: combinedSystemPrompt },
-    ...trimmedHistory.map((h) => ({ role: h.role as "user" | "assistant", content: h.content })),
+    ...history.slice(-6).map((h) => ({ role: h.role as "user" | "assistant", content: h.content })),
     { role: "user", content: message },
   ];
+
+  const chatMessages = enforceAlternation(rawMessages);
 
   // 6. Call Sarvam AI with retry
   const completion = await withRetry(() =>
@@ -210,7 +236,11 @@ RULES:
     })
   );
 
-  const answer = (completion as any).choices?.[0]?.message?.content ?? "";
+  const rawAnswer: string = (completion as any).choices?.[0]?.message?.content ?? "";
+  const answer = rawAnswer
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<\/?think>/gi, "")
+    .trim();
 
   return {
     answer,

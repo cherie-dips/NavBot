@@ -1,17 +1,5 @@
 // Demo data for dashboard — showcases NavBot's capabilities to potential customers
 
-export const mockWebsites = [
-  {
-    id: "ws_1",
-    url: "https://example.com",
-    hostname: "example.com",
-    status: "active" as const,
-    pagesIndexed: 0,
-    lastCrawled: "Never",
-    addedAt: "",
-  },
-];
-
 export const mockStats = {
   totalConversations: 2_847,
   conversationsThisWeek: 436,

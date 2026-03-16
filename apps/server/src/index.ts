@@ -4,7 +4,7 @@ import cors from "cors";
 import { toNodeHandler } from "better-auth/node";
 import { auth, db } from "./auth.js";
 
-// Create tables if they don't exist
+// Create all tables in the shared database
 db.exec(`
   CREATE TABLE IF NOT EXISTS "user" (
     id TEXT PRIMARY KEY,
@@ -48,8 +48,20 @@ db.exec(`
     createdAt INTEGER,
     updatedAt INTEGER
   );
+  CREATE TABLE IF NOT EXISTS "site" (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id     TEXT    NOT NULL,
+    user_id     TEXT    NOT NULL,
+    url         TEXT    NOT NULL,
+    hostname    TEXT    NOT NULL,
+    status      TEXT    NOT NULL DEFAULT 'active',
+    pages_indexed INTEGER NOT NULL DEFAULT 0,
+    added_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    last_crawled TEXT   NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(site_id, user_id)
+  );
 `);
-console.log("Database tables ready.");
+console.log("Database tables ready (shared navbot.db).");
 
 const app = express();
 const PORT = process.env.PORT || 3000;

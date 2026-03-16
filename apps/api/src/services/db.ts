@@ -1,12 +1,13 @@
 import Database from "better-sqlite3";
 import path from "path";
 
-const dbPath = path.resolve(process.cwd(), "navbot-api.db");
+const dbPath = path.resolve(process.cwd(), "../../navbot.db");
 const db = new Database(dbPath);
 
-// Enable WAL mode for better concurrency
 db.pragma("journal_mode = WAL");
 
+// The site table is also created by the auth server on startup.
+// This ensures it exists even if the API starts first.
 db.exec(`
   CREATE TABLE IF NOT EXISTS site (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -22,7 +23,7 @@ db.exec(`
   );
 `);
 
-console.log("API database ready.");
+console.log("API database ready (shared navbot.db).");
 
 export interface SiteRow {
   id: number;

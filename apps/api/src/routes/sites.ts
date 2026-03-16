@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { crawlSite, crawlPages } from "../services/crawler";
-import { upsertSitePages, deletePagesFromSite } from "../services/vectorstore";
+import { upsertSitePages, deletePagesFromSite, deleteSiteCollection } from "../services/vectorstore";
 import { upsertSite, getSitesByUser, deleteSite } from "../services/db";
 
 export const router: Router = Router();
@@ -134,13 +134,16 @@ router.post("/:siteId/reindex", async (req: Request, res: Response) => {
 });
 
 /* ── Delete a site ─────────────────────────────────────────────────── */
-router.delete("/:siteId", (req: Request, res: Response) => {
+router.delete("/:siteId", async (req: Request, res: Response) => {
   const { siteId } = req.params;
   const userId = req.query.userId as string | undefined;
   if (!userId) {
     return res.status(400).json({ error: "userId query param is required" });
   }
-  const deleted = deleteSite(siteId, userId);
-  res.json({ deleted });
+
+  const dbDeleted = deleteSite(siteId, userId);
+  const vectorDeleted = await deleteSiteCollection(siteId);
+
+  res.json({ deleted: dbDeleted, vectorStoreCleared: vectorDeleted });
 });
 

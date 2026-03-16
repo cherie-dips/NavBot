@@ -10,11 +10,9 @@ import {
   Users,
   Brain,
   ArrowRight,
-  ExternalLink,
   AlertCircle,
   TrendingUp,
   Clock,
-  Target,
   ChevronRight,
   Search,
   Volume2,
@@ -25,23 +23,33 @@ import {
   RefreshCw,
   Loader2,
   CheckCircle2,
+  Trash2,
+  X,
 } from "lucide-react";
 import { authClient } from "../lib/auth-client";
 import { ScrapingPage } from "./ScrapingPage";
 import { IntegrationPanel } from "../components/IntegrationPanel";
 import {
-  mockWebsites, mockStats, mockQueryHistory, mockTopQueries,
+  mockStats, mockQueryHistory, mockTopQueries,
   mockFaqs, mockSocialMedia, mockVisitorInteractions, mockRecentConversations
 } from "../lib/mock-data";
 
 interface DashboardPageProps {
   onViewChange: (view: string) => void;
-  onSignOut: () => void;
+  onSignOut?: () => void;
 }
 
 type Tab = "overview" | "websites" | "analytics" | "social" | "visitors" | "settings";
 
-type Website = (typeof mockWebsites)[number];
+interface Website {
+  id: string;
+  url: string;
+  hostname: string;
+  status: string;
+  pagesIndexed: number;
+  lastCrawled: string;
+  addedAt: string;
+}
 
 interface IntegrationInfo {
   siteId: string;
@@ -79,6 +87,10 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
   const [webDataOnly, setWebDataOnly] = useState(true);
   const [integrationSite, setIntegrationSite] = useState<Website | null>(null);
   const [indexError, setIndexError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Website | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const buildIntegration = (site: Website): IntegrationInfo => {
     const siteId = site.id;
@@ -178,6 +190,28 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
     })();
   };
 
+  const handleDeleteSite = async () => {
+    if (!deleteTarget || deleteConfirmText !== deleteTarget.id) return;
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/sites/${encodeURIComponent(deleteTarget.id)}?userId=${encodeURIComponent(user?.id ?? "")}`,
+        { method: "DELETE" }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to delete site.");
+      setWebsites((prev) => prev.filter((s) => s.id !== deleteTarget.id));
+      setDeleteTarget(null);
+      setDeleteConfirmText("");
+    } catch (err: any) {
+      setDeleteError(err?.message || "Something went wrong while deleting.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // If currently scraping, show the scraping animation full-screen in dashboard
   if (isScraping) {
     return <ScrapingPage websiteUrl={scrapingUrl} onComplete={() => {}} />;
@@ -265,6 +299,7 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
               websites={websites}
               onAddSite={() => { setActiveTab("websites"); setShowAddSite(true); }}
               onIntegrate={setIntegrationSite}
+              onDelete={setDeleteTarget}
             />
           )}
           {activeTab === "websites" && (
@@ -276,6 +311,7 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
               setNewSiteUrl={setNewSiteUrl}
               onAddWebsite={handleAddWebsite}
               onIntegrate={setIntegrationSite}
+              onDelete={setDeleteTarget}
             />
           )}
           {activeTab === "analytics" && <AnalyticsTab maxQueries={maxQueries} />}
@@ -284,6 +320,72 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
           {activeTab === "settings" && <SettingsTab voiceEnabled={voiceEnabled} setVoiceEnabled={setVoiceEnabled} webDataOnly={webDataOnly} setWebDataOnly={setWebDataOnly} />}
         </main>
       </div>
+
+      {/* Delete confirmation modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 relative animate-fade-in-up">
+            <button
+              type="button"
+              onClick={() => { setDeleteTarget(null); setDeleteConfirmText(""); setDeleteError(null); }}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-medium text-[#2E3538]">Delete Website</h3>
+                <p className="text-xs text-slate-400">{deleteTarget.hostname}</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600 mb-1">
+              This will permanently delete <span className="font-medium text-[#2E3538]">{deleteTarget.hostname}</span> and all its indexed data from the database and vector store.
+            </p>
+            <p className="text-sm text-slate-600 mb-4">
+              To confirm, type the site ID below:
+            </p>
+            <div className="bg-[#F9F9FA] rounded-lg px-3 py-2 mb-3 text-xs font-mono text-slate-500 select-all">
+              {deleteTarget.id}
+            </div>
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="Type site ID to confirm"
+              className="w-full px-4 py-3 rounded-xl bg-[#F9F9FA] border border-slate-200 focus:border-red-400 outline-none transition-all text-sm text-[#2E3538] placeholder:text-slate-400 font-mono"
+            />
+            {deleteError && (
+              <p className="text-xs text-red-600 mt-2 flex items-center gap-1">
+                <AlertCircle className="w-3 h-3" /> {deleteError}
+              </p>
+            )}
+            <div className="flex justify-end gap-3 mt-5">
+              <button
+                type="button"
+                onClick={() => { setDeleteTarget(null); setDeleteConfirmText(""); setDeleteError(null); }}
+                className="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={deleteConfirmText !== deleteTarget.id || isDeleting}
+                onClick={handleDeleteSite}
+                className="px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isDeleting ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Deleting...</>
+                ) : (
+                  <><Trash2 className="w-4 h-4" /> Delete Website</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -402,7 +504,7 @@ function UpdatePagesPanel({ site }: { site: Website }) {
 
 /* ─── OVERVIEW TAB ───────────────────────────────────────────────────── */
 
-function OverviewTab({ websites, onAddSite, onIntegrate }: { websites: Website[]; onAddSite: () => void; onIntegrate: (site: Website) => void }) {
+function OverviewTab({ websites, onAddSite, onIntegrate, onDelete }: { websites: Website[]; onAddSite: () => void; onIntegrate: (site: Website) => void; onDelete: (site: Website) => void }) {
   const totalPages = websites.length > 0
     ? websites.reduce((sum, w) => sum + (w.pagesIndexed || 0), 0)
     : mockStats.pagesIndexed;
@@ -529,6 +631,14 @@ function OverviewTab({ websites, onAddSite, onIntegrate }: { websites: Website[]
                     <p className="text-xs text-slate-400">{site.pagesIndexed} pages indexed · Last crawled {site.lastCrawled}</p>
                   </div>
                   <span className="text-xs font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-full flex-shrink-0">Active</span>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); onDelete(site); }}
+                    className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                    title="Delete website"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
                 <div className="mt-3">
                   <UpdatePagesPanel site={site} />
@@ -544,7 +654,7 @@ function OverviewTab({ websites, onAddSite, onIntegrate }: { websites: Website[]
 
 /* ─── WEBSITES TAB ───────────────────────────────────────────────────── */
 
-function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNewSiteUrl, onAddWebsite, onIntegrate }: {
+function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNewSiteUrl, onAddWebsite, onIntegrate, onDelete }: {
   websites: Website[];
   showAddSite: boolean;
   setShowAddSite: (v: boolean) => void;
@@ -552,6 +662,7 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
   setNewSiteUrl: (v: string) => void;
   onAddWebsite: (e: React.FormEvent) => void;
   onIntegrate: (site: Website) => void;
+  onDelete: (site: Website) => void;
 }) {
   return (
     <div className="space-y-6 animate-fade-in-up">
@@ -609,6 +720,14 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
                   <span className="flex items-center gap-1"><Zap className="w-3 h-3" /> Added {site.addedAt}</span>
                 </div>
               </div>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onDelete(site); }}
+                className="p-2.5 rounded-xl text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0 self-start"
+                title="Delete website"
+              >
+                <Trash2 className="w-4.5 h-4.5" />
+              </button>
             </div>
             <div className="mt-4">
               <UpdatePagesPanel site={site} />

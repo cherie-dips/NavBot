@@ -1,12 +1,84 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { MdOutlineRefresh } from "react-icons/md";
 
 interface Message {
   id: number;
   text: string;
   sender: "user" | "bot";
-  timestamp: string; // ISO string for safe serialization to localStorage
+  timestamp: string;
   isVoice?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Lightweight markdown renderer for bot messages.
+// Handles: line breaks, **bold**, bullet/numbered lists, and source URLs.
+// ---------------------------------------------------------------------------
+function renderBotText(raw: string): React.ReactNode {
+  const lines = raw.split("\n");
+  const elements: React.ReactNode[] = [];
+  let listItems: React.ReactNode[] = [];
+  let listType: "ul" | "ol" | null = null;
+
+  const flushList = () => {
+    if (listItems.length === 0) return;
+    if (listType === "ol") {
+      elements.push(<ol key={`ol-${elements.length}`} style={{ margin: "6px 0", paddingLeft: "20px", listStyleType: "decimal" }}>{listItems}</ol>);
+    } else {
+      elements.push(<ul key={`ul-${elements.length}`} style={{ margin: "6px 0", paddingLeft: "20px", listStyleType: "disc" }}>{listItems}</ul>);
+    }
+    listItems = [];
+    listType = null;
+  };
+
+  const formatInline = (text: string): React.ReactNode => {
+    const parts: React.ReactNode[] = [];
+    let remaining = text;
+    let idx = 0;
+    const boldRe = /\*\*(.+?)\*\*/g;
+    let match: RegExpExecArray | null;
+    let lastEnd = 0;
+    while ((match = boldRe.exec(remaining)) !== null) {
+      if (match.index > lastEnd) {
+        parts.push(remaining.slice(lastEnd, match.index));
+      }
+      parts.push(<strong key={`b-${idx++}`}>{match[1]}</strong>);
+      lastEnd = match.index + match[0].length;
+    }
+    if (lastEnd < remaining.length) {
+      parts.push(remaining.slice(lastEnd));
+    }
+    return parts.length === 1 ? parts[0] : <>{parts}</>;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const trimmed = line.trim();
+
+    if (trimmed === "") {
+      flushList();
+      continue;
+    }
+
+    const bulletMatch = trimmed.match(/^[-•*]\s+(.+)/);
+    const numberMatch = trimmed.match(/^\d+[.)]\s+(.+)/);
+
+    if (bulletMatch) {
+      if (listType !== "ul") flushList();
+      listType = "ul";
+      listItems.push(<li key={`li-${i}`} style={{ marginBottom: "2px" }}>{formatInline(bulletMatch[1]!)}</li>);
+    } else if (numberMatch) {
+      if (listType !== "ol") flushList();
+      listType = "ol";
+      listItems.push(<li key={`li-${i}`} style={{ marginBottom: "2px" }}>{formatInline(numberMatch[1]!)}</li>);
+    } else {
+      flushList();
+      elements.push(<p key={`p-${i}`} style={{ margin: "4px 0" }}>{formatInline(trimmed)}</p>);
+    }
+  }
+
+  flushList();
+  return <>{elements}</>;
 }
 
 type ChatRole = "user" | "assistant";
@@ -418,123 +490,113 @@ export const ChatWidget: React.FC = () => {
 
   if (!mounted) return null;
 
+  // Inline reset styles to isolate the widget from host CSS
+  const resetStyle: React.CSSProperties = {
+    all: "initial",
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+    fontSize: "14px",
+    lineHeight: "1.5",
+    color: "#334155",
+    boxSizing: "border-box",
+    WebkitFontSmoothing: "antialiased",
+    position: "fixed",
+    bottom: "24px",
+    right: "24px",
+    zIndex: 9999,
+  };
+
   return createPortal(
-    <div className="fixed bottom-6 right-6 z-[9999] font-sans antialiased text-slate-800">
-      {/* Glassmorphic Chat Panel */}
+    <div style={resetStyle}>
+      {/* Chat Panel */}
       <div
-        className={`
-          flex flex-col
-          w-[360px] h-[500px]
-          bg-white/30 backdrop-blur-3xl
-          border border-white/20
-          rounded-3xl
-          shadow-2xl shadow-black/5
-          overflow-hidden
-          transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)]
-          origin-bottom-right
-          mb-4
-          ${
-            isOpen
-              ? "translate-y-0 opacity-100 scale-100 pointer-events-auto"
-              : "translate-y-8 opacity-0 scale-95 pointer-events-none h-0"
-          }
-          ${
-            isOpen
-              ? "translate-y-0 opacity-100 scale-100 pointer-events-auto"
-              : "translate-y-8 opacity-0 scale-95 pointer-events-none h-0"
-          }
-        `}
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          width: "360px",
+          height: isOpen ? "520px" : "0px",
+          background: "rgba(255,255,255,0.45)",
+          backdropFilter: "blur(40px)",
+          WebkitBackdropFilter: "blur(40px)",
+          border: "1px solid rgba(255,255,255,0.25)",
+          borderRadius: "24px",
+          boxShadow: "0 25px 50px -12px rgba(0,0,0,0.12)",
+          overflow: "hidden",
+          transition: "all 0.4s cubic-bezier(0.34,1.56,0.64,1)",
+          transformOrigin: "bottom right",
+          marginBottom: "12px",
+          opacity: isOpen ? 1 : 0,
+          transform: isOpen ? "translateY(0) scale(1)" : "translateY(8px) scale(0.95)",
+          pointerEvents: isOpen ? "auto" : "none",
+        }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
-            <span className="font-medium text-sm italic text-[#2E3538] tracking-tight font-serif">
-              navbot
-            </span>
-          </div>
-          <div className="flex items-center gap-1">
-            {/* Clear chat button */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", flexShrink: 0, borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
+          <span style={{ fontWeight: 600, fontSize: "14px", fontStyle: "italic", color: "#2E3538", letterSpacing: "-0.02em", fontFamily: "Georgia, serif" }}>
+            navbot
+          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
             <button
               onClick={handleClearChat}
-              className="text-slate-400 hover:text-slate-700 transition-colors p-2 rounded-full hover:bg-white/20"
-              title="Clear chat history"
+              title="Refresh chat"
+              style={{ background: "none", border: "none", cursor: "pointer", padding: "6px", borderRadius: "50%", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center" }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "#475569"; e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "none"; }}
             >
-              <svg
-                className="w-3.5 h-3.5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
-              </svg>
+              <MdOutlineRefresh style={{ width: "16px", height: "16px" }} />
             </button>
-            {/* Close button */}
             <button
               onClick={() => setIsOpen(false)}
-              className="text-slate-500 hover:text-slate-800 transition-colors p-2 rounded-full hover:bg-white/20"
+              style={{ background: "none", border: "none", cursor: "pointer", padding: "6px", borderRadius: "50%", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center" }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "#475569"; e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "none"; }}
             >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
+              <svg style={{ width: "16px", height: "16px" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
           </div>
         </div>
 
         {/* Messages Area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: "12px" }}>
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`flex flex-col ${
-                message.sender === "user" ? "items-end" : "items-start"
-              } animate-fade-in-up`}
+              style={{ display: "flex", flexDirection: "column", alignItems: message.sender === "user" ? "flex-end" : "flex-start" }}
             >
               <div
-                className={`
-                  max-w-[85%] px-4 py-3 text-sm leading-relaxed rounded-2xl backdrop-blur-md
-                  ${
-                    message.sender === "bot"
-                      ? "bg-white/40 text-slate-700 rounded-tl-sm border border-white/20"
-                      : "bg-black/5 text-slate-800 rounded-tr-sm border border-black/5 font-medium"
-                  }
-                  ${message.isVoice ? "italic text-slate-500" : ""}
-                `}
+                style={{
+                  maxWidth: "85%",
+                  padding: "10px 14px",
+                  fontSize: "13px",
+                  lineHeight: "1.6",
+                  borderRadius: message.sender === "bot" ? "2px 16px 16px 16px" : "16px 2px 16px 16px",
+                  background: message.sender === "bot" ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.06)",
+                  color: message.sender === "bot" ? "#334155" : "#1e293b",
+                  border: message.sender === "bot" ? "1px solid rgba(255,255,255,0.25)" : "1px solid rgba(0,0,0,0.06)",
+                  fontWeight: message.sender === "user" ? 500 : 400,
+                  fontStyle: message.isVoice ? "italic" : "normal",
+                  overflowWrap: "break-word",
+                  wordBreak: "break-word",
+                  whiteSpace: "pre-wrap",
+                }}
               >
-                {message.text}
+                {message.sender === "bot" && !message.isVoice
+                  ? renderBotText(message.text)
+                  : message.text}
               </div>
-              <span className="text-[10px] text-slate-400 mt-1.5 px-1 opacity-70">
+              <span style={{ fontSize: "10px", color: "#94a3b8", marginTop: "4px", paddingLeft: "4px", opacity: 0.7 }}>
                 {formatMessageTime(message.timestamp)}
               </span>
             </div>
           ))}
 
           {isTyping && (
-            <div className="flex flex-col items-start animate-pulse">
-              <div className="bg-white/40 backdrop-blur-md border border-white/20 px-4 py-3 rounded-2xl rounded-tl-sm flex gap-1.5 items-center">
-                <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></span>
-                <span
-                  className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"
-                  style={{ animationDelay: "0.1s" }}
-                ></span>
-                <span
-                  className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"
-                  style={{ animationDelay: "0.2s" }}
-                ></span>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+              <div style={{ background: "rgba(255,255,255,0.35)", border: "1px solid rgba(255,255,255,0.2)", padding: "10px 14px", borderRadius: "2px 16px 16px 16px", display: "flex", gap: "5px", alignItems: "center" }}>
+                {[0, 1, 2].map((i) => (
+                  <span key={i} style={{ width: "6px", height: "6px", background: "#94a3b8", borderRadius: "50%", animation: "bounce 1s infinite", animationDelay: `${i * 0.15}s` }} />
+                ))}
               </div>
             </div>
           )}
@@ -543,43 +605,39 @@ export const ChatWidget: React.FC = () => {
 
         {/* Recording Indicator */}
         {isRecording && (
-          <div className="px-4 pb-2">
-            <div className="bg-red-500/20 backdrop-blur-md border border-red-500/30 rounded-xl px-4 py-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span>
-                <span className="text-sm text-slate-700 font-medium">
-                  Recording
-                </span>
+          <div style={{ padding: "0 16px 8px" }}>
+            <div style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "12px", padding: "8px 14px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <span style={{ width: "8px", height: "8px", background: "#ef4444", borderRadius: "50%", animation: "pulse 1.5s infinite" }} />
+                <span style={{ fontSize: "13px", color: "#475569", fontWeight: 500 }}>Recording</span>
               </div>
-              <span className="text-sm text-slate-600 font-mono">
-                {formatTime(recordingTime)}
-              </span>
+              <span style={{ fontSize: "13px", color: "#64748b", fontFamily: "monospace" }}>{formatTime(recordingTime)}</span>
             </div>
           </div>
         )}
 
-        {/* Input Area */}
-        <div className="p-4">
+        {/* Input Area — flex-based layout for reliable cross-site rendering */}
+        <div style={{ padding: "12px 16px 16px", flexShrink: 0 }}>
           {error && (
-            <div className="mb-2 text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+            <div style={{ marginBottom: "8px", fontSize: "12px", color: "#ef4444", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", padding: "6px 10px" }}>
               {error}
             </div>
           )}
-          <div className="relative group">
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(255,255,255,0.2)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "14px", padding: "4px 4px 4px 14px" }}>
             <input
               type="text"
-              placeholder={isRecording ? "Recording… tap ■ to stop" : "Type a message…"}
-              className="
-                w-full
-                bg-white/20 hover:bg-white/30 focus:bg-white/40
-                backdrop-blur-xl
-                border border-white/20 focus:border-white/40
-                rounded-xl
-                py-3 pl-4 pr-24
-                text-sm text-slate-800 placeholder:text-slate-500
-                outline-none
-                transition-all duration-300
-              "
+              placeholder={isRecording ? "Recording… tap stop" : "Type a message…"}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                border: "none",
+                outline: "none",
+                background: "transparent",
+                fontSize: "13px",
+                color: "#1e293b",
+                padding: "8px 0",
+                fontFamily: "inherit",
+              }}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyPress}
@@ -589,37 +647,29 @@ export const ChatWidget: React.FC = () => {
             {/* Voice Button */}
             <button
               onClick={isRecording ? stopRecording : startRecording}
-              className={`
-                absolute right-12 top-1/2 -translate-y-1/2
-                p-1.5 rounded-lg
-                transition-all duration-300
-                ${
-                  isRecording
-                    ? "text-red-500 hover:text-red-600 bg-red-500/10 animate-pulse"
-                    : "text-slate-500 hover:text-slate-800"
-                }
-              `}
               title={isRecording ? "Stop recording" : "Record voice message"}
+              style={{
+                flexShrink: 0,
+                width: "34px",
+                height: "34px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: "10px",
+                border: "none",
+                cursor: "pointer",
+                background: isRecording ? "rgba(239,68,68,0.1)" : "transparent",
+                color: isRecording ? "#ef4444" : "#64748b",
+                transition: "all 0.2s",
+              }}
             >
               {isRecording ? (
-                /* Stop icon */
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <svg style={{ width: "18px", height: "18px" }} fill="currentColor" viewBox="0 0 24 24">
                   <rect x="6" y="6" width="12" height="12" rx="2" />
                 </svg>
               ) : (
-                /* Mic icon */
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-                  />
+                <svg style={{ width: "18px", height: "18px" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                 </svg>
               )}
             </button>
@@ -628,71 +678,55 @@ export const ChatWidget: React.FC = () => {
             <button
               onClick={handleSend}
               disabled={!inputValue.trim() || isRecording}
-              className="
-                absolute right-2 top-1/2 -translate-y-1/2
-                p-1.5 rounded-lg
-                text-slate-500 hover:text-slate-800
-                disabled:opacity-30
-                transition-all duration-300
-              "
+              style={{
+                flexShrink: 0,
+                width: "34px",
+                height: "34px",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: "10px",
+                border: "none",
+                cursor: !inputValue.trim() || isRecording ? "default" : "pointer",
+                background: inputValue.trim() && !isRecording ? "#2E3538" : "transparent",
+                color: inputValue.trim() && !isRecording ? "#fff" : "#94a3b8",
+                opacity: !inputValue.trim() || isRecording ? 0.4 : 1,
+                transition: "all 0.2s",
+              }}
             >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M5 12h14M12 5l7 7-7 7"
-                />
+              <svg style={{ width: "16px", height: "16px" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
               </svg>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Minimalist Launcher Button */}
-      <div
-        className={`flex justify-end transition-all duration-500 ease-out ${
-          isOpen
-            ? "opacity-0 translate-y-4 pointer-events-none"
-            : "opacity-100 translate-y-0"
-        }`}
-      >
+      {/* Launcher Button */}
+      <div style={{ display: "flex", justifyContent: "flex-end", transition: "all 0.4s ease-out", opacity: isOpen ? 0 : 1, transform: isOpen ? "translateY(8px)" : "translateY(0)", pointerEvents: isOpen ? "none" : "auto" }}>
         <button
           onClick={() => setIsOpen(true)}
-          className="
-            group
-            relative
-            bg-white/40 backdrop-blur-xl
-            hover:bg-white/50
-            p-3.5
-            rounded-full
-            shadow-lg shadow-black/5
-            transition-all duration-300 hover:scale-105 active:scale-95
-            border border-white/30
-            overflow-hidden
-          "
           aria-label="Open chat"
+          style={{
+            position: "relative",
+            background: "rgba(255,255,255,0.35)",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            padding: "14px",
+            borderRadius: "50%",
+            border: "1px solid rgba(255,255,255,0.3)",
+            boxShadow: "0 10px 25px -5px rgba(0,0,0,0.08)",
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            transition: "all 0.3s",
+          }}
         >
-          <div className="absolute inset-0 bg-gradient-to-tr from-slate-900/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-          <svg
-            className="w-5 h-5 text-slate-700 relative z-10 transition-transform group-hover:scale-110"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-            />
+          <svg style={{ width: "20px", height: "20px", color: "#475569" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
           </svg>
-          <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-slate-400 border-2 border-white shadow-sm"></span>
+          <span style={{ position: "absolute", top: "-2px", right: "-2px", width: "10px", height: "10px", borderRadius: "50%", background: "#94a3b8", border: "2px solid white" }} />
         </button>
       </div>
     </div>,

@@ -1,9 +1,12 @@
 import { betterAuth } from "better-auth";
 import Database from "better-sqlite3";
+import path from "path";
 
 type BetterAuthOptions = Parameters<typeof betterAuth>[0];
 
-export const db: InstanceType<typeof Database> = new Database("./sqlite.db");
+const dbPath = path.resolve(process.cwd(), "../../navbot.db");
+export const db: InstanceType<typeof Database> = new Database(dbPath);
+db.pragma("journal_mode = WAL");
 
 const hasGoogle = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 const hasGitHub = !!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET);

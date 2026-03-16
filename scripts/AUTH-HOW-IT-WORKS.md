@@ -7,14 +7,14 @@ Auth is handled by **[better-auth](https://better-auth.com)**. The **web app** (
 ```
 ┌─────────────────┐         ┌──────────────────┐         ┌─────────────────┐
 │   Web app       │  HTTP   │  Auth server      │  read/  │  SQLite DB      │
-│   (React)       │ ──────► │  (Express +       │ ──────► │  (sqlite.db)    │
-│   auth-client   │         │   better-auth)    │  write  │  in apps/server │
+│   (React)       │ ──────► │  (Express +       │ ──────► │  (navbot.db)    │
+│   auth-client   │         │   better-auth)    │  write  │  at repo root   │
 └─────────────────┘         └──────────────────┘         └─────────────────┘
 ```
 
 - **Web**: `apps/web/src/lib/auth-client.ts` — `createAuthClient({ baseURL: "http://localhost:3000" })`. All sign-in/sign-up/sign-out calls go to the auth server.
 - **Server**: `apps/server/src/auth.ts` — configures better-auth (database, email+password, Google/GitHub). `apps/server/src/index.ts` mounts `app.all("/api/auth/*", toNodeHandler(auth))`, so every path under `/api/auth/*` is handled by better-auth (e.g. `/api/auth/sign-in/email`, `/api/auth/sign-in/social`, `/api/auth/callback/google`).
-- **Database**: SQLite file **`apps/server/sqlite.db`** (created next to where the server is run). better-auth uses it to store users, sessions, and linked OAuth accounts.
+- **Database**: Single shared SQLite file **`navbot.db`** at the repo root. Both the auth server and the API server connect to this database. Auth tables (`user`, `session`, `account`, `verification`) and site metadata (`site`) all live here.
 
 ---
 
@@ -24,12 +24,12 @@ Auth is handled by **[better-auth](https://better-auth.com)**. The **web app** (
 
 | What | Where | Notes |
 |------|--------|------|
-| **User record** | `apps/server/sqlite.db` → table `user` | `id`, `name`, `email`, `emailVerified`, `image`, timestamps. One row per user. |
+| **User record** | `navbot.db` → table `user` | `id`, `name`, `email`, `emailVerified`, `image`, timestamps. One row per user. |
 | **Password hash** | Same DB → table `account` | Only for **email/password** sign-in. Column `password` stores a **hash** (better-auth uses a secure hash), not plain text. |
 | **Session** | Same DB → table `session` | `token`, `userId`, `expiresAt`, etc. Used to know who is logged in. |
 | **OAuth link** | Same DB → table `account` | For Google/GitHub: `providerId` (e.g. `"google"`), `accountId`, `userId`. No password stored; the provider’s tokens may be stored for API calls. |
 
-So: **credentials** (password hash and OAuth links) are stored **only on your server**, in **`apps/server/sqlite.db`**. The browser only gets a **session cookie/token** after sign-in.
+So: **credentials** (password hash and OAuth links) are stored **only on your server**, in **`navbot.db`** at the repo root. The browser only gets a **session cookie/token** after sign-in.
 
 ### 2. OAuth provider credentials (Google / GitHub)
 
@@ -76,4 +76,4 @@ Summary:
 4. **Session** → stored in `session` table; the client receives a session cookie/token and uses it for `getSession()` and protected routes (e.g. dashboard).  
 5. **Sign-out** → client calls `authClient.signOut()` → server invalidates the session.
 
-All persistent credential-related data (hashed passwords, OAuth account links, sessions) lives in **`apps/server/sqlite.db`**; the only “credentials” in the repo are the **OAuth app secrets** in **`apps/server/.env`** (which should not be committed).
+All persistent credential-related data (hashed passwords, OAuth account links, sessions) lives in **`navbot.db`** at the repo root; the only “credentials” in the repo are the **OAuth app secrets** in **`apps/server/.env`** (which should not be committed).

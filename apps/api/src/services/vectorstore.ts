@@ -307,6 +307,21 @@ export interface RetrievedDoc {
 }
 
 // ---------------------------------------------------------------------------
+// Delete an entire site collection from ChromaDB
+// ---------------------------------------------------------------------------
+export async function deleteSiteCollection(siteId: string): Promise<boolean> {
+  const name = `${COLLECTION_PREFIX}${siteId}`;
+  try {
+    await client.deleteCollection({ name });
+    console.log(`Deleted ChromaDB collection: ${name}`);
+    return true;
+  } catch (err) {
+    console.error(`Failed to delete collection ${name}:`, err);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Query — supports multiple query strings for multi-pass retrieval
 // ---------------------------------------------------------------------------
 export async function querySiteDocs(params: {
