@@ -1,11 +1,12 @@
 import { Code, ArrowRight } from "lucide-react";
 import { CodeSnippet } from "../components/Codesnippet";
 
-interface HomePageProps {
+export interface HomePageProps {
     onViewChange: (view: string) => void;
+    onGetStarted: () => void;
 }
 
-export const HomePage = ({ onViewChange }: HomePageProps) => {
+export const HomePage = ({ onViewChange, onGetStarted }: HomePageProps) => {
     return (
         <div className="animate-fade-in-up">
             {/* Hero Section */}
@@ -178,10 +179,10 @@ export const HomePage = ({ onViewChange }: HomePageProps) => {
 
                     <div className="flex flex-col sm:flex-row gap-6 justify-center">
                         <button
-                            onClick={() => onViewChange("get-started")}
-                            className="group inline-flex items-center justify-center px-10 py-5 bg-[#478EDB] text-white rounded-full font-bold text-lg hover:bg-[#3b7ac2] transition-all duration-300 shadow-xl shadow-[#478EDB]/20 hover:shadow-[#478EDB]/40 hover:-translate-y-1"
+                            onClick={onGetStarted}
+                            className="group inline-flex items-center justify-center gap-3 px-10 py-5 bg-[#478EDB] text-white rounded-full font-bold text-lg hover:bg-[#3b7ac2] transition-all duration-300 shadow-xl shadow-[#478EDB]/20 hover:shadow-[#478EDB]/40 hover:-translate-y-1"
                         >
-                            Demo
+                            Get Started <ArrowRight className="w-5 h-5" />
                         </button>
                     </div>
                 </div>

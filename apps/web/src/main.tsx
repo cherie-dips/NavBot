@@ -49,10 +49,22 @@ const App = () => {
     setCurrentView("home");
   };
 
+  const [postAuthView, setPostAuthView] = useState<string>("dashboard");
+
   const handleGetStartedNav = () => {
     if (isAuthed) {
       setCurrentView("dashboard");
     } else {
+      setPostAuthView("dashboard");
+      setCurrentView("auth");
+    }
+  };
+
+  const handleGetStartedCTA = () => {
+    if (isAuthed) {
+      setCurrentView("get-started");
+    } else {
+      setPostAuthView("get-started");
       setCurrentView("auth");
     }
   };
@@ -67,7 +79,7 @@ const App = () => {
         onGetStartedClick={handleGetStartedNav}
       />
 
-      {currentView === "home" && <HomePage onViewChange={setCurrentView} />}
+      {currentView === "home" && <HomePage onViewChange={setCurrentView} onGetStarted={handleGetStartedCTA} />}
       {currentView === "contact" && <ContactPage />}
       {currentView === "features" && <FeaturesPage />}
       {currentView === "get-started" && <GetStartedPage />}
@@ -76,7 +88,8 @@ const App = () => {
           onViewChange={setCurrentView}
           onAuthSuccess={() => {
             setIsAuthed(true);
-            setCurrentView("dashboard");
+            setCurrentView(postAuthView);
+            setPostAuthView("dashboard");
           }}
         />
       )}
