@@ -60,6 +60,9 @@ importers:
         specifier: ^1.1.6
         version: 1.1.6
     devDependencies:
+      '@repo/color-extractor':
+        specifier: workspace:*
+        version: link:../../packages/color-extractor
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config
@@ -219,6 +222,22 @@ importers:
       vite-plugin-css-injected-by-js:
         specifier: ^3.5.0
         version: 3.5.2(vite@5.4.17)
+
+  packages/color-extractor:
+    dependencies:
+      cheerio:
+        specifier: ^1.0.0-rc.12
+        version: 1.2.0
+      node-fetch:
+        specifier: ^3.3.2
+        version: 3.3.2
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      typescript:
+        specifier: 5.5.4
+        version: 5.5.4
 
   packages/eslint-config:
     dependencies:

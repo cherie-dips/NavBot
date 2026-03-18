@@ -10,10 +10,6 @@ interface Message {
   isVoice?: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Lightweight markdown renderer for bot messages.
-// Handles: line breaks, **bold**, bullet/numbered lists, and source URLs.
-// ---------------------------------------------------------------------------
 function renderBotText(raw: string): React.ReactNode {
   const lines = raw.split("\n");
   const elements: React.ReactNode[] = [];
@@ -33,36 +29,25 @@ function renderBotText(raw: string): React.ReactNode {
 
   const formatInline = (text: string): React.ReactNode => {
     const parts: React.ReactNode[] = [];
-    let remaining = text;
-    let idx = 0;
     const boldRe = /\*\*(.+?)\*\*/g;
     let match: RegExpExecArray | null;
     let lastEnd = 0;
-    while ((match = boldRe.exec(remaining)) !== null) {
-      if (match.index > lastEnd) {
-        parts.push(remaining.slice(lastEnd, match.index));
-      }
+    let idx = 0;
+    while ((match = boldRe.exec(text)) !== null) {
+      if (match.index > lastEnd) parts.push(text.slice(lastEnd, match.index));
       parts.push(<strong key={`b-${idx++}`}>{match[1]}</strong>);
       lastEnd = match.index + match[0].length;
     }
-    if (lastEnd < remaining.length) {
-      parts.push(remaining.slice(lastEnd));
-    }
+    if (lastEnd < text.length) parts.push(text.slice(lastEnd));
     return parts.length === 1 ? parts[0] : <>{parts}</>;
   };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     const trimmed = line.trim();
-
-    if (trimmed === "") {
-      flushList();
-      continue;
-    }
-
+    if (trimmed === "") { flushList(); continue; }
     const bulletMatch = trimmed.match(/^[-•*]\s+(.+)/);
     const numberMatch = trimmed.match(/^\d+[.)]\s+(.+)/);
-
     if (bulletMatch) {
       if (listType !== "ul") flushList();
       listType = "ul";
@@ -76,16 +61,22 @@ function renderBotText(raw: string): React.ReactNode {
       elements.push(<p key={`p-${i}`} style={{ margin: "4px 0" }}>{formatInline(trimmed)}</p>);
     }
   }
-
   flushList();
   return <>{elements}</>;
 }
 
-type ChatRole = "user" | "assistant";
+type WidgetTheme = {
+  primary?: string;
+  launcherBg?: string;
+  botBubbleBg?: string;
+  userBubbleBg?: string;
+  headerTextColor?: string;
+};
 
 type NavbotConfig = {
   apiBase?: string;
   siteId?: string;
+  theme?: WidgetTheme;
 };
 
 declare global {
@@ -94,7 +85,15 @@ declare global {
   }
 }
 
-const getConfig = (): Required<NavbotConfig> => {
+const DEFAULT_THEME: Required<WidgetTheme> = {
+  primary: "#2E3538",
+  launcherBg: "#2E3538",
+  botBubbleBg: "rgba(255,255,255,0.4)",
+  userBubbleBg: "rgba(0,0,0,0.06)",
+  headerTextColor: "#2E3538",
+};
+
+const getConfig = (): { apiBase: string; siteId: string; theme: Required<WidgetTheme> } => {
   const globalConfig =
     typeof window !== "undefined" ? window.NAVBOT_CONFIG || {} : {};
   const apiBase =
@@ -107,16 +106,25 @@ const getConfig = (): Required<NavbotConfig> => {
     (typeof window !== "undefined"
       ? window.location.hostname || "unknown-site"
       : "unknown-site");
-
-  return { apiBase, siteId };
+  const theme: Required<WidgetTheme> = { ...DEFAULT_THEME, ...(globalConfig.theme ?? {}) };
+  return { apiBase, siteId, theme };
 };
 
-// ---------------------------------------------------------------------------
-// localStorage helpers — keyed by siteId so different sites never share state
-// ---------------------------------------------------------------------------
-function getHistoryKey(siteId: string) {
-  return `navbot_history_${siteId}`;
+// Determine readable text color on top of a background hex
+function textOnBg(hex: string): string {
+  try {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    if (isNaN(r) || isNaN(g) || isNaN(b)) return "#ffffff";
+    const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    return lum > 0.55 ? "#1e293b" : "#ffffff";
+  } catch {
+    return "#ffffff";
+  }
 }
+
+function getHistoryKey(siteId: string) { return `navbot_history_${siteId}`; }
 
 function loadHistory(siteId: string): Message[] {
   try {
@@ -124,32 +132,18 @@ function loadHistory(siteId: string): Message[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as Message[];
     return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 function saveHistory(siteId: string, messages: Message[]) {
-  try {
-    // Keep last 50 messages to avoid storage quota issues
-    const trimmed = messages.slice(-50);
-    localStorage.setItem(getHistoryKey(siteId), JSON.stringify(trimmed));
-  } catch {
-    // Storage quota exceeded or unavailable — fail silently
-  }
+  try { localStorage.setItem(getHistoryKey(siteId), JSON.stringify(messages.slice(-50))); }
+  catch { /* quota exceeded */ }
 }
 
 function clearHistory(siteId: string) {
-  try {
-    localStorage.removeItem(getHistoryKey(siteId));
-  } catch {
-    // ignore
-  }
+  try { localStorage.removeItem(getHistoryKey(siteId)); } catch { /* ignore */ }
 }
 
-// ---------------------------------------------------------------------------
-// Default welcome message
-// ---------------------------------------------------------------------------
 const WELCOME_MESSAGE: Message = {
   id: 1,
   text: "Hi there! 👋 How can I help you today?",
@@ -157,23 +151,17 @@ const WELCOME_MESSAGE: Message = {
   timestamp: new Date().toISOString(),
 };
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
+
 export const ChatWidget: React.FC = () => {
-  const { apiBase, siteId } = getConfig();
+  const { apiBase, siteId, theme } = getConfig();
 
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
-
-  // Restore history from localStorage on first mount — this is what keeps
-  // chat intact across page navigations and refreshes.
   const [messages, setMessages] = useState<Message[]>(() => {
     if (typeof window === "undefined") return [WELCOME_MESSAGE];
     const saved = loadHistory(siteId);
     return saved.length > 0 ? saved : [WELCOME_MESSAGE];
   });
-
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -184,29 +172,12 @@ export const ChatWidget: React.FC = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingIntervalRef = useRef<number | null>(null);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  type ChatRole = "user" | "assistant";
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  useEffect(() => { return () => { if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current); }; }, []);
 
-  useEffect(() => {
-    return () => {
-      if (recordingIntervalRef.current) {
-        clearInterval(recordingIntervalRef.current);
-      }
-    };
-  }, []);
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  // ---------------------------------------------------------------------------
-  // Add a message and immediately persist to localStorage
-  // ---------------------------------------------------------------------------
   const addMessage = (msg: Message) => {
     setMessages((prev) => {
       const updated = [...prev, msg];
@@ -215,282 +186,108 @@ export const ChatWidget: React.FC = () => {
     });
   };
 
-  // ---------------------------------------------------------------------------
-  // Build the history payload for the API — only role + content, last 10 turns
-  // ---------------------------------------------------------------------------
-  const buildApiHistory = (
-    currentMessages: Message[]
-  ): Array<{ role: ChatRole; content: string }> =>
-    currentMessages
-      .filter((m) => !m.isVoice)
-      .slice(-10)
-      .map((m) => ({
-        role: m.sender === "user" ? "user" : "assistant",
-        content: m.text,
-      }));
+  const buildApiHistory = (currentMessages: Message[]): Array<{ role: ChatRole; content: string }> =>
+    currentMessages.filter((m) => !m.isVoice).slice(-10).map((m) => ({
+      role: m.sender === "user" ? "user" : "assistant",
+      content: m.text,
+    }));
 
-  // ---------------------------------------------------------------------------
-  // Clear chat and reset to welcome message
-  // ---------------------------------------------------------------------------
   const handleClearChat = () => {
     clearHistory(siteId);
     setMessages([{ ...WELCOME_MESSAGE, timestamp: new Date().toISOString() }]);
     setError(null);
   };
 
-  // ---------------------------------------------------------------------------
-  // Send text message
-  // ---------------------------------------------------------------------------
   const handleSend = () => {
     if (!inputValue.trim()) return;
-
     setError(null);
-
-    const userMessage: Message = {
-      id: Date.now(),
-      text: inputValue,
-      sender: "user",
-      timestamp: new Date().toISOString(),
-    };
-
-    // Capture current messages + new user message to build history
+    const userMessage: Message = { id: Date.now(), text: inputValue, sender: "user", timestamp: new Date().toISOString() };
     const messagesWithUser = [...messages, userMessage];
     addMessage(userMessage);
     setInputValue("");
     setIsTyping(true);
-
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${apiBase}/api/chat`);
     xhr.setRequestHeader("Content-Type", "application/json");
     xhr.onload = () => {
       try {
-        if (xhr.status < 200 || xhr.status >= 300) {
-          throw new Error(`Chat request failed with status ${xhr.status}`);
-        }
+        if (xhr.status < 200 || xhr.status >= 300) throw new Error(`Chat request failed with status ${xhr.status}`);
         const data = JSON.parse(xhr.responseText) as { answer: string };
-        const botMessage: Message = {
-          id: Date.now() + 1,
-          text: data.answer || "Sorry, I couldn't generate a response.",
-          sender: "bot",
-          timestamp: new Date().toISOString(),
-        };
-        addMessage(botMessage);
+        addMessage({ id: Date.now() + 1, text: data.answer || "Sorry, I couldn't generate a response.", sender: "bot", timestamp: new Date().toISOString() });
       } catch (e) {
         console.error("Chat error:", e);
-        setError(
-          "Something went wrong talking to the assistant. Please try again."
-        );
-        addMessage({
-          id: Date.now() + 2,
-          text: "I'm having trouble connecting right now. Please try again in a moment.",
-          sender: "bot",
-          timestamp: new Date().toISOString(),
-        });
-      } finally {
-        setIsTyping(false);
-      }
+        setError("Something went wrong talking to the assistant. Please try again.");
+        addMessage({ id: Date.now() + 2, text: "I'm having trouble connecting right now. Please try again in a moment.", sender: "bot", timestamp: new Date().toISOString() });
+      } finally { setIsTyping(false); }
     };
-    xhr.onerror = () => {
-      console.error("Chat network error");
-      setError(
-        "Something went wrong talking to the assistant. Please try again."
-      );
-      setError(
-        "Something went wrong talking to the assistant. Please try again."
-      );
-      setIsTyping(false);
-    };
-    xhr.send(
-      JSON.stringify({
-        siteId,
-        message: userMessage.text,
-        // Send history built from the snapshot that includes the user message
-        history: buildApiHistory(messagesWithUser),
-      })
-    );
+    xhr.onerror = () => { console.error("Chat network error"); setError("Something went wrong talking to the assistant."); setIsTyping(false); };
+    xhr.send(JSON.stringify({ siteId, message: userMessage.text, history: buildApiHistory(messagesWithUser) }));
   };
 
-  // -------------------------------------------------------------------------
-  // Voice recording
-  // -------------------------------------------------------------------------
   const startRecording = () => {
     setError(null);
-    navigator.mediaDevices
-      .getUserMedia({ audio: true })
-      .then((stream) => {
-        // Prefer audio/webm; fall back to whatever the browser supports
-        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-          ? "audio/webm;codecs=opus"
-          : MediaRecorder.isTypeSupported("audio/webm")
-          ? "audio/webm"
-          : "";
-
-        const mediaRecorder = mimeType
-          ? new MediaRecorder(stream, { mimeType })
-          : new MediaRecorder(stream);
-
-        mediaRecorderRef.current = mediaRecorder;
-
-        const audioChunks: Blob[] = [];
-
-        mediaRecorder.ondataavailable = (event) => {
-          if (event.data.size > 0) audioChunks.push(event.data);
-        };
-
-        mediaRecorder.onstop = () => {
-          const resolvedMime =
-            mediaRecorder.mimeType || mimeType || "audio/webm";
-          const audioBlob = new Blob(audioChunks, { type: resolvedMime });
-
-          // Show a placeholder while we wait for transcription
-          const placeholderId = Date.now();
-          const placeholder: Message = {
-            id: placeholderId,
-            text: `🎤 Voice message (${recordingTime}s) — transcribing…`,
-            sender: "user",
-            timestamp: new Date().toISOString(),
-            isVoice: true,
-          };
-          setMessages((prev) => [...prev, placeholder]);
-          setIsTyping(true);
-
-          // Capture history BEFORE appending the placeholder (voice msgs are excluded anyway)
-          const historySnapshot = buildApiHistory(messages);
-
-          const formData = new FormData();
-          // formData.append("audio", audioBlob, `voice.${resolvedMime.includes("ogg") ? "ogg" : resolvedMime.includes("wav") ? "wav" : "webm"}`);
-          formData.append(
-            "audio",
-            audioBlob,
-            `voice.${
-              resolvedMime.indexOf("ogg") !== -1
-                ? "ogg"
-                : resolvedMime.indexOf("wav") !== -1
-                ? "wav"
-                : "webm"
-            }`
-          );
-          formData.append("siteId", siteId);
-          // Send history so the bot has context
-          formData.append("history", JSON.stringify(historySnapshot));
-
-          const xhr = new XMLHttpRequest();
-          xhr.open("POST", `${apiBase}/api/chat/voice`);
-          xhr.onload = () => {
-            try {
-              if (xhr.status < 200 || xhr.status >= 300) {
-                throw new Error(
-                  `Voice request failed with status ${xhr.status}`
-                );
-              }
-              const data = JSON.parse(xhr.responseText) as {
-                answer: string;
-                transcript?: string | null;
-                error?: string;
-              };
-
-              // Replace the placeholder with the real transcript (if available)
-              setMessages((prev) =>
-                prev.map((m) =>
-                  m.id === placeholderId
-                    ? {
-                        ...m,
-                        text: data.transcript
-                          ? `🎤 "${data.transcript}"`
-                          : `🎤 Voice message (${recordingTime}s)`,
-                      }
-                    : m
-                )
-              );
-
-              const botMessage: Message = {
-                id: Date.now() + 1,
-                text: data.answer || "I received your voice message.",
-                sender: "bot",
-                timestamp: new Date().toISOString(),
-              };
-              setMessages((prev) => [...prev, botMessage]);
-            } catch (err) {
-              console.error("Voice chat error:", err);
-              setError(
-                "Could not process voice message. Please try typing instead."
-              );
-              // Remove the placeholder on error
-              setMessages((prev) =>
-                prev.filter((m) => m.id !== placeholderId)
-              );
-            } finally {
-              setIsTyping(false);
-            }
-          };
-          xhr.onerror = () => {
-            console.error("Voice chat network error");
-            setError(
-              "Could not process voice message. Please try typing instead."
-            );
+    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "";
+      const mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      const audioChunks: Blob[] = [];
+      mediaRecorder.ondataavailable = (event) => { if (event.data.size > 0) audioChunks.push(event.data); };
+      mediaRecorder.onstop = () => {
+        const resolvedMime = mediaRecorder.mimeType || mimeType || "audio/webm";
+        const audioBlob = new Blob(audioChunks, { type: resolvedMime });
+        const placeholderId = Date.now();
+        const placeholder: Message = { id: placeholderId, text: `🎤 Voice message (${recordingTime}s) — transcribing…`, sender: "user", timestamp: new Date().toISOString(), isVoice: true };
+        setMessages((prev) => [...prev, placeholder]);
+        setIsTyping(true);
+        const historySnapshot = buildApiHistory(messages);
+        const formData = new FormData();
+        formData.append("audio", audioBlob, `voice.${resolvedMime.indexOf("ogg") !== -1 ? "ogg" : resolvedMime.indexOf("wav") !== -1 ? "wav" : "webm"}`);
+        formData.append("siteId", siteId);
+        formData.append("history", JSON.stringify(historySnapshot));
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", `${apiBase}/api/chat/voice`);
+        xhr.onload = () => {
+          try {
+            if (xhr.status < 200 || xhr.status >= 300) throw new Error(`Voice request failed with status ${xhr.status}`);
+            const data = JSON.parse(xhr.responseText) as { answer: string; transcript?: string | null; error?: string };
+            setMessages((prev) => prev.map((m) => m.id === placeholderId ? { ...m, text: data.transcript ? `🎤 "${data.transcript}"` : `🎤 Voice message (${recordingTime}s)` } : m));
+            addMessage({ id: Date.now() + 1, text: data.answer || "I received your voice message.", sender: "bot", timestamp: new Date().toISOString() });
+          } catch (err) {
+            console.error("Voice chat error:", err);
+            setError("Could not process voice message. Please try typing instead.");
             setMessages((prev) => prev.filter((m) => m.id !== placeholderId));
-            setIsTyping(false);
-          };
-          xhr.send(formData);
-
-          // Release mic
-          stream.getTracks().forEach((track) => track.stop());
+          } finally { setIsTyping(false); }
         };
-
-        mediaRecorder.start();
-        setIsRecording(true);
-        setRecordingTime(0);
-
-        recordingIntervalRef.current = window.setInterval(() => {
-          setRecordingTime((prev) => prev + 1);
-        }, 1000);
-      })
-      .catch((err) => {
-        console.error("Error accessing microphone:", err);
-        setError(
-          "Could not access microphone. Please check your browser permissions."
-        );
-      });
+        xhr.onerror = () => { console.error("Voice chat network error"); setError("Could not process voice message."); setMessages((prev) => prev.filter((m) => m.id !== placeholderId)); setIsTyping(false); };
+        xhr.send(formData);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      recordingIntervalRef.current = window.setInterval(() => { setRecordingTime((prev) => prev + 1); }, 1000);
+    }).catch((err) => { console.error("Mic error:", err); setError("Could not access microphone. Please check your browser permissions."); });
   };
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
-      if (recordingIntervalRef.current) {
-        clearInterval(recordingIntervalRef.current);
-      }
+      if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current);
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+  const handleKeyPress = (e: React.KeyboardEvent) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs < 10 ? "0" + secs : secs}`;
-  };
+  const formatTime = (seconds: number) => { const mins = Math.floor(seconds / 60); const secs = seconds % 60; return `${mins}:${secs < 10 ? "0" + secs : secs}`; };
 
-  // Parse ISO timestamp safely for display
   const formatMessageTime = (timestamp: string) => {
-    try {
-      return new Date(timestamp).toLocaleTimeString([], {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    } catch {
-      return "";
-    }
+    try { return new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }); }
+    catch { return ""; }
   };
 
   if (!mounted) return null;
 
-  // Inline reset styles to isolate the widget from host CSS
   const resetStyle: React.CSSProperties = {
     all: "initial",
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
@@ -504,6 +301,9 @@ export const ChatWidget: React.FC = () => {
     right: "24px",
     zIndex: 9999,
   };
+
+  const textOnLauncher = textOnBg(theme.launcherBg);
+  const textOnPrimary = textOnBg(theme.primary);
 
   return createPortal(
     <div style={resetStyle}>
@@ -531,59 +331,43 @@ export const ChatWidget: React.FC = () => {
       >
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", flexShrink: 0, borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
-          <span style={{ fontWeight: 600, fontSize: "14px", fontStyle: "italic", color: "#2E3538", letterSpacing: "-0.02em", fontFamily: "Georgia, serif" }}>
+          <span style={{ fontWeight: 600, fontSize: "14px", fontStyle: "italic", color: theme.headerTextColor, letterSpacing: "-0.02em", fontFamily: "Georgia, serif" }}>
             navbot
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
-            <button
-              onClick={handleClearChat}
-              title="Refresh chat"
-              style={{ background: "none", border: "none", cursor: "pointer", padding: "6px", borderRadius: "50%", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center" }}
+            <button onClick={handleClearChat} title="Refresh chat" style={{ background: "none", border: "none", cursor: "pointer", padding: "6px", borderRadius: "50%", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center" }}
               onMouseEnter={(e) => { e.currentTarget.style.color = "#475569"; e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "none"; }}
-            >
+              onMouseLeave={(e) => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "none"; }}>
               <MdOutlineRefresh style={{ width: "16px", height: "16px" }} />
             </button>
-            <button
-              onClick={() => setIsOpen(false)}
-              style={{ background: "none", border: "none", cursor: "pointer", padding: "6px", borderRadius: "50%", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center" }}
+            <button onClick={() => setIsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: "6px", borderRadius: "50%", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center" }}
               onMouseEnter={(e) => { e.currentTarget.style.color = "#475569"; e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "none"; }}
-            >
-              <svg style={{ width: "16px", height: "16px" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              onMouseLeave={(e) => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "none"; }}>
+              <svg style={{ width: "16px", height: "16px" }} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </div>
         </div>
 
-        {/* Messages Area */}
+        {/* Messages */}
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: "12px" }}>
           {messages.map((message) => (
-            <div
-              key={message.id}
-              style={{ display: "flex", flexDirection: "column", alignItems: message.sender === "user" ? "flex-end" : "flex-start" }}
-            >
-              <div
-                style={{
-                  maxWidth: "85%",
-                  padding: "10px 14px",
-                  fontSize: "13px",
-                  lineHeight: "1.6",
-                  borderRadius: message.sender === "bot" ? "2px 16px 16px 16px" : "16px 2px 16px 16px",
-                  background: message.sender === "bot" ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.06)",
-                  color: message.sender === "bot" ? "#334155" : "#1e293b",
-                  border: message.sender === "bot" ? "1px solid rgba(255,255,255,0.25)" : "1px solid rgba(0,0,0,0.06)",
-                  fontWeight: message.sender === "user" ? 500 : 400,
-                  fontStyle: message.isVoice ? "italic" : "normal",
-                  overflowWrap: "break-word",
-                  wordBreak: "break-word",
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                {message.sender === "bot" && !message.isVoice
-                  ? renderBotText(message.text)
-                  : message.text}
+            <div key={message.id} style={{ display: "flex", flexDirection: "column", alignItems: message.sender === "user" ? "flex-end" : "flex-start" }}>
+              <div style={{
+                maxWidth: "85%",
+                padding: "10px 14px",
+                fontSize: "13px",
+                lineHeight: "1.6",
+                borderRadius: message.sender === "bot" ? "2px 16px 16px 16px" : "16px 2px 16px 16px",
+                background: message.sender === "bot" ? theme.botBubbleBg : theme.userBubbleBg,
+                color: message.sender === "bot" ? "#334155" : "#1e293b",
+                border: message.sender === "bot" ? "1px solid rgba(255,255,255,0.25)" : "1px solid rgba(0,0,0,0.06)",
+                fontWeight: message.sender === "user" ? 500 : 400,
+                fontStyle: message.isVoice ? "italic" : "normal",
+                overflowWrap: "break-word",
+                wordBreak: "break-word",
+                whiteSpace: "pre-wrap",
+              }}>
+                {message.sender === "bot" && !message.isVoice ? renderBotText(message.text) : message.text}
               </div>
               <span style={{ fontSize: "10px", color: "#94a3b8", marginTop: "4px", paddingLeft: "4px", opacity: 0.7 }}>
                 {formatMessageTime(message.timestamp)}
@@ -593,7 +377,7 @@ export const ChatWidget: React.FC = () => {
 
           {isTyping && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-              <div style={{ background: "rgba(255,255,255,0.35)", border: "1px solid rgba(255,255,255,0.2)", padding: "10px 14px", borderRadius: "2px 16px 16px 16px", display: "flex", gap: "5px", alignItems: "center" }}>
+              <div style={{ background: theme.botBubbleBg, border: "1px solid rgba(255,255,255,0.2)", padding: "10px 14px", borderRadius: "2px 16px 16px 16px", display: "flex", gap: "5px", alignItems: "center" }}>
                 {[0, 1, 2].map((i) => (
                   <span key={i} style={{ width: "6px", height: "6px", background: "#94a3b8", borderRadius: "50%", animation: "bounce 1s infinite", animationDelay: `${i * 0.15}s` }} />
                 ))}
@@ -616,7 +400,7 @@ export const ChatWidget: React.FC = () => {
           </div>
         )}
 
-        {/* Input Area — flex-based layout for reliable cross-site rendering */}
+        {/* Input Area */}
         <div style={{ padding: "12px 16px 16px", flexShrink: 0 }}>
           {error && (
             <div style={{ marginBottom: "8px", fontSize: "12px", color: "#ef4444", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", padding: "6px 10px" }}>
@@ -627,73 +411,34 @@ export const ChatWidget: React.FC = () => {
             <input
               type="text"
               placeholder={isRecording ? "Recording… tap stop" : "Type a message…"}
-              style={{
-                flex: 1,
-                minWidth: 0,
-                border: "none",
-                outline: "none",
-                background: "transparent",
-                fontSize: "13px",
-                color: "#1e293b",
-                padding: "8px 0",
-                fontFamily: "inherit",
-              }}
+              style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontSize: "13px", color: "#1e293b", padding: "8px 0", fontFamily: "inherit" }}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyPress}
               disabled={isRecording}
             />
-
             {/* Voice Button */}
-            <button
-              onClick={isRecording ? stopRecording : startRecording}
-              title={isRecording ? "Stop recording" : "Record voice message"}
-              style={{
-                flexShrink: 0,
-                width: "34px",
-                height: "34px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: "10px",
-                border: "none",
-                cursor: "pointer",
-                background: isRecording ? "rgba(239,68,68,0.1)" : "transparent",
-                color: isRecording ? "#ef4444" : "#64748b",
-                transition: "all 0.2s",
-              }}
-            >
-              {isRecording ? (
-                <svg style={{ width: "18px", height: "18px" }} fill="currentColor" viewBox="0 0 24 24">
-                  <rect x="6" y="6" width="12" height="12" rx="2" />
-                </svg>
-              ) : (
-                <svg style={{ width: "18px", height: "18px" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-                </svg>
-              )}
+            <button onClick={isRecording ? stopRecording : startRecording} title={isRecording ? "Stop recording" : "Record voice message"}
+              style={{ flexShrink: 0, width: "34px", height: "34px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "10px", border: "none", cursor: "pointer", background: isRecording ? "rgba(239,68,68,0.1)" : "transparent", color: isRecording ? "#ef4444" : "#64748b", transition: "all 0.2s" }}>
+              {isRecording
+                ? <svg style={{ width: "18px", height: "18px" }} fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
+                : <svg style={{ width: "18px", height: "18px" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
+              }
             </button>
-
-            {/* Send Button */}
+            {/* Send Button — themed */}
             <button
               onClick={handleSend}
               disabled={!inputValue.trim() || isRecording}
               style={{
-                flexShrink: 0,
-                width: "34px",
-                height: "34px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: "10px",
-                border: "none",
+                flexShrink: 0, width: "34px", height: "34px",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                borderRadius: "10px", border: "none",
                 cursor: !inputValue.trim() || isRecording ? "default" : "pointer",
-                background: inputValue.trim() && !isRecording ? "#2E3538" : "transparent",
-                color: inputValue.trim() && !isRecording ? "#fff" : "#94a3b8",
+                background: inputValue.trim() && !isRecording ? theme.primary : "transparent",
+                color: inputValue.trim() && !isRecording ? textOnPrimary : "#94a3b8",
                 opacity: !inputValue.trim() || isRecording ? 0.4 : 1,
                 transition: "all 0.2s",
-              }}
-            >
+              }}>
               <svg style={{ width: "16px", height: "16px" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M12 5l7 7-7 7" />
               </svg>
@@ -702,31 +447,33 @@ export const ChatWidget: React.FC = () => {
         </div>
       </div>
 
-      {/* Launcher Button */}
+      {/* Launcher Button — themed */}
       <div style={{ display: "flex", justifyContent: "flex-end", transition: "all 0.4s ease-out", opacity: isOpen ? 0 : 1, transform: isOpen ? "translateY(8px)" : "translateY(0)", pointerEvents: isOpen ? "none" : "auto" }}>
         <button
           onClick={() => setIsOpen(true)}
           aria-label="Open chat"
           style={{
             position: "relative",
-            background: "rgba(255,255,255,0.35)",
+            background: theme.launcherBg,
             backdropFilter: "blur(24px)",
             WebkitBackdropFilter: "blur(24px)",
             padding: "14px",
             borderRadius: "50%",
             border: "1px solid rgba(255,255,255,0.3)",
-            boxShadow: "0 10px 25px -5px rgba(0,0,0,0.08)",
+            boxShadow: `0 10px 25px -5px ${theme.launcherBg}40, 0 4px 8px -2px rgba(0,0,0,0.08)`,
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             transition: "all 0.3s",
           }}
+          onMouseEnter={(e) => { e.currentTarget.style.transform = "scale(1.06)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.transform = "scale(1)"; }}
         >
-          <svg style={{ width: "20px", height: "20px", color: "#475569" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg style={{ width: "20px", height: "20px", color: textOnLauncher }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
           </svg>
-          <span style={{ position: "absolute", top: "-2px", right: "-2px", width: "10px", height: "10px", borderRadius: "50%", background: "#94a3b8", border: "2px solid white" }} />
+          <span style={{ position: "absolute", top: "-2px", right: "-2px", width: "10px", height: "10px", borderRadius: "50%", background: "#22c55e", border: "2px solid white" }} />
         </button>
       </div>
     </div>,

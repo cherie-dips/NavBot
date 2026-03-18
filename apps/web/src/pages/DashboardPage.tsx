@@ -33,6 +33,7 @@ import {
   mockStats, mockQueryHistory, mockTopQueries,
   mockFaqs, mockSocialMedia, mockVisitorInteractions, mockRecentConversations
 } from "../lib/mock-data";
+import { WidgetTheme } from "../components/ColorThemePicker";
 
 interface DashboardPageProps {
   onViewChange: (view: string) => void;
@@ -49,6 +50,7 @@ interface Website {
   pagesIndexed: number;
   lastCrawled: string;
   addedAt: string;
+  widgetTheme: WidgetTheme | null;
 }
 
 interface IntegrationInfo {
@@ -119,6 +121,7 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
                 pagesIndexed: s.pagesIndexed,
                 lastCrawled: s.lastCrawled,
                 addedAt: s.addedAt,
+                widgetTheme: s.widgetTheme ?? null
               }))
             );
           })
@@ -178,6 +181,7 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
               pagesIndexed: result.stored,
               lastCrawled: "Just now",
               addedAt: new Date().toISOString().split("T")[0],
+              widgetTheme: result.widgetTheme ?? null,
             },
           ]);
           setIsScraping(false);
@@ -209,7 +213,12 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
           </button>
         </div>
         <div className="max-w-[1400px] mx-auto px-6 pb-12">
-          <IntegrationPanel info={info} />
+          <IntegrationPanel
+            info={info}
+            userId={user?.id ?? ""}
+            apiBase={API_BASE}
+            initialTheme={integrationSite?.widgetTheme ?? null}
+          />
         </div>
       </div>
     );

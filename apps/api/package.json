@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
+    "@repo/color-extractor": "workspace:*",
     "@types/better-sqlite3": "^7.6.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",

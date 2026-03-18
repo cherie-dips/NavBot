@@ -5,7 +5,9 @@ interface ScrapingPageProps {
   websiteUrl: string;
   userId?: string;
   apiBase: string;
-  onComplete: (result: { siteId: string; pageCount: number; stored: number }) => void;
+  onComplete: (result: {
+    [x: string]: null; siteId: string; pageCount: number; stored: number 
+}) => void;
   onError: (message: string) => void;
 }
 
