@@ -160,3 +160,42 @@ export function startAutoSync(): void {
 
 /** Manual trigger (e.g., from a route or CLI) */
 export { runAutoSync };
+
+// ---------------------------------------------------------------------------
+// Per-site on-demand sync (called from widget ping)
+// ---------------------------------------------------------------------------
+const activeSyncs = new Set<string>();
+const COOLDOWN_MS = 5 * 60 * 1000; // 5 min cooldown per site
+const lastSyncTime = new Map<string, number>();
+
+/**
+ * Trigger a sitemap sync for a single site if one isn't already running
+ * and the cooldown hasn't expired. Safe to call from a fire-and-forget context.
+ */
+export async function trySitemapSync(siteId: string): Promise<void> {
+  // Skip if already running
+  if (activeSyncs.has(siteId)) {
+    console.log(`[ping-sync] Sync already in progress for ${siteId} — skipping`);
+    return;
+  }
+
+  // Skip if recently synced
+  const last = lastSyncTime.get(siteId);
+  if (last && Date.now() - last < COOLDOWN_MS) {
+    return; // silently skip — too recent
+  }
+
+  // Look up site info
+  const sites = getAllActiveSites().filter((s) => s.site_id === siteId);
+  if (sites.length === 0) return;
+
+  const site = sites[0];
+  activeSyncs.add(siteId);
+
+  try {
+    await syncSite(site);
+    lastSyncTime.set(siteId, Date.now());
+  } finally {
+    activeSyncs.delete(siteId);
+  }
+}

@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { crawlSite, crawlPages } from "../services/crawler";
 import { upsertSitePages, deletePagesFromSite, deleteSiteCollection } from "../services/vectorstore";
 import { getSitemapEntries } from "../services/sitemap";
+import { trySitemapSync } from "../services/auto-sync";
 import {
   upsertSite,
   getSitesByUser,
@@ -214,4 +215,16 @@ router.get("/:siteId/widget-config", (req: Request, res: Response) => {
   const { siteId } = req.params;
   const theme = getSiteThemePublic(siteId) ?? DEFAULT_THEME;
   res.json({ siteId, theme });
+});
+
+/* ── Ping — widget calls this on load to trigger a background sync ───── */
+router.get("/:siteId/ping", (req: Request, res: Response) => {
+  const { siteId } = req.params;
+
+  // Fire-and-forget background sync — don't block the widget
+  trySitemapSync(siteId).catch((err) => {
+    console.error(`[ping] Background sync failed for ${siteId}:`, err);
+  });
+
+  res.json({ ok: true });
 });
