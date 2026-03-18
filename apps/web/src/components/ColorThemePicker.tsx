@@ -1,19 +1,8 @@
-/**
- * ColorThemePicker.tsx
- * Place in: apps/web/src/components/ColorThemePicker.tsx
- *
- * Shows:
- *  - Auto-extracted palette from the indexed website
- *  - Color swatches for quick selection
- *  - Manual hex override inputs
- *  - Live widget preview
- *  - Save button that calls PUT /api/sites/:siteId/theme
- */
+
 
 import { useState, useEffect, useCallback } from "react";
 import { Palette, RefreshCw, Check, Loader2, AlertCircle, Eye } from "lucide-react";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface WidgetTheme {
   primary: string;
@@ -45,7 +34,6 @@ interface ColorThemePickerProps {
   onSave?: (theme: WidgetTheme) => void;
 }
 
-// ─── Default theme ────────────────────────────────────────────────────────────
 
 const DEFAULT_THEME: WidgetTheme = {
   primary: "#2E3538",
@@ -55,7 +43,6 @@ const DEFAULT_THEME: WidgetTheme = {
   headerTextColor: "#2E3538",
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function isLight(hex: string): boolean {
   const r = parseInt(hex.slice(1, 3), 16);
@@ -69,7 +56,7 @@ function hexIsValid(hex: string): boolean {
   return /^#[0-9a-fA-F]{6}$/.test(hex);
 }
 
-// Source label for display
+
 function sourceLabel(source: string): string {
   if (source === "css-var-primary") return "Primary var";
   if (source === "css-var") return "CSS var";
@@ -78,7 +65,6 @@ function sourceLabel(source: string): string {
   return source;
 }
 
-// ─── Mini preview of the chat widget launcher + bubble ───────────────────────
 
 function WidgetPreview({ theme }: { theme: WidgetTheme }) {
   const textOnPrimary = isLight(theme.primary) ? "#1e293b" : "#ffffff";
@@ -94,14 +80,12 @@ function WidgetPreview({ theme }: { theme: WidgetTheme }) {
         flexShrink: 0,
       }}
     >
-      {/* Fake page content */}
       <div style={{ padding: "12px", display: "flex", flexDirection: "column", gap: "6px" }}>
         <div style={{ height: "8px", background: "#cbd5e1", borderRadius: "4px", width: "80%" }} />
         <div style={{ height: "6px", background: "#e2e8f0", borderRadius: "4px", width: "60%" }} />
         <div style={{ height: "6px", background: "#e2e8f0", borderRadius: "4px", width: "70%" }} />
       </div>
 
-      {/* Fake chat panel (mini) */}
       <div
         style={{
           position: "absolute",
@@ -120,7 +104,6 @@ function WidgetPreview({ theme }: { theme: WidgetTheme }) {
           boxShadow: "0 8px 24px -4px rgba(0,0,0,0.12)",
         }}
       >
-        {/* Header */}
         <div style={{ display: "flex", alignItems: "center", gap: "4px", marginBottom: "4px" }}>
           <span
             style={{
@@ -134,7 +117,6 @@ function WidgetPreview({ theme }: { theme: WidgetTheme }) {
             navbot
           </span>
         </div>
-        {/* Bot bubble */}
         <div
           style={{
             background: theme.botBubbleBg,
@@ -149,7 +131,7 @@ function WidgetPreview({ theme }: { theme: WidgetTheme }) {
         >
           Hi! How can I help?
         </div>
-        {/* User bubble */}
+
         <div
           style={{
             background: theme.userBubbleBg,
@@ -167,7 +149,6 @@ function WidgetPreview({ theme }: { theme: WidgetTheme }) {
         </div>
       </div>
 
-      {/* Launcher button */}
       <div
         style={{
           position: "absolute",
@@ -201,8 +182,6 @@ function WidgetPreview({ theme }: { theme: WidgetTheme }) {
     </div>
   );
 }
-
-// ─── Color Swatch ─────────────────────────────────────────────────────────────
 
 function Swatch({
   entry,
@@ -259,7 +238,6 @@ function Swatch({
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
 
 export function ColorThemePicker({
   siteId,
@@ -278,10 +256,8 @@ export function ColorThemePicker({
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Which "role" is being edited by the hex input row
   const [activeRole, setActiveRole] = useState<keyof WidgetTheme>("primary");
 
-  // ── Extract palette from the site ──────────────────────────────────────────
   const extractPalette = useCallback(async () => {
     setExtracting(true);
     setExtractError(null);
@@ -309,12 +285,10 @@ export function ColorThemePicker({
     }
   }, [apiBase, siteUrl, initialTheme]);
 
-  // Auto-extract on mount
   useEffect(() => {
     extractPalette();
   }, [extractPalette]);
 
-  // ── Update a single theme field ────────────────────────────────────────────
   const setColor = (role: keyof WidgetTheme, hex: string) => {
     setTheme((prev) => {
       const next = { ...prev, [role]: hex };
@@ -325,7 +299,6 @@ export function ColorThemePicker({
     setSaved(false);
   };
 
-  // ── Save to API ────────────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true);
     setSaveError(null);

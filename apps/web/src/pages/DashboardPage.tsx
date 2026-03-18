@@ -34,6 +34,22 @@ import {
   mockFaqs, mockSocialMedia, mockVisitorInteractions, mockRecentConversations
 } from "../lib/mock-data";
 import { WidgetTheme } from "../components/ColorThemePicker";
+import { SitemapSyncPanel } from "../components/SitemapSyncPanel";
+
+function formatLocalDate(raw: string | null | undefined): string {
+  if (!raw || raw === "Just now") return raw || "Never";
+  try {
+    return new Date(raw).toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return raw;
+  }
+}
 
 interface DashboardPageProps {
   onViewChange: (view: string) => void;
@@ -180,7 +196,7 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
               status: "active",
               pagesIndexed: result.stored,
               lastCrawled: "Just now",
-              addedAt: new Date().toISOString().split("T")[0],
+              addedAt: new Date().toISOString(),
               widgetTheme: result.widgetTheme ?? null,
             },
           ]);
@@ -285,6 +301,7 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
               onAddSite={() => { setActiveTab("websites"); setShowAddSite(true); }}
               onIntegrate={setIntegrationSite}
               onDelete={setDeleteTarget}
+              userId={user?.id ?? ""}
             />
           )}
           {activeTab === "websites" && (
@@ -297,6 +314,7 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
               onAddWebsite={handleAddWebsite}
               onIntegrate={setIntegrationSite}
               onDelete={setDeleteTarget}
+              userId={user?.id ?? ""}
             />
           )}
           {activeTab === "analytics" && <AnalyticsTab maxQueries={maxQueries} />}
@@ -435,7 +453,7 @@ function UpdatePagesPanel({ site }: { site: Website }) {
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#478EDB] bg-[#478EDB]/10 hover:bg-[#478EDB]/20 transition-colors"
       >
         <RefreshCw className="w-3 h-3" />
-        Update Pages
+        <span className="whitespace-nowrap">Update Pages</span>
       </button>
 
       {expanded && (
@@ -489,7 +507,7 @@ function UpdatePagesPanel({ site }: { site: Website }) {
 
 /* ─── OVERVIEW TAB ───────────────────────────────────────────────────── */
 
-function OverviewTab({ websites, onAddSite, onIntegrate, onDelete }: { websites: Website[]; onAddSite: () => void; onIntegrate: (site: Website) => void; onDelete: (site: Website) => void }) {
+function OverviewTab({ websites, onAddSite, onIntegrate, onDelete, userId }: { websites: Website[]; onAddSite: () => void; onIntegrate: (site: Website) => void; onDelete: (site: Website) => void; userId: string }) {
   const totalPages = websites.length > 0
     ? websites.reduce((sum, w) => sum + (w.pagesIndexed || 0), 0)
     : mockStats.pagesIndexed;
@@ -613,7 +631,7 @@ function OverviewTab({ websites, onAddSite, onIntegrate, onDelete }: { websites:
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-[#2E3538]">{site.hostname}</p>
-                    <p className="text-xs text-slate-400">{site.pagesIndexed} pages indexed · Last crawled {site.lastCrawled}</p>
+                    <p className="text-xs text-slate-400">{site.pagesIndexed} pages indexed · Last crawled {formatLocalDate(site.lastCrawled)}</p>
                   </div>
                   <span className="text-xs font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-full flex-shrink-0">Active</span>
                   <button
@@ -625,8 +643,14 @@ function OverviewTab({ websites, onAddSite, onIntegrate, onDelete }: { websites:
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="mt-3">
+                <div className="mt-3 flex gap-2">
                   <UpdatePagesPanel site={site} />
+                   <SitemapSyncPanel
+                    siteId={site.id}
+                    userId={userId}
+                    apiBase={API_BASE}
+                    hostname={site.hostname}
+                  />
                 </div>
               </div>
             ))}
@@ -639,7 +663,7 @@ function OverviewTab({ websites, onAddSite, onIntegrate, onDelete }: { websites:
 
 /* ─── WEBSITES TAB ───────────────────────────────────────────────────── */
 
-function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNewSiteUrl, onAddWebsite, onIntegrate, onDelete }: {
+function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNewSiteUrl, onAddWebsite, onIntegrate, onDelete, userId }: {
   websites: Website[];
   showAddSite: boolean;
   setShowAddSite: (v: boolean) => void;
@@ -648,6 +672,7 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
   onAddWebsite: (e: React.FormEvent) => void;
   onIntegrate: (site: Website) => void;
   onDelete: (site: Website) => void;
+  userId: string;
 }) {
   return (
     <div className="space-y-6 animate-fade-in-up">
@@ -701,8 +726,8 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
                 <p className="text-xs text-slate-400 mb-3 truncate">{site.url}</p>
                 <div className="flex flex-wrap gap-4 text-xs text-slate-500">
                   <span className="flex items-center gap-1"><FileText className="w-3 h-3" /> {site.pagesIndexed} pages indexed</span>
-                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Last crawled {site.lastCrawled}</span>
-                  <span className="flex items-center gap-1"><Zap className="w-3 h-3" /> Added {site.addedAt}</span>
+                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" /> Last crawled {formatLocalDate(site.lastCrawled)}</span>
+                  <span className="flex items-center gap-1"><Zap className="w-3 h-3" /> Added {formatLocalDate(site.addedAt)}</span>
                 </div>
               </div>
               <button
@@ -714,8 +739,14 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
                 <Trash2 className="w-4.5 h-4.5" />
               </button>
             </div>
-            <div className="mt-4">
+            <div className="mt-4 flex gap-2">
               <UpdatePagesPanel site={site} />
+              <SitemapSyncPanel
+                siteId={site.id}
+                userId={userId}
+                apiBase={API_BASE}
+                hostname={site.hostname}
+              />
             </div>
           </div>
         ))}

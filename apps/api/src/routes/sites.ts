@@ -1,7 +1,22 @@
 import { Router, type Request, type Response } from "express";
 import { crawlSite, crawlPages } from "../services/crawler";
 import { upsertSitePages, deletePagesFromSite, deleteSiteCollection } from "../services/vectorstore";
-import { upsertSite, getSitesByUser, deleteSite, upsertSiteTheme, getSiteTheme, getSiteThemePublic, DEFAULT_THEME, type WidgetTheme } from "../services/db";
+import { getSitemapEntries } from "../services/sitemap";
+import {
+  upsertSite,
+  getSitesByUser,
+  deleteSite,
+  getSiteCountBySiteId,
+  upsertSiteTheme,
+  getSiteTheme,
+  getSiteThemePublic,
+  DEFAULT_THEME,
+  type WidgetTheme,
+  getPageHashes,
+  upsertPageHashes,
+  upsertPageLastmods,
+  deletePageHashes,
+} from "../services/db";
 
 export const router: Router = Router();
 
@@ -35,20 +50,57 @@ router.post("/", async (req: Request, res: Response) => {
       userId?: string;
     };
 
-    if (!url) {
-      return res.status(400).json({ error: "url is required" });
-    }
+    if (!url) return res.status(400).json({ error: "url is required" });
 
     const siteUrl = new URL(url);
     const siteId = explicitSiteId || siteUrl.hostname;
     const hostname = siteUrl.hostname;
 
+    // Check if this site has already been crawled (by any user)
+    const existingHashes = getPageHashes(siteId);
+    const alreadyCrawled = Object.keys(existingHashes).length > 0;
+
+    if (alreadyCrawled) {
+      // Site data already exists in ChromaDB — just register this user
+      const pageCount = Object.keys(existingHashes).length;
+      console.log(
+        `[index] Site "${siteId}" already crawled (${pageCount} pages). ` +
+          `Linking to user ${userId} without re-crawling.`
+      );
+
+      if (userId) {
+        upsertSite({ siteId, userId, url, hostname, pagesIndexed: pageCount });
+      }
+
+      return res.json({
+        siteId,
+        pageCount,
+        stored: pageCount,
+        failed: 0,
+        reused: true,
+      });
+    }
+
+    // First time crawling this site
     const pages = await crawlSite(siteUrl.toString());
     const { insertedCount, failedCount } = await upsertSitePages(siteId, pages);
 
     if (userId) {
       upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
     }
+
+    // Persist content hashes so future syncs can detect changed pages
+    upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+
+    // Pre-populate sitemap lastmod values so future syncs can diff correctly
+    getSitemapEntries(siteUrl.toString())
+      .then((entries) => {
+        if (entries.length > 0) {
+          upsertPageLastmods(siteId, entries.map((e) => ({ url: e.url, lastmod: e.lastmod })));
+          console.log(`[index] Stored ${entries.length} sitemap lastmod values for "${siteId}"`);
+        }
+      })
+      .catch(() => {}); // non-critical
 
     res.json({ siteId, pageCount: pages.length, stored: insertedCount, failed: failedCount });
   } catch (err) {
@@ -57,27 +109,42 @@ router.post("/", async (req: Request, res: Response) => {
   }
 });
 
+/* ── Update specific pages ─────────────────────────────────────────────── */
 router.patch("/:siteId/pages", async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
     const { urls } = req.body as { urls?: string[] };
+
     if (!urls || !Array.isArray(urls) || urls.length === 0) {
       return res.status(400).json({ error: "urls array is required" });
     }
+
     const pages = await crawlPages(urls);
     await deletePagesFromSite(siteId, urls);
     const { insertedCount, failedCount } = await upsertSitePages(siteId, pages);
-    res.json({ siteId, requestedUrls: urls.length, pagesFound: pages.length, stored: insertedCount, failed: failedCount });
+
+    // Update hashes for re-crawled pages
+    upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+
+    res.json({
+      siteId,
+      requestedUrls: urls.length,
+      pagesFound: pages.length,
+      stored: insertedCount,
+      failed: failedCount,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "failed_to_update_pages" });
   }
 });
 
+/* ── Reindex entire site ───────────────────────────────────────────────── */
 router.post("/:siteId/reindex", async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
     const { url, userId } = req.body as { url?: string; userId?: string };
+
     if (!url) return res.status(400).json({ error: "url is required" });
 
     const pages = await crawlSite(url);
@@ -87,6 +154,9 @@ router.post("/:siteId/reindex", async (req: Request, res: Response) => {
       const hostname = (() => { try { return new URL(url).hostname; } catch { return url; } })();
       upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
     }
+
+    // Full reindex — overwrite all stored hashes
+    upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
 
     res.json({ siteId, pageCount: pages.length, stored: insertedCount, failed: failedCount, reindexed: true });
   } catch (err) {
@@ -102,7 +172,16 @@ router.delete("/:siteId", async (req: Request, res: Response) => {
   if (!userId) return res.status(400).json({ error: "userId query param is required" });
 
   const dbDeleted = deleteSite(siteId, userId);
-  const vectorDeleted = await deleteSiteCollection(siteId);
+
+  // Only delete ChromaDB collection + hashes if no other user references this site
+  const remainingUsers = getSiteCountBySiteId(siteId);
+  let vectorDeleted = false;
+
+  if (remainingUsers === 0) {
+    vectorDeleted = await deleteSiteCollection(siteId);
+    deletePageHashes(siteId);
+  }
+
   res.json({ deleted: dbDeleted, vectorStoreCleared: vectorDeleted });
 });
 
@@ -130,7 +209,7 @@ router.get("/:siteId/theme", (req: Request, res: Response) => {
   res.json(theme);
 });
 
-/* ── Get widget config (public — called by the widget itself) ──────────── */
+/* ── Get widget config (public — called by widget itself) ──────────────── */
 router.get("/:siteId/widget-config", (req: Request, res: Response) => {
   const { siteId } = req.params;
   const theme = getSiteThemePublic(siteId) ?? DEFAULT_THEME;
