@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from "express";
 import { crawlSite, crawlPages } from "../services/crawler";
 import { upsertSitePages, deletePagesFromSite, deleteSiteCollection } from "../services/vectorstore";
 import { upsertSite, getSitesByUser, deleteSite, upsertSiteTheme, getSiteTheme, getSiteThemePublic, DEFAULT_THEME, type WidgetTheme } from "../services/db";
+import { getOrGenerateFaqs, refreshFaqs } from "../services/faq";
 
 export const router: Router = Router();
 
@@ -135,4 +136,28 @@ router.get("/:siteId/widget-config", (req: Request, res: Response) => {
   const { siteId } = req.params;
   const theme = getSiteThemePublic(siteId) ?? DEFAULT_THEME;
   res.json({ siteId, theme });
+});
+
+/* ── Get FAQs for a site (public — called by the widget) ───────────────── */
+router.get("/:siteId/faqs", async (req: Request, res: Response) => {
+  try {
+    const { siteId } = req.params;
+    const faqs = await getOrGenerateFaqs(siteId);
+    res.json({ siteId, faqs });
+  } catch (err) {
+    console.error("FAQ fetch error:", err);
+    res.status(500).json({ error: "failed_to_get_faqs" });
+  }
+});
+
+/* ── Force-refresh FAQs (incorporates popular user queries) ────────────── */
+router.post("/:siteId/faqs/refresh", async (req: Request, res: Response) => {
+  try {
+    const { siteId } = req.params;
+    const faqs = await refreshFaqs(siteId);
+    res.json({ siteId, faqs, refreshed: true });
+  } catch (err) {
+    console.error("FAQ refresh error:", err);
+    res.status(500).json({ error: "failed_to_refresh_faqs" });
+  }
 });

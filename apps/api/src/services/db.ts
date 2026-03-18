@@ -29,6 +29,27 @@ try {
   // Column already exists — ignore
 }
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS faq (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id     TEXT    NOT NULL,
+    label       TEXT    NOT NULL,
+    question    TEXT    NOT NULL,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS chat_query (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id     TEXT    NOT NULL,
+    query       TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+`);
+
 console.log("API database ready (shared navbot.db).");
 
 export interface SiteRow {
@@ -45,16 +66,15 @@ export interface SiteRow {
 }
 
 export interface WidgetTheme {
-  /** Main accent — launcher button, links, highlights */
   primary: string;
-  /** Launcher button background (defaults to primary) */
   launcherBg: string;
-  /** Bot bubble background */
   botBubbleBg: string;
-  /** User bubble background */
   userBubbleBg: string;
-  /** Panel header / title text color */
   headerTextColor: string;
+  timestampColor: string;
+  iconColor: string;
+  sendBtnBg: string;
+  sendBtnColor: string;
 }
 
 export const DEFAULT_THEME: WidgetTheme = {
@@ -63,6 +83,10 @@ export const DEFAULT_THEME: WidgetTheme = {
   botBubbleBg: "rgba(255,255,255,0.4)",
   userBubbleBg: "rgba(0,0,0,0.06)",
   headerTextColor: "#2E3538",
+  timestampColor: "#94a3b8",
+  iconColor: "#94a3b8",
+  sendBtnBg: "#2E3538",
+  sendBtnColor: "#ffffff",
 };
 
 export function upsertSite(params: {
@@ -149,4 +173,52 @@ export function getSiteThemePublic(siteId: string): WidgetTheme | null {
   } catch {
     return null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// FAQ helpers
+// ---------------------------------------------------------------------------
+export interface FaqRow {
+  id: number;
+  site_id: string;
+  label: string;
+  question: string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export function getFaqsBySite(siteId: string): FaqRow[] {
+  return db
+    .prepare("SELECT * FROM faq WHERE site_id = ? ORDER BY sort_order ASC, id ASC")
+    .all(siteId) as FaqRow[];
+}
+
+export function replaceFaqs(siteId: string, items: Array<{ label: string; question: string }>): void {
+  const del = db.prepare("DELETE FROM faq WHERE site_id = ?");
+  const ins = db.prepare(
+    "INSERT INTO faq (site_id, label, question, sort_order) VALUES (?, ?, ?, ?)"
+  );
+  const tx = db.transaction(() => {
+    del.run(siteId);
+    items.forEach((item, i) => ins.run(siteId, item.label, item.question, i));
+  });
+  tx();
+}
+
+// ---------------------------------------------------------------------------
+// Chat query tracking
+// ---------------------------------------------------------------------------
+export function trackQuery(siteId: string, query: string): void {
+  db.prepare("INSERT INTO chat_query (site_id, query) VALUES (?, ?)").run(siteId, query);
+}
+
+export function getTopQueries(siteId: string, limit = 20): Array<{ query: string; count: number }> {
+  return db
+    .prepare(
+      `SELECT query, COUNT(*) as count FROM chat_query
+       WHERE site_id = ?
+       GROUP BY query ORDER BY count DESC LIMIT ?`
+    )
+    .all(siteId, limit) as Array<{ query: string; count: number }>;
 }

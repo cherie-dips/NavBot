@@ -8,6 +8,7 @@ interface Message {
   sender: "user" | "bot";
   timestamp: string;
   isVoice?: boolean;
+  voiceReply?: boolean;
 }
 
 function renderBotText(raw: string): React.ReactNode {
@@ -71,6 +72,10 @@ type WidgetTheme = {
   botBubbleBg?: string;
   userBubbleBg?: string;
   headerTextColor?: string;
+  timestampColor?: string;
+  iconColor?: string;
+  sendBtnBg?: string;
+  sendBtnColor?: string;
 };
 
 type NavbotConfig = {
@@ -91,6 +96,10 @@ const DEFAULT_THEME: Required<WidgetTheme> = {
   botBubbleBg: "rgba(255,255,255,0.4)",
   userBubbleBg: "rgba(0,0,0,0.06)",
   headerTextColor: "#2E3538",
+  timestampColor: "#94a3b8",
+  iconColor: "#94a3b8",
+  sendBtnBg: "#2E3538",
+  sendBtnColor: "#ffffff",
 };
 
 const getConfig = (): { apiBase: string; siteId: string; theme: Required<WidgetTheme> } => {
@@ -167,6 +176,9 @@ export const ChatWidget: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [faqs, setFaqs] = useState<Array<{ label: string; question: string }>>([]);
+  const [faqsLoading, setFaqsLoading] = useState(false);
+  const [faqDismissed, setFaqDismissed] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -177,6 +189,22 @@ export const ChatWidget: React.FC = () => {
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
   useEffect(() => { return () => { if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current); }; }, []);
+
+  // Fetch FAQs from the API on mount
+  useEffect(() => {
+    setFaqsLoading(true);
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", `${apiBase}/api/sites/${encodeURIComponent(siteId)}/faqs`);
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText);
+        if (Array.isArray(data?.faqs)) setFaqs(data.faqs);
+      } catch { /* ignore */ }
+      setFaqsLoading(false);
+    };
+    xhr.onerror = () => { setFaqsLoading(false); };
+    xhr.send();
+  }, [apiBase, siteId]);
 
   const addMessage = (msg: Message) => {
     setMessages((prev) => {
@@ -196,12 +224,47 @@ export const ChatWidget: React.FC = () => {
     clearHistory(siteId);
     setMessages([{ ...WELCOME_MESSAGE, timestamp: new Date().toISOString() }]);
     setError(null);
+    setFaqDismissed(false);
   };
 
-  const handleSend = () => {
-    if (!inputValue.trim()) return;
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [playingMsgId, setPlayingMsgId] = useState<number | null>(null);
+  const [loadingTtsId, setLoadingTtsId] = useState<number | null>(null);
+
+  const playMessageAudio = (msgId: number, text: string) => {
+    if (playingMsgId === msgId) {
+      audioRef.current?.pause();
+      setPlayingMsgId(null);
+      return;
+    }
+    setLoadingTtsId(msgId);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${apiBase}/api/chat/tts`);
+    xhr.setRequestHeader("Content-Type", "application/json");
+    xhr.onload = () => {
+      setLoadingTtsId(null);
+      try {
+        const data = JSON.parse(xhr.responseText) as { audio?: string };
+        if (!data.audio) return;
+        const audioSrc = `data:audio/wav;base64,${data.audio}`;
+        if (audioRef.current) { audioRef.current.pause(); }
+        const audio = new Audio(audioSrc);
+        audioRef.current = audio;
+        setPlayingMsgId(msgId);
+        audio.onended = () => { setPlayingMsgId(null); };
+        audio.onerror = () => { setPlayingMsgId(null); };
+        audio.play().catch(() => setPlayingMsgId(null));
+      } catch { /* ignore */ }
+    };
+    xhr.onerror = () => { setLoadingTtsId(null); };
+    xhr.send(JSON.stringify({ text }));
+  };
+
+  const sendText = (text: string) => {
+    if (!text.trim()) return;
     setError(null);
-    const userMessage: Message = { id: Date.now(), text: inputValue, sender: "user", timestamp: new Date().toISOString() };
+    setFaqDismissed(true);
+    const userMessage: Message = { id: Date.now(), text: text.trim(), sender: "user", timestamp: new Date().toISOString() };
     const messagesWithUser = [...messages, userMessage];
     addMessage(userMessage);
     setInputValue("");
@@ -223,6 +286,8 @@ export const ChatWidget: React.FC = () => {
     xhr.onerror = () => { console.error("Chat network error"); setError("Something went wrong talking to the assistant."); setIsTyping(false); };
     xhr.send(JSON.stringify({ siteId, message: userMessage.text, history: buildApiHistory(messagesWithUser) }));
   };
+
+  const handleSend = () => sendText(inputValue);
 
   const startRecording = () => {
     setError(null);
@@ -251,7 +316,7 @@ export const ChatWidget: React.FC = () => {
             if (xhr.status < 200 || xhr.status >= 300) throw new Error(`Voice request failed with status ${xhr.status}`);
             const data = JSON.parse(xhr.responseText) as { answer: string; transcript?: string | null; error?: string };
             setMessages((prev) => prev.map((m) => m.id === placeholderId ? { ...m, text: data.transcript ? `🎤 "${data.transcript}"` : `🎤 Voice message (${recordingTime}s)` } : m));
-            addMessage({ id: Date.now() + 1, text: data.answer || "I received your voice message.", sender: "bot", timestamp: new Date().toISOString() });
+            addMessage({ id: Date.now() + 1, text: data.answer || "I received your voice message.", sender: "bot", timestamp: new Date().toISOString(), voiceReply: true });
           } catch (err) {
             console.error("Voice chat error:", err);
             setError("Could not process voice message. Please try typing instead.");
@@ -335,14 +400,14 @@ export const ChatWidget: React.FC = () => {
             navbot
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
-            <button onClick={handleClearChat} title="Refresh chat" style={{ background: "none", border: "none", cursor: "pointer", padding: "6px", borderRadius: "50%", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center" }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = "#475569"; e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "none"; }}>
+            <button onClick={handleClearChat} title="Refresh chat" style={{ background: "none", border: "none", cursor: "pointer", padding: "6px", borderRadius: "50%", color: theme.iconColor, display: "flex", alignItems: "center", justifyContent: "center" }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = theme.headerTextColor; e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = theme.iconColor; e.currentTarget.style.background = "none"; }}>
               <MdOutlineRefresh style={{ width: "16px", height: "16px" }} />
             </button>
-            <button onClick={() => setIsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: "6px", borderRadius: "50%", color: "#94a3b8", display: "flex", alignItems: "center", justifyContent: "center" }}
-              onMouseEnter={(e) => { e.currentTarget.style.color = "#475569"; e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.color = "#94a3b8"; e.currentTarget.style.background = "none"; }}>
+            <button onClick={() => setIsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: "6px", borderRadius: "50%", color: theme.iconColor, display: "flex", alignItems: "center", justifyContent: "center" }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = theme.headerTextColor; e.currentTarget.style.background = "rgba(0,0,0,0.05)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = theme.iconColor; e.currentTarget.style.background = "none"; }}>
               <svg style={{ width: "16px", height: "16px" }} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </div>
@@ -369,17 +434,100 @@ export const ChatWidget: React.FC = () => {
               }}>
                 {message.sender === "bot" && !message.isVoice ? renderBotText(message.text) : message.text}
               </div>
-              <span style={{ fontSize: "10px", color: "#94a3b8", marginTop: "4px", paddingLeft: "4px", opacity: 0.7 }}>
+              {/* Play audio button for voice-triggered bot replies */}
+              {message.voiceReply && message.sender === "bot" && (
+                <button
+                  type="button"
+                  onClick={() => playMessageAudio(message.id, message.text)}
+                  title={playingMsgId === message.id ? "Stop audio" : "Play audio response"}
+                  style={{
+                    all: "unset",
+                    cursor: "pointer",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    marginTop: "4px",
+                    padding: "3px 8px",
+                    borderRadius: "8px",
+                    background: playingMsgId === message.id ? "rgba(71,142,219,0.12)" : "rgba(0,0,0,0.04)",
+                    border: "1px solid rgba(0,0,0,0.06)",
+                    color: playingMsgId === message.id ? "#478EDB" : "#64748b",
+                    fontSize: "11px",
+                    fontWeight: 500,
+                    transition: "all 0.15s",
+                  }}
+                  onMouseEnter={(e) => { if (playingMsgId !== message.id) e.currentTarget.style.background = "rgba(0,0,0,0.07)"; }}
+                  onMouseLeave={(e) => { if (playingMsgId !== message.id) e.currentTarget.style.background = "rgba(0,0,0,0.04)"; }}
+                >
+                  {loadingTtsId === message.id ? (
+                    <svg style={{ width: "12px", height: "12px", animation: "pulse 1.5s infinite" }} fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" opacity="0.3"/><circle cx="12" cy="12" r="6"/></svg>
+                  ) : playingMsgId === message.id ? (
+                    <svg style={{ width: "12px", height: "12px" }} fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+                  ) : (
+                    <svg style={{ width: "12px", height: "12px" }} fill="currentColor" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 8.5v7a4.49 4.49 0 002.5-3.5zM14 3.23v2.06a6.51 6.51 0 010 13.42v2.06A8.51 8.51 0 0014 3.23z"/></svg>
+                  )}
+                  {loadingTtsId === message.id ? "Loading…" : playingMsgId === message.id ? "Playing" : "Listen"}
+                </button>
+              )}
+              <span style={{ fontSize: "10px", color: theme.timestampColor, marginTop: "4px", paddingLeft: "4px", opacity: 0.7 }}>
                 {formatMessageTime(message.timestamp)}
               </span>
             </div>
           ))}
 
+          {/* FAQ Menu Card */}
+          {!faqDismissed && !messages.some((m) => m.sender === "user") && faqs.length > 0 && !isTyping && (
+            <div style={{
+              alignSelf: "flex-start",
+              width: "100%",
+              background: "rgba(255,255,255,0.55)",
+              border: "1px solid rgba(255,255,255,0.25)",
+              borderRadius: "16px",
+              padding: "14px",
+              boxShadow: "0 4px 12px rgba(0,0,0,0.06)",
+            }}>
+              <div style={{ fontSize: "11px", fontWeight: 700, color: "#64748b", textTransform: "uppercase" as const, letterSpacing: "0.05em", marginBottom: "10px" }}>
+                Frequently Asked
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {faqs.map((f, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => sendText(f.question)}
+                    style={{
+                      all: "unset",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "8px",
+                      padding: "10px 12px",
+                      borderRadius: "12px",
+                      background: "rgba(0,0,0,0.03)",
+                      border: "1px solid rgba(0,0,0,0.06)",
+                      color: "#1e293b",
+                      fontSize: "12px",
+                      fontWeight: 500,
+                      lineHeight: "1.3",
+                      transition: "background 0.15s",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.06)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(0,0,0,0.03)"; }}
+                  >
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.label}</span>
+                    <span style={{ opacity: 0.4, fontSize: "14px", flexShrink: 0 }}>›</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {isTyping && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
               <div style={{ background: theme.botBubbleBg, border: "1px solid rgba(255,255,255,0.2)", padding: "10px 14px", borderRadius: "2px 16px 16px 16px", display: "flex", gap: "5px", alignItems: "center" }}>
                 {[0, 1, 2].map((i) => (
-                  <span key={i} style={{ width: "6px", height: "6px", background: "#94a3b8", borderRadius: "50%", animation: "bounce 1s infinite", animationDelay: `${i * 0.15}s` }} />
+                  <span key={i} style={{ width: "6px", height: "6px", background: theme.iconColor, borderRadius: "50%", animation: "bounce 1s infinite", animationDelay: `${i * 0.15}s` }} />
                 ))}
               </div>
             </div>
@@ -419,7 +567,7 @@ export const ChatWidget: React.FC = () => {
             />
             {/* Voice Button */}
             <button onClick={isRecording ? stopRecording : startRecording} title={isRecording ? "Stop recording" : "Record voice message"}
-              style={{ flexShrink: 0, width: "34px", height: "34px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "10px", border: "none", cursor: "pointer", background: isRecording ? "rgba(239,68,68,0.1)" : "transparent", color: isRecording ? "#ef4444" : "#64748b", transition: "all 0.2s" }}>
+              style={{ flexShrink: 0, width: "34px", height: "34px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "10px", border: "none", cursor: "pointer", background: isRecording ? "rgba(239,68,68,0.1)" : "transparent", color: isRecording ? "#ef4444" : theme.iconColor, transition: "all 0.2s" }}>
               {isRecording
                 ? <svg style={{ width: "18px", height: "18px" }} fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
                 : <svg style={{ width: "18px", height: "18px" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
@@ -434,8 +582,8 @@ export const ChatWidget: React.FC = () => {
                 display: "flex", alignItems: "center", justifyContent: "center",
                 borderRadius: "10px", border: "none",
                 cursor: !inputValue.trim() || isRecording ? "default" : "pointer",
-                background: inputValue.trim() && !isRecording ? theme.primary : "transparent",
-                color: inputValue.trim() && !isRecording ? textOnPrimary : "#94a3b8",
+                background: inputValue.trim() && !isRecording ? theme.sendBtnBg : "transparent",
+                color: inputValue.trim() && !isRecording ? theme.sendBtnColor : theme.iconColor,
                 opacity: !inputValue.trim() || isRecording ? 0.4 : 1,
                 transition: "all 0.2s",
               }}>

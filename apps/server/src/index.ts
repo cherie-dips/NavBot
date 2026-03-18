@@ -60,6 +60,21 @@ db.exec(`
     last_crawled TEXT   NOT NULL DEFAULT (datetime('now')),
     UNIQUE(site_id, user_id)
   );
+  CREATE TABLE IF NOT EXISTS "faq" (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id     TEXT    NOT NULL,
+    label       TEXT    NOT NULL,
+    question    TEXT    NOT NULL,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS "chat_query" (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    site_id     TEXT    NOT NULL,
+    query       TEXT    NOT NULL,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 console.log("Database tables ready (shared navbot.db).");
 

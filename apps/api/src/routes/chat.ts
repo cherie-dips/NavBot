@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
-import { answerQuestionWithRag, transcribeAndAnswer } from "../services/rag";
+import { answerQuestionWithRag, transcribeAndAnswer, synthesizeSpeech } from "../services/rag";
+import { trackQuery } from "../services/db";
 
 export const router: Router = Router();
 
@@ -18,6 +19,8 @@ router.post("/", async (req: Request, res: Response) => {
     if (!siteId || !message) {
       return res.status(400).json({ error: "siteId and message are required" });
     }
+
+    trackQuery(siteId, message);
 
     const result = await answerQuestionWithRag({
       siteId,
@@ -41,6 +44,27 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB max
 });
 
+// ---------------------------------------------------------------------------
+// Text-to-Speech — converts answer text to audio (base64 WAV)
+// ---------------------------------------------------------------------------
+router.post("/tts", async (req: Request, res: Response) => {
+  try {
+    const { text } = req.body as { text?: string };
+    if (!text) {
+      return res.status(400).json({ error: "text is required" });
+    }
+    const audioBase64 = await synthesizeSpeech(text);
+    res.json({ audio: audioBase64 });
+  } catch (err) {
+    console.error("[TTS] Error:", err);
+    res.status(500).json({ error: "tts_failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Voice chat — accepts multipart/form-data with `audio` file + `siteId`
+// Also accepts optional `history` as a JSON string field
+// ---------------------------------------------------------------------------
 router.post(
   "/voice",
   upload.single("audio"),

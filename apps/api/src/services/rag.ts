@@ -339,3 +339,33 @@ export async function transcribeAndAnswer(params: {
     ...result,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Text-to-Speech using Sarvam bulbul:v3
+// Returns a base64-encoded WAV string.
+// ---------------------------------------------------------------------------
+const TTS_MODEL = "bulbul:v3" as any;
+const MAX_TTS_CHARS = 1000;
+
+export async function synthesizeSpeech(text: string): Promise<string> {
+  const truncated = text.length > MAX_TTS_CHARS ? text.slice(0, MAX_TTS_CHARS) + "…" : text;
+
+  console.log(`[TTS] Converting ${truncated.length} chars to speech`);
+
+  const response = await withRetry(() =>
+    sarvam.textToSpeech.convert({
+      text: truncated,
+      target_language_code: "en-IN",
+      model: TTS_MODEL,
+    })
+  );
+
+  const base64Audio = (response as any).audios?.[0] ?? (response as any).audio ?? "";
+
+  if (!base64Audio) {
+    throw new Error("Sarvam TTS returned empty audio.");
+  }
+
+  console.log(`[TTS] Audio generated (${(base64Audio.length / 1024).toFixed(1)} KB base64)`);
+  return base64Audio;
+}
