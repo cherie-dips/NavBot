@@ -7,14 +7,12 @@ import { json, urlencoded } from "express";
 import { router as siteRouter } from "./routes/sites";
 import { router as chatRouter } from "./routes/chat";
 import { router as colorRouter } from "./routes/colors";
+import { router as syncRouter } from "./routes/sync";
+import { startAutoSync } from "./services/auto-sync";
 
 const app = express();
 
-app.use(
-  cors({
-    origin: "*",
-  })
-);
+app.use(cors({ origin: "*" }));
 app.use(morgan("dev"));
 app.use(json({ limit: "10mb" }));
 app.use(urlencoded({ extended: true, limit: "10mb" }));
@@ -24,6 +22,7 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/api/sites", siteRouter);
+app.use("/api/sites", syncRouter); // /:siteId/sync routes
 app.use("/api/chat", chatRouter);
 app.use("/api/colors", colorRouter);
 
@@ -31,5 +30,5 @@ const port = process.env.PORT || 3001;
 
 app.listen(port, () => {
   console.log(`API server listening on http://localhost:${port}`);
+  startAutoSync();
 });
-

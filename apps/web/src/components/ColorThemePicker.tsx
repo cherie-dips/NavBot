@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import { Palette, RefreshCw, Check, Loader2, AlertCircle, Eye } from "lucide-react";
-
 export interface WidgetTheme {
   primary: string;
   launcherBg: string;
@@ -70,7 +69,6 @@ function sourceLabel(source: string): string {
   return source;
 }
 
-// Full-size widget preview that mirrors the actual chatbot
 function WidgetPreview({ theme }: { theme: WidgetTheme }) {
   const textOnLauncher = hexIsValid(theme.launcherBg) && !isLight(theme.launcherBg) ? "#fff" : "#1e293b";
 
@@ -324,7 +322,6 @@ function WidgetPreview({ theme }: { theme: WidgetTheme }) {
         </div>
       </div>
 
-      {/* Launcher button */}
       <div
         style={{
           position: "absolute",

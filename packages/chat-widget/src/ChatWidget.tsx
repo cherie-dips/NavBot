@@ -186,7 +186,11 @@ export const ChatWidget: React.FC = () => {
 
   type ChatRole = "user" | "assistant";
 
-  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    setMounted(true);
+    // Ping the API to trigger a background sitemap sync so knowledge is fresh
+    fetch(`${apiBase}/api/sites/${encodeURIComponent(siteId)}/ping`).catch(() => {});
+  }, []);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
   useEffect(() => { return () => { if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current); }; }, []);
 
