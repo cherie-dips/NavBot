@@ -130,64 +130,10 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
   const handleAddWebsite = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSiteUrl.trim()) return;
-    const url = newSiteUrl.trim();
-    setScrapingUrl(url);
+    setScrapingUrl(newSiteUrl.trim());
     setIsScraping(true);
     setShowAddSite(false);
     setIndexError(null);
-
-    void (async () => {
-      try {
-        const res = await fetch(`${API_BASE}/api/sites`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url, userId: user?.id }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(
-            data?.error === "failed_to_index_site"
-              ? "Failed to index site. Please check the URL and try again."
-              : data?.error || "Failed to index site."
-          );
-        }
-        const hostname = (() => {
-          try {
-            return new URL(url).hostname;
-          } catch {
-            return url;
-          }
-        })();
-        const siteId: string = data.siteId || hostname;
-        const pagesIndexed: number =
-          typeof data.stored === "number"
-            ? data.stored
-            : typeof data.pageCount === "number"
-            ? data.pageCount
-            : 0;
-
-        setWebsites((prev) => [
-          ...prev,
-          {
-            id: siteId,
-            url,
-            hostname,
-            status: "active" as const,
-            pagesIndexed,
-            lastCrawled: "Just now",
-            addedAt: new Date().toISOString().split("T")[0],
-          },
-        ]);
-      } catch (err: any) {
-        setIndexError(
-          err?.message || "Something went wrong while indexing the site."
-        );
-      } finally {
-        setIsScraping(false);
-        setNewSiteUrl("");
-        setActiveTab("websites");
-      }
-    })();
   };
 
   const handleDeleteSite = async () => {
@@ -212,11 +158,41 @@ export const DashboardPage = ({ onViewChange: _onViewChange }: DashboardPageProp
     }
   };
 
-  // If currently scraping, show the scraping animation full-screen in dashboard
   if (isScraping) {
-    return <ScrapingPage websiteUrl={scrapingUrl} onComplete={() => {}} />;
+    return (
+      <ScrapingPage
+        websiteUrl={scrapingUrl}
+        userId={user?.id}
+        apiBase={API_BASE}
+        onComplete={(result) => {
+          const hostname = (() => {
+            try { return new URL(scrapingUrl).hostname; } catch { return scrapingUrl; }
+          })();
+          setWebsites((prev) => [
+            ...prev,
+            {
+              id: result.siteId,
+              url: scrapingUrl,
+              hostname,
+              status: "active",
+              pagesIndexed: result.stored,
+              lastCrawled: "Just now",
+              addedAt: new Date().toISOString().split("T")[0],
+            },
+          ]);
+          setIsScraping(false);
+          setNewSiteUrl("");
+          setActiveTab("websites");
+        }}
+        onError={(msg) => {
+          setIndexError(msg);
+          setIsScraping(false);
+          setNewSiteUrl("");
+          setActiveTab("websites");
+        }}
+      />
+    );
   }
-
   const maxQueries = Math.max(...mockQueryHistory.map(d => d.queries));
 
   if (integrationSite) {
