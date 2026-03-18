@@ -6,6 +6,7 @@ import { json, urlencoded } from "express";
 
 import { router as siteRouter } from "./routes/sites";
 import { router as chatRouter } from "./routes/chat";
+import { router as colorRouter } from "./routes/colors";
 
 const app = express();
 
@@ -24,6 +25,7 @@ app.get("/health", (_req, res) => {
 
 app.use("/api/sites", siteRouter);
 app.use("/api/chat", chatRouter);
+app.use("/api/colors", colorRouter);
 
 const port = process.env.PORT || 3001;
 

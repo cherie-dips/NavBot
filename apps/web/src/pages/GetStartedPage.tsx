@@ -33,42 +33,13 @@ export const GetStartedPage = () => {
     }).catch(() => {});
   }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!websiteUrl.trim()) return;
-
     setError(null);
     setIsScraping(true);
     setScrapingDone(false);
     setResult(null);
-
-    try {
-      const res = await fetch(`${API_BASE}/api/sites`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: websiteUrl.trim(), userId }),
-      });
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data?.error || "Failed to index site.");
-      }
-
-      const hostname = (() => {
-        try { return new URL(websiteUrl).hostname; } catch { return websiteUrl; }
-      })();
-
-      setResult({
-        siteId: data.siteId || hostname,
-        url: websiteUrl.trim(),
-        pageCount: data.pageCount ?? 0,
-        stored: data.stored ?? 0,
-      });
-      setScrapingDone(true);
-    } catch (err: any) {
-      setError(err?.message || "Something went wrong while indexing.");
-      setIsScraping(false);
-    }
   };
 
   const buildIntegration = (siteId: string) => {
@@ -86,7 +57,27 @@ export const GetStartedPage = () => {
   };
 
   if (isScraping && !scrapingDone) {
-    return <ScrapingPage websiteUrl={websiteUrl} onComplete={() => {}} />;
+    return (
+    <ScrapingPage
+      websiteUrl={websiteUrl}
+      userId={userId ?? undefined}
+      apiBase={API_BASE}
+      onComplete={(result) => {
+        setResult({
+          siteId: result.siteId,
+          url: websiteUrl,
+          pageCount: result.pageCount,
+          stored: result.stored,
+        });
+        setScrapingDone(true);
+        setIsScraping(false);
+      }}
+      onError={(msg) => {
+        setError(msg);
+        setIsScraping(false);
+      }}
+    />
+  );
   }
 
   if (result) {

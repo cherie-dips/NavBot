@@ -6,8 +6,6 @@ const db = new Database(dbPath);
 
 db.pragma("journal_mode = WAL");
 
-// The site table is also created by the auth server on startup.
-// This ensures it exists even if the API starts first.
 db.exec(`
   CREATE TABLE IF NOT EXISTS site (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -19,9 +17,17 @@ db.exec(`
     pages_indexed INTEGER NOT NULL DEFAULT 0,
     added_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     last_crawled TEXT   NOT NULL DEFAULT (datetime('now')),
+    widget_theme TEXT,
     UNIQUE(site_id, user_id)
   );
 `);
+
+// Migration: add widget_theme column to existing databases
+try {
+  db.exec(`ALTER TABLE site ADD COLUMN widget_theme TEXT`);
+} catch {
+  // Column already exists — ignore
+}
 
 console.log("API database ready (shared navbot.db).");
 
@@ -35,7 +41,29 @@ export interface SiteRow {
   pages_indexed: number;
   added_at: string;
   last_crawled: string;
+  widget_theme: string | null;
 }
+
+export interface WidgetTheme {
+  /** Main accent — launcher button, links, highlights */
+  primary: string;
+  /** Launcher button background (defaults to primary) */
+  launcherBg: string;
+  /** Bot bubble background */
+  botBubbleBg: string;
+  /** User bubble background */
+  userBubbleBg: string;
+  /** Panel header / title text color */
+  headerTextColor: string;
+}
+
+export const DEFAULT_THEME: WidgetTheme = {
+  primary: "#2E3538",
+  launcherBg: "#2E3538",
+  botBubbleBg: "rgba(255,255,255,0.4)",
+  userBubbleBg: "rgba(0,0,0,0.06)",
+  headerTextColor: "#2E3538",
+};
 
 export function upsertSite(params: {
   siteId: string;
@@ -75,4 +103,50 @@ export function deleteSite(siteId: string, userId: string): boolean {
     .prepare("DELETE FROM site WHERE site_id = ? AND user_id = ?")
     .run(siteId, userId);
   return result.changes > 0;
+}
+
+export function upsertSiteTheme(
+  siteId: string,
+  userId: string,
+  theme: WidgetTheme
+): boolean {
+  const result = db
+    .prepare(
+      `UPDATE site SET widget_theme = @theme WHERE site_id = @siteId AND user_id = @userId`
+    )
+    .run({ theme: JSON.stringify(theme), siteId, userId });
+  return result.changes > 0;
+}
+
+export function getSiteTheme(
+  siteId: string,
+  userId: string
+): WidgetTheme | null {
+  const row = db
+    .prepare(
+      `SELECT widget_theme FROM site WHERE site_id = ? AND user_id = ?`
+    )
+    .get(siteId, userId) as { widget_theme: string | null } | undefined;
+  if (!row?.widget_theme) return null;
+  try {
+    return JSON.parse(row.widget_theme) as WidgetTheme;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * getSiteThemePublic — called by the chat widget's GET /api/widget-config/:siteId
+ * No userId needed — the siteId is public and scoped to one tenant.
+ */
+export function getSiteThemePublic(siteId: string): WidgetTheme | null {
+  const row = db
+    .prepare(`SELECT widget_theme FROM site WHERE site_id = ?`)
+    .get(siteId) as { widget_theme: string | null } | undefined;
+  if (!row?.widget_theme) return null;
+  try {
+    return JSON.parse(row.widget_theme) as WidgetTheme;
+  } catch {
+    return null;
+  }
 }
