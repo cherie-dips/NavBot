@@ -144,13 +144,6 @@ export const Navbar = ({
             </>
           ) : (
             <>
-              {/* Pricing shortcut in right side for unauthenticated users */}
-              <button
-                onClick={(e) => handleNavClick(e, "pricing")}
-                className="hidden sm:block text-sm font-medium text-slate-500 hover:text-[#478EDB] transition-colors"
-              >
-                Pricing
-              </button>
               <button
                 onClick={(e) => {
                   e.preventDefault();
