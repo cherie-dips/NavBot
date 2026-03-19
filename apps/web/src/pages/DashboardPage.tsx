@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   LayoutDashboard, Globe, Plus, BarChart3, MessageSquare, Share2,
   Mic, Users, Brain, ArrowRight, AlertCircle, TrendingUp, Clock,
-  ChevronRight, Search, Volume2, VolumeX, FileText, Zap, ArrowUpRight,
+  ChevronRight, ChevronDown, ChevronUp, Search, Volume2, VolumeX, FileText, Zap, ArrowUpRight,
   RefreshCw, Loader2, CheckCircle2, Trash2, X,
   CreditCard,
 } from "lucide-react";
@@ -16,7 +16,7 @@ import {
 import { WidgetTheme } from "../components/ColorThemePicker";
 import { SitemapSyncPanel } from "../components/SitemapSyncPanel";
 import { SiteOption } from "../components/SiteSelector";
-import { BillingTab } from "./Billingtab";
+import { BillingTab } from "./BillingTab";
 
 function formatLocalDate(raw: string | null | undefined): string {
   if (!raw || raw === "Just now") return raw || "Never";
@@ -322,7 +322,7 @@ export const DashboardPage = ({
           </div>
 
           {/* Tab content */}
-          {activeTab === "overview"  && <OverviewTab websites={websites} activeSite={activeSite} onIntegrate={setIntegrationSite} onDelete={setDeleteTarget} userId={user?.id ?? ""} onSwitchTab={setActiveTab} />}
+          {activeTab === "overview"  && <OverviewTab websites={websites} activeSite={activeSite} onIntegrate={setIntegrationSite} onSwitchTab={setActiveTab} />}
           {activeTab === "websites"  && <WebsitesTab websites={websites} showAddSite={showAddSite} setShowAddSite={setShowAddSite} newSiteUrl={newSiteUrl} setNewSiteUrl={setNewSiteUrl} onAddWebsite={handleAddWebsite} onIntegrate={setIntegrationSite} onDelete={setDeleteTarget} userId={user?.id ?? ""} />}
           {activeTab === "analytics" && <AnalyticsTab maxQueries={maxQueries} activeSite={activeSite} />}
           {activeTab === "social"    && <SocialTab activeSite={activeSite} />}
@@ -392,18 +392,21 @@ function UpdatePagesPanel({ site }: { site: Website }) {
   };
 
   return (
-    <div onClick={e => e.stopPropagation()}>
+    <div onClick={e => e.stopPropagation()} style={{ display: "contents" }}>
       <button type="button" onClick={e => { e.stopPropagation(); setExpanded(!expanded); setResult(null); }}
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#478EDB] bg-[#478EDB]/10 hover:bg-[#478EDB]/20 transition-colors">
         <RefreshCw className="w-3 h-3" /> Update Pages
+        {expanded
+          ? <ChevronUp className="w-3 h-3 ml-0.5" />
+          : <ChevronDown className="w-3 h-3 ml-0.5" />}
       </button>
       {expanded && (
-        <div className="mt-3 p-4 bg-[#F9F9FA] rounded-xl border border-slate-200">
+        <div className="basis-full mt-1 p-4 bg-white rounded-xl border border-slate-200">
           <form onSubmit={handleSubmit}>
             <label className="block text-xs font-medium text-slate-600 mb-1.5">URLs to recrawl (one per line)</label>
             <textarea value={urlsText} onChange={e => setUrlsText(e.target.value)} onClick={e => e.stopPropagation()}
               placeholder={`https://${site.hostname}/about`} rows={3}
-              className="w-full px-3 py-2 rounded-lg bg-white border border-slate-200 focus:border-[#478EDB] outline-none text-sm font-mono resize-none" />
+              className="w-full px-3 py-2 rounded-lg bg-[#F9F9FA] border border-slate-200 focus:border-[#478EDB] outline-none text-sm font-mono resize-none" />
             <div className="flex items-center justify-between mt-3">
               <button type="submit" disabled={isUpdating || !urlsText.trim()} onClick={e => e.stopPropagation()}
                 className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#478EDB] text-white text-xs font-medium hover:bg-[#3b7ac2] transition-colors disabled:opacity-50">
@@ -425,10 +428,10 @@ function UpdatePagesPanel({ site }: { site: Website }) {
 
 /* ─── OVERVIEW TAB ───────────────────────────────────────────────────────── */
 
-function OverviewTab({ websites, activeSite, onIntegrate, onDelete, userId, onSwitchTab }: {
+function OverviewTab({ websites, activeSite, onIntegrate, onSwitchTab }: {
   websites: Website[]; activeSite: Website | null;
-  onIntegrate: (s: Website) => void; onDelete: (s: Website) => void;
-  userId: string; onSwitchTab: (t: Tab) => void;
+  onIntegrate: (s: Website) => void;
+  onSwitchTab: (t: Tab) => void;
 }) {
   const displaySites = activeSite ? [activeSite] : websites;
   const totalPages = displaySites.reduce((s, w) => s + (w.pagesIndexed || 0), 0) || mockStats.pagesIndexed;
@@ -522,7 +525,7 @@ function OverviewTab({ websites, activeSite, onIntegrate, onDelete, userId, onSw
         ) : (
           <div className="divide-y divide-slate-50">
             {displaySites.map(site => (
-              <div key={site.id} className="flex items-center gap-4 px-6 py-4 hover:bg-[#F9F9FA] transition-colors group">
+              <div key={site.id} className="flex items-center gap-4 px-6 py-4 hover:bg-[#F9F9FA] transition-colors">
                 <div className="w-9 h-9 rounded-xl bg-[#478EDB]/10 flex items-center justify-center text-[#478EDB] text-sm font-bold uppercase flex-shrink-0">
                   {site.hostname.charAt(0)}
                 </div>
@@ -530,16 +533,7 @@ function OverviewTab({ websites, activeSite, onIntegrate, onDelete, userId, onSw
                   <p className="text-sm font-medium text-[#2E3538] truncate">{site.hostname}</p>
                   <p className="text-xs text-slate-400">{site.pagesIndexed} pages · {formatLocalDate(site.lastCrawled)}</p>
                 </div>
-                <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <UpdatePagesPanel site={site} />
-                  <SitemapSyncPanel siteId={site.id} userId={userId} apiBase={API_BASE} hostname={site.hostname} />
-                  <button type="button" onClick={() => onDelete(site)} className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-                <button onClick={() => onIntegrate(site)} className="flex-shrink-0 text-xs text-slate-400 hover:text-[#478EDB] transition-colors px-3 py-1.5 rounded-lg hover:bg-[#478EDB]/8 font-medium">
-                  Embed →
-                </button>
+                
               </div>
             ))}
           </div>
@@ -608,10 +602,7 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
             </div>
 
             {/* Actions strip */}
-            <div className="flex items-center gap-2 px-6 py-3 bg-[#F9F9FA] border-t border-slate-100">
-              <button onClick={() => onIntegrate(site)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#478EDB]/10 text-[#478EDB] border border-transparent hover:bg-[#478EDB]/20 transition-colors">
-                Embed widget
-              </button>
+            <div className="flex items-center flex-wrap gap-2 px-6 py-3 bg-[#F9F9FA] border-t border-slate-100">
               <UpdatePagesPanel site={site} />
               <SitemapSyncPanel siteId={site.id} userId={userId} apiBase={API_BASE} hostname={site.hostname} />
             </div>

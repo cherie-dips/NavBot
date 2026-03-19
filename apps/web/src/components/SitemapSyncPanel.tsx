@@ -150,7 +150,7 @@ export function SitemapSyncPanel({
   };
 
   return (
-    <div onClick={(e) => e.stopPropagation()}>
+    <div onClick={(e) => e.stopPropagation()} style={{ display: "contents" }}>
       {/* Toggle button */}
       <button
         type="button"
@@ -165,7 +165,7 @@ export function SitemapSyncPanel({
       </button>
 
       {expanded && (
-        <div className="mt-3 p-4 bg-[#F9F9FA] rounded-xl border border-slate-200 space-y-4">
+        <div className="basis-full mt-1 p-4 bg-[#F9F9FA] rounded-xl border border-slate-200 space-y-4">
 
           {/* Stats row */}
           <div className="flex items-center justify-between">

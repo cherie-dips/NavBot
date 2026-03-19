@@ -66,7 +66,7 @@ export const Navbar = ({
         {/* Logo */}
         <button
           className="flex items-center gap-2 group cursor-pointer flex-shrink-0"
-          onClick={(e) => handleNavClick(e, isDashboard ? "dashboard" : "home")}
+          onClick={(e) => handleNavClick(e, "home")}
         >
           <span className="text-xl font-medium italic text-[#2E3538] tracking-tight font-serif">
             navbot
