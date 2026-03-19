@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { SiteSelector, SiteOption } from "./SiteSelector";
 
 interface NavbarProps {
   onViewChange: (view: string) => void;
@@ -6,6 +7,11 @@ interface NavbarProps {
   isAuthed: boolean;
   onSignOut: () => void;
   onGetStartedClick: () => void;
+  // Dashboard site context — only passed when on dashboard
+  sites?: SiteOption[];
+  selectedSite?: SiteOption | null;
+  onSiteSelect?: (site: SiteOption | null) => void;
+  onAddSite?: () => void;
 }
 
 export const Navbar = ({
@@ -14,13 +20,16 @@ export const Navbar = ({
   isAuthed,
   onSignOut,
   onGetStartedClick,
+  sites = [],
+  selectedSite = null,
+  onSiteSelect,
+  onAddSite,
 }: NavbarProps) => {
   const [scrolled, setScrolled] = useState(false);
+  const isDashboard = currentView === "dashboard";
 
   useEffect(() => {
-    const handleScroll = () => {
-      setScrolled(window.scrollY > 20);
-    };
+    const handleScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
@@ -41,82 +50,103 @@ export const Navbar = ({
 
   return (
     <nav
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-500 ${
-        scrolled
-          ? "bg-white/80 backdrop-blur-xl border-b border-[#8691CA]/10 py-4 shadow-sm"
-          : "bg-transparent py-6"
+      className={`fixed top-0 left-0 right-0 z-50 h-14 flex items-center transition-all duration-500 ${
+        scrolled || isDashboard
+          ? "bg-white/95 backdrop-blur-xl border-b border-slate-100 shadow-sm"
+          : "bg-transparent"
       }`}
     >
-      <div className="container mx-auto px-6 flex items-center justify-between">
+      <div className="w-full px-6 flex items-center justify-between gap-4">
+        {/* Logo */}
         <button
-          className="flex items-center gap-2 group cursor-pointer"
-          onClick={(e) => handleNavClick(e, "home")}
+          className="flex items-center gap-2 group cursor-pointer flex-shrink-0"
+          onClick={(e) => handleNavClick(e, isDashboard ? "dashboard" : "home")}
         >
           <span className="text-xl font-medium italic text-[#2E3538] tracking-tight font-serif">
             navbot
           </span>
         </button>
 
-        <div className="hidden md:flex items-center gap-8">
-          {["Home", "Features", "How it works"].map((item) => (
-            <a
-              key={item}
-              href={`#${item.toLowerCase().replace(/\s/g, "-")}`}
-              onClick={(e) =>
-                handleNavClick(
-                  e,
-                  item === "How it works" ? "how-it-works" : item
-                )
-              }
-              className={`text-sm font-medium transition-colors relative group ${
-                currentView === item.toLowerCase()
-                  ? "text-[#478EDB]"
-                  : "text-slate-500 hover:text-[#478EDB]"
-              }`}
-            >
-              {item}
-              <span
-                className={`absolute -bottom-1 left-0 w-full h-0.5 bg-[#478EDB] transition-transform origin-left duration-300 ${
-                  currentView === item.toLowerCase()
-                    ? "scale-x-100"
-                    : "scale-x-0 group-hover:scale-x-100"
-                }`}
-              ></span>
-            </a>
-          ))}
-        </div>
+        {/* ── Dashboard mode: site selector lives here ── */}
+        {isDashboard && isAuthed && onSiteSelect && onAddSite && (
+          <div className="flex items-center gap-3 flex-1">
+            {/* Subtle divider */}
+            <span className="text-slate-200 select-none hidden sm:block">|</span>
 
-        <div className="flex items-center gap-4">
+            <SiteSelector
+              sites={sites}
+              selectedSite={selectedSite}
+              onSelect={onSiteSelect}
+              onAddSite={onAddSite}
+              variant="navbar"
+            />
+
+            {/* Breadcrumb-style current tab hint — spacer so right side doesn't crowd */}
+            <div className="flex-1" />
+          </div>
+        )}
+
+        {/* ── Marketing mode: nav links ── */}
+        {!isDashboard && (
+          <div className="hidden md:flex items-center gap-8">
+            {["Home", "Features", "How it works"].map((item) => (
+              <a
+                key={item}
+                href={`#${item.toLowerCase().replace(/\s/g, "-")}`}
+                onClick={(e) =>
+                  handleNavClick(e, item === "How it works" ? "how-it-works" : item)
+                }
+                className={`text-sm font-medium transition-colors relative group ${
+                  currentView === item.toLowerCase()
+                    ? "text-[#478EDB]"
+                    : "text-slate-500 hover:text-[#478EDB]"
+                }`}
+              >
+                {item}
+                <span
+                  className={`absolute -bottom-1 left-0 w-full h-0.5 bg-[#478EDB] transition-transform origin-left duration-300 ${
+                    currentView === item.toLowerCase()
+                      ? "scale-x-100"
+                      : "scale-x-0 group-hover:scale-x-100"
+                  }`}
+                />
+              </a>
+            ))}
+          </div>
+        )}
+
+        {/* ── Right side: auth actions ── */}
+        <div className="flex items-center gap-3 flex-shrink-0">
           {isAuthed ? (
             <>
-              <button
-                onClick={(e) => handleNavClick(e, "dashboard")}
-                className="hidden sm:inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#478EDB]/10 text-[#478EDB] text-sm font-medium hover:bg-[#478EDB]/20 transition-colors"
-              >
-                <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#478EDB] text-white text-xs font-semibold">
-                  U
-                </span>
-                <span>Dashboard</span>
-              </button>
+              {!isDashboard && (
+                <button
+                  onClick={(e) => handleNavClick(e, "dashboard")}
+                  className="hidden sm:inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#478EDB]/10 text-[#478EDB] text-sm font-medium hover:bg-[#478EDB]/20 transition-colors"
+                >
+                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#478EDB] text-white text-xs font-semibold">
+                    U
+                  </span>
+                  <span>Dashboard</span>
+                </button>
+              )}
               <button
                 onClick={onSignOut}
-                className="text-sm font-medium text-slate-500 hover:text-red-600 transition-colors"
+                className="text-sm font-medium text-slate-400 hover:text-red-500 transition-colors"
               >
-                Sign Out
+                Sign out
               </button>
             </>
           ) : (
-            <>
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  onGetStartedClick();
-                }}
-                className="px-6 py-2.5 rounded-full bg-[#2E3538] text-white text-sm font-medium hover:bg-[#478EDB] transition-colors shadow-lg shadow-[#2E3538]/10 hover:shadow-[#478EDB]/30 duration-300"
-              >
-                Get started
-              </button>
-            </>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                onGetStartedClick();
+              }}
+              className="px-5 py-2 rounded-full bg-[#2E3538] text-white text-sm font-medium hover:bg-[#478EDB] transition-colors shadow-lg shadow-[#2E3538]/10 hover:shadow-[#478EDB]/30 duration-300"
+            >
+              Get started
+            </button>
           )}
         </div>
       </div>
