@@ -48,6 +48,13 @@ export const Navbar = ({
     }
   };
 
+  const NAV_LINKS = [
+    { label: "Home",         target: "home"         },
+    { label: "Features",     target: "features"     },
+    { label: "How it works", target: "how-it-works" },
+    { label: "Pricing",      target: "pricing"      },
+  ];
+
   return (
     <nav
       className={`fixed top-0 left-0 right-0 z-50 h-14 flex items-center transition-all duration-500 ${
@@ -89,29 +96,28 @@ export const Navbar = ({
         {/* ── Marketing mode: nav links ── */}
         {!isDashboard && (
           <div className="hidden md:flex items-center gap-8">
-            {["Home", "Features", "How it works"].map((item) => (
-              <a
-                key={item}
-                href={`#${item.toLowerCase().replace(/\s/g, "-")}`}
-                onClick={(e) =>
-                  handleNavClick(e, item === "How it works" ? "how-it-works" : item)
-                }
-                className={`text-sm font-medium transition-colors relative group ${
-                  currentView === item.toLowerCase()
-                    ? "text-[#478EDB]"
-                    : "text-slate-500 hover:text-[#478EDB]"
-                }`}
-              >
-                {item}
-                <span
-                  className={`absolute -bottom-1 left-0 w-full h-0.5 bg-[#478EDB] transition-transform origin-left duration-300 ${
-                    currentView === item.toLowerCase()
-                      ? "scale-x-100"
-                      : "scale-x-0 group-hover:scale-x-100"
+            {NAV_LINKS.map((item) => {
+              const isActive =
+                currentView === item.target ||
+                (item.target === "how-it-works" && currentView === "home");
+              return (
+                <a
+                  key={item.label}
+                  href={`#${item.target}`}
+                  onClick={(e) => handleNavClick(e, item.target)}
+                  className={`text-sm font-medium transition-colors relative group ${
+                    isActive ? "text-[#478EDB]" : "text-slate-500 hover:text-[#478EDB]"
                   }`}
-                />
-              </a>
-            ))}
+                >
+                  {item.label}
+                  <span
+                    className={`absolute -bottom-1 left-0 w-full h-0.5 bg-[#478EDB] transition-transform origin-left duration-300 ${
+                      isActive ? "scale-x-100" : "scale-x-0 group-hover:scale-x-100"
+                    }`}
+                  />
+                </a>
+              );
+            })}
           </div>
         )}
 
@@ -138,15 +144,24 @@ export const Navbar = ({
               </button>
             </>
           ) : (
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                onGetStartedClick();
-              }}
-              className="px-5 py-2 rounded-full bg-[#2E3538] text-white text-sm font-medium hover:bg-[#478EDB] transition-colors shadow-lg shadow-[#2E3538]/10 hover:shadow-[#478EDB]/30 duration-300"
-            >
-              Get started
-            </button>
+            <>
+              {/* Pricing shortcut in right side for unauthenticated users */}
+              <button
+                onClick={(e) => handleNavClick(e, "pricing")}
+                className="hidden sm:block text-sm font-medium text-slate-500 hover:text-[#478EDB] transition-colors"
+              >
+                Pricing
+              </button>
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  onGetStartedClick();
+                }}
+                className="px-5 py-2 rounded-full bg-[#2E3538] text-white text-sm font-medium hover:bg-[#478EDB] transition-colors shadow-lg shadow-[#2E3538]/10 hover:shadow-[#478EDB]/30 duration-300"
+              >
+                Get started
+              </button>
+            </>
           )}
         </div>
       </div>

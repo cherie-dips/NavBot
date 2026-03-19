@@ -9,8 +9,9 @@ export const Footer = ({ onViewChange }: FooterProps) => (
                 <span className="text-lg font-medium italic text-[#2E3538] font-serif">navbot</span>
             </div>
             <div className="flex gap-8 text-sm text-slate-500">
+                <a href="#" onClick={(e) => { e.preventDefault(); onViewChange("features"); }} className="hover:text-[#478EDB] transition-colors">Features</a>
+                <a href="#" onClick={(e) => { e.preventDefault(); onViewChange("pricing"); }} className="hover:text-[#478EDB] transition-colors">Pricing</a>
                 <a href="#" onClick={(e) => { e.preventDefault(); onViewChange("contact"); }} className="hover:text-[#478EDB] transition-colors">Contact</a>
-                <a href="#" className="hover:text-[#478EDB] transition-colors">Twitter</a>
                 <a href="#" className="hover:text-[#478EDB] transition-colors">Privacy</a>
             </div>
             <div className="text-sm text-slate-400">© 2026 NavBot</div>

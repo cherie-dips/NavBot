@@ -8,6 +8,7 @@ import { FeaturesPage } from "./pages/FeaturesPage";
 import { GetStartedPage } from "./pages/GetStartedPage";
 import { AuthPage } from "./pages/AuthPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { PricingPage } from "./pages/PricingPage";
 import { authClient } from "./lib/auth-client";
 import { SiteOption } from "./components/SiteSelector";
 import "./style.css";
@@ -79,11 +80,12 @@ const App = () => {
         onAddSite={handleAddSite}
       />
 
-      {currentView === "home"      && <HomePage onViewChange={setCurrentView} onGetStarted={handleGetStartedCTA} />}
-      {currentView === "contact"   && <ContactPage />}
-      {currentView === "features"  && <FeaturesPage />}
+      {currentView === "home"        && <HomePage onViewChange={setCurrentView} onGetStarted={handleGetStartedCTA} />}
+      {currentView === "contact"     && <ContactPage />}
+      {currentView === "features"    && <FeaturesPage />}
+      {currentView === "pricing"     && <PricingPage onGetStarted={handleGetStartedCTA} />}
       {currentView === "get-started" && <GetStartedPage />}
-      {currentView === "auth"      && (
+      {currentView === "auth"        && (
         <AuthPage
           onViewChange={setCurrentView}
           onAuthSuccess={() => {
@@ -97,7 +99,6 @@ const App = () => {
         <DashboardPage
           onViewChange={setCurrentView}
           onSignOut={handleSignOut}
-          // Lift site state up so Navbar can show the selector
           externalSites={sites}
           onSitesChange={setSites}
           selectedSite={selectedSite}
