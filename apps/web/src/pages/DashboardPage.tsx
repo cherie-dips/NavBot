@@ -4,6 +4,7 @@ import {
   Mic, Users, Brain, ArrowRight, AlertCircle, TrendingUp, Clock,
   ChevronRight, Search, Volume2, VolumeX, FileText, Zap, ArrowUpRight,
   RefreshCw, Loader2, CheckCircle2, Trash2, X,
+  CreditCard,
 } from "lucide-react";
 import { authClient } from "../lib/auth-client";
 import { ScrapingPage } from "./ScrapingPage";
@@ -15,6 +16,7 @@ import {
 import { WidgetTheme } from "../components/ColorThemePicker";
 import { SitemapSyncPanel } from "../components/SitemapSyncPanel";
 import { SiteOption } from "../components/SiteSelector";
+import { BillingTab } from "./Billingtab";
 
 function formatLocalDate(raw: string | null | undefined): string {
   if (!raw || raw === "Just now") return raw || "Never";
@@ -45,7 +47,7 @@ interface DashboardPageProps {
   onSiteSelect: (site: SiteOption | null) => void;
 }
 
-type Tab = "overview" | "websites" | "analytics" | "social" | "visitors" | "settings";
+type Tab = "overview" | "websites" | "analytics" | "social" | "visitors" | "settings" | "billing";
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL ?? "http://localhost:3001";
 const WIDGET_SCRIPT_URL =
@@ -59,6 +61,7 @@ const TABS: { id: Tab; label: string; icon: typeof LayoutDashboard; desc: string
   { id: "social",    label: "Social Media",      icon: Share2,          desc: "Connect channels"        },
   { id: "visitors",  label: "Visitors",          icon: Users,           desc: "Interaction history"     },
   { id: "settings",  label: "Settings",          icon: Mic,             desc: "Bot configuration"       },
+  { id: "billing", label: "Billing", icon: CreditCard, desc: "Plan & invoices" }
 ];
 
 /* ─────────────────────────────────────────────────────────────────────────── */
@@ -325,6 +328,7 @@ export const DashboardPage = ({
           {activeTab === "social"    && <SocialTab activeSite={activeSite} />}
           {activeTab === "visitors"  && <VisitorInsightsTab activeSite={activeSite} />}
           {activeTab === "settings"  && <SettingsTab voiceEnabled={voiceEnabled} setVoiceEnabled={setVoiceEnabled} webDataOnly={webDataOnly} setWebDataOnly={setWebDataOnly} activeSite={activeSite} />}
+          {activeTab === "billing" && <BillingTab onPlanActivated={() => setActiveTab("overview")} />}
         </main>
       </div>
 

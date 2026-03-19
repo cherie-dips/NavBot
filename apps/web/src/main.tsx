@@ -83,7 +83,7 @@ const App = () => {
       {currentView === "home"        && <HomePage onViewChange={setCurrentView} onGetStarted={handleGetStartedCTA} />}
       {currentView === "contact"     && <ContactPage />}
       {currentView === "features"    && <FeaturesPage />}
-      {currentView === "pricing"     && <PricingPage onGetStarted={handleGetStartedCTA} />}
+      {currentView === "pricing"     && <PricingPage onGetStarted={handleGetStartedCTA} onPaymentSuccess={() => setCurrentView("dashboard")} />}
       {currentView === "get-started" && <GetStartedPage />}
       {currentView === "auth"        && (
         <AuthPage

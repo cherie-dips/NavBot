@@ -51,7 +51,6 @@ export const Navbar = ({
   const NAV_LINKS = [
     { label: "Home",         target: "home"         },
     { label: "Features",     target: "features"     },
-    { label: "How it works", target: "how-it-works" },
     { label: "Pricing",      target: "pricing"      },
   ];
 
