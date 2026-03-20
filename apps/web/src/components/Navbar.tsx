@@ -7,7 +7,6 @@ interface NavbarProps {
   isAuthed: boolean;
   onSignOut: () => void;
   onGetStartedClick: () => void;
-  // Dashboard site context — only passed when on dashboard
   sites?: SiteOption[];
   selectedSite?: SiteOption | null;
   onSiteSelect?: (site: SiteOption | null) => void;
@@ -29,131 +28,98 @@ export const Navbar = ({
   const isDashboard = currentView === "dashboard";
 
   useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 20);
+    const handleScroll = () => setScrolled(window.scrollY > 16);
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   const handleNavClick = (e: React.MouseEvent, target: string) => {
     e.preventDefault();
-    if (target === "how-it-works") {
-      onViewChange("home");
-      setTimeout(() => {
-        const element = document.getElementById("how-it-works");
-        if (element) element.scrollIntoView({ behavior: "smooth" });
-      }, 100);
-    } else {
-      onViewChange(target.toLowerCase());
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
+    onViewChange(target.toLowerCase());
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const NAV_LINKS = [
-    { label: "Home",         target: "home"         },
-    { label: "Features",     target: "features"     },
-    { label: "Pricing",      target: "pricing"      },
+  const navLinks = [
+    { label: "Features", target: "features" },
+    { label: "Pricing", target: "pricing" },
+    { label: "Contact", target: "contact" },
   ];
 
   return (
     <nav
-      className={`fixed top-0 left-0 right-0 z-50 h-14 flex items-center transition-all duration-500 ${
+      className={`fixed left-0 right-0 top-0 z-50 transition-all duration-500 ${
         scrolled || isDashboard
-          ? "bg-white/95 backdrop-blur-xl border-b border-slate-100 shadow-sm"
+          ? "bg-[#fbf8f3]/92 backdrop-blur-2xl"
           : "bg-transparent"
       }`}
     >
-      <div className="w-full px-6 flex items-center justify-between gap-4">
-        {/* Logo */}
+      <div className={`flex h-[76px] w-full items-center justify-between px-6 ${isDashboard ? "" : "mx-auto max-w-[1220px]"}`}>
         <button
-          className="flex items-center gap-2 group cursor-pointer flex-shrink-0"
+          className="font-display text-[1.6rem] font-semibold italic tracking-[-0.05em] text-[#1f2522]"
           onClick={(e) => handleNavClick(e, "home")}
         >
-          <span className="text-xl font-medium italic text-[#2E3538] tracking-tight font-serif">
-            navbot
-          </span>
+          navbot
         </button>
 
-        {/* ── Dashboard mode: site selector lives here ── */}
-        {isDashboard && isAuthed && onSiteSelect && onAddSite && (
-          <div className="flex items-center gap-3 flex-1">
-            {/* Subtle divider */}
-            <span className="text-slate-200 select-none hidden sm:block">|</span>
-
-            <SiteSelector
-              sites={sites}
-              selectedSite={selectedSite}
-              onSelect={onSiteSelect}
-              onAddSite={onAddSite}
-              variant="navbar"
-            />
-
-            {/* Breadcrumb-style current tab hint — spacer so right side doesn't crowd */}
-            <div className="flex-1" />
+        {isDashboard ? (
+          <div className="flex-1" />
+        ) : (
+          <div className="hidden items-center gap-9 md:flex">
+            {navLinks.map((item) => (
+              <a
+                key={item.target}
+                href={`#${item.target}`}
+                onClick={(e) => handleNavClick(e, item.target)}
+                data-active={currentView === item.target}
+                className={`text-[0.95rem] font-medium transition-colors ${
+                  currentView === item.target
+                    ? "text-[#1f2522]"
+                    : "text-[#6d7773] hover:text-[#1f2522]"
+                }`}
+              >
+                {item.label}
+              </a>
+            ))}
           </div>
         )}
 
-        {/* ── Marketing mode: nav links ── */}
-        {!isDashboard && (
-          <div className="hidden md:flex items-center gap-8">
-            {NAV_LINKS.map((item) => {
-              const isActive =
-                currentView === item.target ||
-                (item.target === "how-it-works" && currentView === "home");
-              return (
-                <a
-                  key={item.label}
-                  href={`#${item.target}`}
-                  onClick={(e) => handleNavClick(e, item.target)}
-                  className={`text-sm font-medium transition-colors relative group ${
-                    isActive ? "text-[#478EDB]" : "text-slate-500 hover:text-[#478EDB]"
-                  }`}
-                >
-                  {item.label}
-                  <span
-                    className={`absolute -bottom-1 left-0 w-full h-0.5 bg-[#478EDB] transition-transform origin-left duration-300 ${
-                      isActive ? "scale-x-100" : "scale-x-0 group-hover:scale-x-100"
-                    }`}
-                  />
-                </a>
-              );
-            })}
-          </div>
-        )}
-
-        {/* ── Right side: auth actions ── */}
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex items-center gap-3">
           {isAuthed ? (
             <>
+              {isDashboard && onSiteSelect && onAddSite && (
+                <SiteSelector
+                  sites={sites}
+                  selectedSite={selectedSite}
+                  onSelect={onSiteSelect}
+                  onAddSite={onAddSite}
+                  variant="navbar"
+                />
+              )}
               {!isDashboard && (
                 <button
                   onClick={(e) => handleNavClick(e, "dashboard")}
-                  className="hidden sm:inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#478EDB]/10 text-[#478EDB] text-sm font-medium hover:bg-[#478EDB]/20 transition-colors"
+                  className="rounded-full border border-[#1f2522]/8 bg-white/70 px-4 py-2 text-sm text-[#1f2522]"
                 >
-                  <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#478EDB] text-white text-xs font-semibold">
-                    U
-                  </span>
-                  <span>Dashboard</span>
+                  Dashboard
                 </button>
               )}
               <button
                 onClick={onSignOut}
-                className="text-sm font-medium text-slate-400 hover:text-red-500 transition-colors"
+                className="text-sm text-[#7b8783] transition-colors hover:text-red-500"
               >
                 Sign out
               </button>
             </>
           ) : (
-            <>
-              <button
-                onClick={(e) => {
-                  e.preventDefault();
-                  onGetStartedClick();
-                }}
-                className="px-5 py-2 rounded-full bg-[#2E3538] text-white text-sm font-medium hover:bg-[#478EDB] transition-colors shadow-lg shadow-[#2E3538]/10 hover:shadow-[#478EDB]/30 duration-300"
-              >
-                Get started
-              </button>
-            </>
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                onGetStartedClick();
+              }}
+              className="rounded-full bg-[#1f2522] px-5 py-2.5 text-sm font-medium text-white shadow-[0_16px_34px_rgba(31,37,34,0.12)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#bc6c25]"
+            >
+              Get started
+            </button>
           )}
         </div>
       </div>

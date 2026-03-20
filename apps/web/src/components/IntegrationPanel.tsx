@@ -15,14 +15,14 @@ interface IntegrationPanelProps {
 }
 
 const DEFAULT_THEME: WidgetTheme = {
-  primary: "#2E3538",
-  launcherBg: "#2E3538",
+  primary: "#1f2522",
+  launcherBg: "#1f2522",
   botBubbleBg: "rgba(255,255,255,0.4)",
   userBubbleBg: "rgba(0,0,0,0.06)",
-  headerTextColor: "#2E3538",
+  headerTextColor: "#1f2522",
   timestampColor: "#94a3b8",
   iconColor: "#94a3b8",
-  sendBtnBg: "#2E3538",
+  sendBtnBg: "#1f2522",
   sendBtnColor: "#ffffff",
 };
 
@@ -75,24 +75,27 @@ export const IntegrationPanel = ({
 
   return (
     <div className="space-y-6">
-      {/* Page header */}
-      <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div className="section-shell overflow-hidden rounded-[2rem] p-6">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute left-[10%] top-[16%] h-28 w-28 rounded-full bg-[#f2d4b8]/35 blur-3xl" />
+          <div className="absolute bottom-[10%] right-[12%] h-32 w-32 rounded-full bg-[#dbe5f1]/45 blur-3xl" />
+        </div>
+
+        <div className="relative z-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-semibold text-[#478EDB] uppercase tracking-wider mb-1">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-[#bc6c25]">
               Integration Ready
             </p>
-            <h2 className="font-serif text-xl font-light text-[#2E3538]">
+            <h2 className="font-display text-xl font-light text-[#1f2522]">
               Embed NavBot on <span className="font-semibold">{info.url}</span>
             </h2>
           </div>
-          <div className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-1.5 font-mono">
+          <div className="rounded-lg bg-[#fbfaf7] px-3 py-1.5 font-mono text-xs text-[#65726d]">
             ID: {info.siteId}
           </div>
         </div>
       </div>
 
-      {/* Tab navigation */}
       <div className="flex gap-2">
         {tabs.map((tab) => {
           const Icon = tab.icon;
@@ -102,8 +105,8 @@ export const IntegrationPanel = ({
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all ${
                 activeTab === tab.id
-                  ? "bg-[#2E3538] text-white shadow-md"
-                  : "bg-white text-slate-500 border border-slate-200 hover:border-slate-300 hover:text-slate-700"
+                  ? "bg-[#1f2522] text-white shadow-md"
+                  : "border border-[#1f2522]/8 bg-white/80 text-[#65726d] hover:border-[#bc6c25]/30 hover:text-[#1f2522]"
               }`}
             >
               <Icon className="w-4 h-4" />
@@ -115,7 +118,7 @@ export const IntegrationPanel = ({
 
       {/* Tab content */}
       {activeTab === "theme" && (
-        <div className="bg-white rounded-2xl p-6 md:p-8 border border-slate-100 shadow-sm">
+        <div className="section-shell overflow-hidden rounded-[2rem] p-6 md:p-8">
           <ColorThemePicker
             siteId={info.siteId}
             siteUrl={info.url}
@@ -129,39 +132,37 @@ export const IntegrationPanel = ({
 
       {activeTab === "code" && (
         <div className="space-y-4">
-          {/* Console snippet */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-3">
+          <div className="section-shell overflow-hidden rounded-[2rem] p-6 space-y-3">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center">
-                <Terminal className="w-4 h-4 text-amber-600" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f6eee3]">
+                <Terminal className="h-4 w-4 text-[#bc6c25]" />
               </div>
               <div>
-                <h4 className="text-sm font-semibold text-[#2E3538]">Browser Console</h4>
-                <p className="text-xs text-slate-400">Paste in DevTools to test instantly</p>
+                <h4 className="text-sm font-semibold text-[#1f2522]">Browser Console</h4>
+                <p className="text-xs text-[#8a938f]">Paste in DevTools to test instantly</p>
               </div>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] text-slate-700 font-mono whitespace-pre-wrap break-words select-all leading-relaxed max-h-48 overflow-y-auto">
+            <div className="max-h-48 overflow-y-auto rounded-2xl border border-[#1f2522]/8 bg-[#fbfaf7] px-4 py-3 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap text-[#5f6b67] select-all">
               {consoleCode}
             </div>
           </div>
 
-          {/* HTML snippet */}
-          <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm space-y-3">
+          <div className="section-shell overflow-hidden rounded-[2rem] p-6 space-y-3">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center">
-                <Code className="w-4 h-4 text-blue-600" />
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#edf2f7]">
+                <Code className="h-4 w-4 text-[#456a92]" />
               </div>
               <div>
-                <h4 className="text-sm font-semibold text-[#2E3538]">HTML Script Tag</h4>
-                <p className="text-xs text-slate-400">Add before the closing &lt;/body&gt; tag</p>
+                <h4 className="text-sm font-semibold text-[#1f2522]">HTML Script Tag</h4>
+                <p className="text-xs text-[#8a938f]">Add before the closing &lt;/body&gt; tag</p>
               </div>
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-[12px] text-slate-700 font-mono whitespace-pre-wrap break-words select-all leading-relaxed max-h-64 overflow-y-auto">
+            <div className="max-h-64 overflow-y-auto rounded-2xl border border-[#1f2522]/8 bg-[#fbfaf7] px-4 py-3 font-mono text-[12px] leading-relaxed break-words whitespace-pre-wrap text-[#5f6b67] select-all">
               {scriptTag}
             </div>
           </div>
 
-          <p className="text-xs text-slate-400 text-center py-1">
+          <p className="py-1 text-center text-xs text-[#8a938f]">
             Theme colors are embedded in the config — no extra requests needed by the widget.
           </p>
         </div>

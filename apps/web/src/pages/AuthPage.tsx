@@ -67,45 +67,49 @@ export const AuthPage = ({ onViewChange, onAuthSuccess }: AuthPageProps) => {
     };
 
     return (
-        <div className="animate-fade-in-up min-h-screen pt-24 pb-20 relative overflow-hidden flex items-center justify-center">
-            {/* Ambient background */}
+        <div className="animate-fade-in-up relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f8f4ee] pb-20 pt-24">
             <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-[#8EBFF2] opacity-20 rounded-full blur-[100px] animate-pulse" />
-                <div className="absolute top-[20%] left-[-10%] w-[500px] h-[500px] bg-[#8691CA] opacity-20 rounded-full blur-[100px] animate-pulse delay-700" />
-                <div className="absolute bottom-[-10%] left-[30%] w-[400px] h-[400px] bg-[#478EDB] opacity-10 rounded-full blur-[100px]" />
+                <div className="hero-mesh absolute inset-0" />
+                <div className="marketing-noise absolute inset-0 opacity-20" />
+                <div className="absolute right-[-5%] top-[-10%] h-[620px] w-[620px] rounded-full bg-[#f2d4b8] opacity-28 blur-[100px]" />
+                <div className="absolute left-[-10%] top-[20%] h-[500px] w-[500px] rounded-full bg-[#dbe5f1] opacity-24 blur-[100px]" />
+                <div className="absolute bottom-[-10%] left-[30%] h-[400px] w-[400px] rounded-full bg-white/70 opacity-60 blur-[100px]" />
             </div>
 
             <div className="relative z-10 w-full max-w-md mx-auto px-6">
-                {/* Brand */}
                 <div className="text-center mb-10">
                     <button
                         onClick={() => onViewChange("home")}
-                        className="text-2xl font-medium italic text-[#2E3538] font-serif tracking-tight mb-4 block mx-auto hover:text-[#478EDB] transition-colors"
+                        className="mx-auto mb-4 block font-display text-3xl font-semibold italic tracking-[-0.06em] text-[#1f2522] transition-colors hover:text-[#bc6c25]"
                     >
                         navbot
                     </button>
-                    <h1 className="font-serif text-3xl font-light text-[#2E3538] mb-2">
+                    <h1 className="font-display text-3xl font-light text-[#1f2522] mb-2">
                         {mode === "login" ? "Welcome back" : "Get started"}
                     </h1>
-                    <p className="text-slate-500 text-sm font-light">
+                    <p className="text-sm font-light text-[#65726d]">
                         {mode === "login"
                             ? "Sign in to access your NavBot dashboard"
                             : "Create your account to add NavBot to your website"}
                     </p>
                 </div>
 
-                {/* Card */}
-                <div className="bg-white rounded-[2rem] p-8 shadow-xl shadow-[#8691CA]/8 border border-slate-100">
-                    {/* Mode Toggle */}
-                    <div className="flex p-1 bg-[#F9F9FA] rounded-xl mb-8">
+                <div className="section-shell overflow-hidden rounded-[2rem] p-8">
+                    <div className="pointer-events-none absolute inset-0">
+                        <div className="absolute left-[10%] top-[14%] h-32 w-32 rounded-full bg-[#f2d4b8]/38 blur-3xl" />
+                        <div className="absolute bottom-[10%] right-[12%] h-36 w-36 rounded-full bg-[#dbe5f1]/45 blur-3xl" />
+                    </div>
+
+                    <div className="relative z-10">
+                    <div className="mb-8 flex rounded-xl bg-[#f3eee7] p-1">
                         {(["login", "signup"] as const).map((m) => (
                             <button
                                 key={m}
                                 onClick={() => { setMode(m); setError(""); }}
                                 className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all duration-300 ${
                                     mode === m
-                                        ? "bg-white text-[#2E3538] shadow-sm"
-                                        : "text-slate-400 hover:text-slate-600"
+                                        ? "bg-white text-[#1f2522] shadow-sm"
+                                        : "text-[#8a938f] hover:text-[#5f6b67]"
                                 }`}
                             >
                                 {m === "login" ? "Sign In" : "Sign Up"}
@@ -113,12 +117,11 @@ export const AuthPage = ({ onViewChange, onAuthSuccess }: AuthPageProps) => {
                         ))}
                     </div>
 
-                    {/* OAuth Buttons */}
                     <div className="space-y-3 mb-6">
                         <button
                             onClick={() => handleOAuth("github")}
                             disabled={!!oauthLoading}
-                            className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl border border-slate-200 bg-[#F9F9FA] hover:bg-white hover:border-[#2E3538]/30 transition-all duration-200 text-sm font-medium text-[#2E3538] disabled:opacity-60 disabled:cursor-not-allowed"
+                            className="flex w-full items-center justify-center gap-3 rounded-full border border-[#1f2522]/8 bg-white/76 px-4 py-3 text-sm font-medium text-[#1f2522] transition-all duration-300 hover:-translate-y-0.5 hover:border-[#bc6c25]/25 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             {oauthLoading === "github" ? (
                                 <div className="w-4 h-4 border-2 border-slate-300 border-t-slate-600 rounded-full animate-spin" />
@@ -132,7 +135,7 @@ export const AuthPage = ({ onViewChange, onAuthSuccess }: AuthPageProps) => {
                         <button
                             onClick={() => handleOAuth("google")}
                             disabled={!!oauthLoading}
-                            className="w-full flex items-center justify-center gap-3 py-3 px-4 rounded-xl border border-slate-200 bg-[#F9F9FA] hover:bg-white hover:border-[#478EDB]/30 transition-all duration-200 text-sm font-medium text-[#2E3538] disabled:opacity-60 disabled:cursor-not-allowed"
+                            className="flex w-full items-center justify-center gap-3 rounded-full border border-[#1f2522]/8 bg-white/76 px-4 py-3 text-sm font-medium text-[#1f2522] transition-all duration-300 hover:-translate-y-0.5 hover:border-[#bc6c25]/25 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                         >
                             {oauthLoading === "google" ? (
                                 <div className="w-4 h-4 border-2 border-slate-300 border-t-blue-500 rounded-full animate-spin" />
@@ -148,31 +151,29 @@ export const AuthPage = ({ onViewChange, onAuthSuccess }: AuthPageProps) => {
                         </button>
                     </div>
 
-                    {/* Divider */}
                     <div className="flex items-center gap-4 mb-6">
-                        <div className="flex-1 h-px bg-slate-100" />
-                        <span className="text-xs text-slate-400">or continue with email</span>
-                        <div className="flex-1 h-px bg-slate-100" />
+                        <div className="flex-1 h-px bg-[#e7dfd4]" />
+                        <span className="text-xs text-[#8a938f]">or continue with email</span>
+                        <div className="flex-1 h-px bg-[#e7dfd4]" />
                     </div>
 
-                    {/* Email Form */}
                     <form onSubmit={handleSubmit} className="space-y-4">
                         {mode === "signup" && (
                             <div>
-                                <label className="block text-xs font-medium text-[#2E3538] mb-1.5">Full Name</label>
+                                <label className="mb-1.5 block text-xs font-medium text-[#1f2522]">Full Name</label>
                                 <input
                                     type="text"
                                     placeholder="Jane Smith"
                                     value={name}
                                     onChange={(e) => setName(e.target.value)}
                                     required
-                                    className="w-full px-4 py-3 rounded-xl bg-[#F9F9FA] border border-slate-200 focus:border-[#478EDB] focus:bg-white outline-none transition-all duration-200 text-sm text-[#2E3538] placeholder:text-slate-400"
+                                    className="w-full rounded-2xl border border-[#1f2522]/8 bg-[#fbfaf7] px-4 py-3 text-sm text-[#1f2522] outline-none transition-all duration-200 placeholder:text-[#9aa39f] focus:border-[#bc6c25]/35 focus:bg-white"
                                 />
                             </div>
                         )}
 
                         <div>
-                            <label className="block text-xs font-medium text-[#2E3538] mb-1.5">Email</label>
+                            <label className="mb-1.5 block text-xs font-medium text-[#1f2522]">Email</label>
                             <div className="relative">
                                 <input
                                     type="email"
@@ -180,17 +181,17 @@ export const AuthPage = ({ onViewChange, onAuthSuccess }: AuthPageProps) => {
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
                                     required
-                                    className="w-full px-4 py-3 pr-10 rounded-xl bg-[#F9F9FA] border border-slate-200 focus:border-[#478EDB] focus:bg-white outline-none transition-all duration-200 text-sm text-[#2E3538] placeholder:text-slate-400"
+                                    className="w-full rounded-2xl border border-[#1f2522]/8 bg-[#fbfaf7] px-4 py-3 pr-10 text-sm text-[#1f2522] outline-none transition-all duration-200 placeholder:text-[#9aa39f] focus:border-[#bc6c25]/35 focus:bg-white"
                                 />
-                                <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                                <Mail className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#9aa39f]" />
                             </div>
                         </div>
 
                         <div>
                             <div className="flex items-center justify-between mb-1.5">
-                                <label className="block text-xs font-medium text-[#2E3538]">Password</label>
+                                <label className="block text-xs font-medium text-[#1f2522]">Password</label>
                                 {mode === "login" && (
-                                    <button type="button" className="text-xs text-[#478EDB] hover:text-[#2E3538] transition-colors">
+                                    <button type="button" className="text-xs text-[#bc6c25] transition-colors hover:text-[#1f2522]">
                                         Forgot password?
                                     </button>
                                 )}
@@ -203,12 +204,12 @@ export const AuthPage = ({ onViewChange, onAuthSuccess }: AuthPageProps) => {
                                     onChange={(e) => setPassword(e.target.value)}
                                     required
                                     minLength={8}
-                                    className="w-full px-4 py-3 pr-10 rounded-xl bg-[#F9F9FA] border border-slate-200 focus:border-[#478EDB] focus:bg-white outline-none transition-all duration-200 text-sm text-[#2E3538] placeholder:text-slate-400"
+                                    className="w-full rounded-2xl border border-[#1f2522]/8 bg-[#fbfaf7] px-4 py-3 pr-10 text-sm text-[#1f2522] outline-none transition-all duration-200 placeholder:text-[#9aa39f] focus:border-[#bc6c25]/35 focus:bg-white"
                                 />
                                 <button
                                     type="button"
                                     onClick={() => setShowPassword(!showPassword)}
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9aa39f] hover:text-[#5f6b67]"
                                 >
                                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                 </button>
@@ -224,7 +225,7 @@ export const AuthPage = ({ onViewChange, onAuthSuccess }: AuthPageProps) => {
                         <button
                             type="submit"
                             disabled={isLoading}
-                            className="group w-full py-3.5 bg-[#2E3538] text-white rounded-xl text-sm font-medium hover:bg-[#478EDB] transition-all duration-300 shadow-lg shadow-[#2E3538]/10 hover:shadow-[#478EDB]/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            className="group flex w-full items-center justify-center gap-2 rounded-full bg-[#1f2522] py-3.5 text-sm font-medium text-white shadow-[0_18px_38px_rgba(31,37,34,0.12)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#bc6c25] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             {isLoading ? (
                                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -238,19 +239,20 @@ export const AuthPage = ({ onViewChange, onAuthSuccess }: AuthPageProps) => {
                     </form>
 
                     {mode === "signup" && (
-                        <p className="text-center text-xs text-slate-400 mt-4">
+                        <p className="mt-4 text-center text-xs text-[#8a938f]">
                             By creating an account, you agree to our{" "}
-                            <a href="#" className="text-[#478EDB] hover:underline">Terms</a> and{" "}
-                            <a href="#" className="text-[#478EDB] hover:underline">Privacy Policy</a>.
+                            <a href="#" className="text-[#bc6c25] hover:underline">Terms</a> and{" "}
+                            <a href="#" className="text-[#bc6c25] hover:underline">Privacy Policy</a>.
                         </p>
                     )}
+                    </div>
                 </div>
 
-                <p className="text-center text-sm text-slate-500 mt-6">
+                <p className="mt-6 text-center text-sm text-[#65726d]">
                     {mode === "login" ? "Don't have an account? " : "Already have an account? "}
                     <button
                         onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(""); }}
-                        className="text-[#478EDB] font-medium hover:text-[#2E3538] transition-colors"
+                        className="font-medium text-[#bc6c25] transition-colors hover:text-[#1f2522]"
                     >
                         {mode === "login" ? "Sign up free" : "Sign in"}
                     </button>

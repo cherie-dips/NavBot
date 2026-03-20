@@ -83,35 +83,42 @@ export const GetStartedPage = () => {
   if (result) {
     const info = buildIntegration(result.siteId);
     return (
-      <div className="animate-fade-in-up min-h-screen pt-32 pb-20 relative overflow-hidden">
+      <div className="animate-fade-in-up relative min-h-screen overflow-hidden bg-[#f8f4ee] pb-20 pt-32 text-[#1f2522]">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-[#8EBFF2] opacity-20 rounded-full blur-[100px] animate-pulse" />
-          <div className="absolute top-[20%] left-[-10%] w-[500px] h-[500px] bg-[#8691CA] opacity-20 rounded-full blur-[100px] animate-pulse delay-700" />
+          <div className="absolute right-[-5%] top-[-10%] h-[620px] w-[620px] rounded-full bg-[#f2d4b8] opacity-28 blur-[100px]" />
+          <div className="absolute left-[-10%] top-[20%] h-[500px] w-[500px] rounded-full bg-[#dbe5f1] opacity-24 blur-[100px]" />
         </div>
 
         <div className="container mx-auto px-6 relative z-10">
           <div className="max-w-4xl mx-auto space-y-8">
-            <div className="bg-white rounded-[2.5rem] p-8 md:p-12 shadow-xl shadow-[#8691CA]/5 border border-slate-100">
+            <div className="section-shell overflow-hidden rounded-[2.5rem] p-8 md:p-12">
+              <div className="pointer-events-none absolute inset-0">
+                <div className="absolute left-[10%] top-[14%] h-36 w-36 rounded-full bg-[#f2d4b8]/45 blur-3xl" />
+                <div className="absolute bottom-[10%] right-[12%] h-40 w-40 rounded-full bg-[#dbe5f1]/55 blur-3xl" />
+              </div>
+
+              <div className="relative z-10">
               <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 rounded-full bg-green-100 text-green-600 flex items-center justify-center">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#eef5ea] text-green-600">
                   <CheckCircle2 className="w-6 h-6" />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-serif text-[#2E3538]">Your NavBot is ready!</h2>
-                  <p className="text-slate-500 text-sm">{result.url}</p>
+                  <h2 className="text-2xl font-display text-[#1f2522]">Your NavBot is ready!</h2>
+                  <p className="text-sm text-[#65726d]">{result.url}</p>
                 </div>
               </div>
 
-              <div className="flex flex-wrap gap-4 mt-4 mb-6 text-sm text-slate-500">
-                <span className="flex items-center gap-1.5 bg-[#F9F9FA] px-3 py-1.5 rounded-lg">
-                  <Globe className="w-3.5 h-3.5 text-[#478EDB]" />
+              <div className="mt-4 mb-6 flex flex-wrap gap-4 text-sm text-[#65726d]">
+                <span className="flex items-center gap-1.5 rounded-lg bg-[#fbfaf7] px-3 py-1.5 text-[#65726d]">
+                  <Globe className="w-3.5 h-3.5 text-[#bc6c25]" />
                   {result.pageCount} pages crawled
                 </span>
-                <span className="flex items-center gap-1.5 bg-[#F9F9FA] px-3 py-1.5 rounded-lg">
+                <span className="flex items-center gap-1.5 rounded-lg bg-[#fbfaf7] px-3 py-1.5">
                   <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
                   {result.stored} chunks indexed
                 </span>
               </div>
+            </div>
             </div>
 
             <IntegrationPanel info={info} />
@@ -119,7 +126,7 @@ export const GetStartedPage = () => {
             <div className="text-center">
               <button
                 onClick={handleReset}
-                className="px-6 py-3 bg-[#F9F9FA] text-[#2E3538] rounded-xl font-medium hover:bg-slate-200 transition-colors"
+                className="rounded-full border border-[#1f2522]/10 bg-white/70 px-6 py-3 text-sm font-medium text-[#1f2522] transition-all duration-300 hover:-translate-y-0.5 hover:border-[#bc6c25]/30 hover:text-[#bc6c25]"
               >
                 Add Another Website
               </button>
@@ -131,33 +138,41 @@ export const GetStartedPage = () => {
   }
 
   return (
-    <div className="animate-fade-in-up min-h-screen pt-32 pb-20 relative overflow-hidden">
+    <div className="animate-fade-in-up relative min-h-screen overflow-hidden bg-[#f8f4ee] pb-20 pt-32 text-[#1f2522]">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-[#8EBFF2] opacity-20 rounded-full blur-[100px] animate-pulse" />
-        <div className="absolute top-[20%] left-[-10%] w-[500px] h-[500px] bg-[#8691CA] opacity-20 rounded-full blur-[100px] animate-pulse delay-700" />
-        <div className="absolute bottom-[-10%] left-[30%] w-[400px] h-[400px] bg-[#478EDB] opacity-10 rounded-full blur-[100px]" />
+        <div className="hero-mesh absolute inset-0" />
+        <div className="marketing-noise absolute inset-0 opacity-16" />
+        <div className="absolute right-[-5%] top-[-10%] h-[620px] w-[620px] rounded-full bg-[#f2d4b8] opacity-28 blur-[100px]" />
+        <div className="absolute left-[-10%] top-[20%] h-[500px] w-[500px] rounded-full bg-[#dbe5f1] opacity-24 blur-[100px]" />
+        <div className="absolute bottom-[-10%] left-[30%] h-[400px] w-[400px] rounded-full bg-white/70 opacity-60 blur-[100px]" />
       </div>
 
       <div className="container mx-auto px-6 relative z-10">
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-16">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#478EDB]/10 border border-[#478EDB]/20 text-[#478EDB] text-sm font-medium mb-6">
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#bc6c25]/10 border border-[#bc6c25]/20 text-[#bc6c25] text-sm font-medium mb-6">
               <Sparkles className="w-4 h-4" />
               <span>Get started in minutes</span>
             </div>
 
-            <h1 className="font-serif text-5xl md:text-6xl font-light text-[#2E3538] mb-6">
-              Add NavBot to your <span className="italic text-[#478EDB]">website</span>
+            <h1 className="text-5xl md:text-6xl font-light text-[#1f2522] mb-6 tracking-[-0.05em]">
+              Add NavBot to your <span className="font-display italic text-[#bc6c25]">website</span>
             </h1>
-            <p className="text-xl text-slate-500 max-w-2xl mx-auto font-light">
+            <p className="text-xl text-[#65726d] max-w-2xl mx-auto font-light">
               Enter your website URL. We'll crawl it, build a knowledge base, and give you integration code.
             </p>
           </div>
 
-          <div className="bg-white rounded-[2.5rem] p-8 md:p-12 shadow-xl shadow-[#8691CA]/5 border border-slate-100">
+          <div className="section-shell overflow-hidden rounded-[2.5rem] p-8 md:p-12">
+            <div className="pointer-events-none absolute inset-0">
+              <div className="absolute left-[8%] top-[14%] h-40 w-40 rounded-full bg-[#f2d4b8]/45 blur-3xl" />
+              <div className="absolute bottom-[10%] right-[8%] h-48 w-48 rounded-full bg-[#dbe5f1]/60 blur-3xl" />
+            </div>
+
+            <div className="relative z-10">
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="space-y-3">
-                <label className="text-sm font-medium text-[#2E3538] block">
+                <label className="text-sm font-medium text-[#1f2522] block">
                   Website URL
                 </label>
                 <input
@@ -165,16 +180,16 @@ export const GetStartedPage = () => {
                   placeholder="https://yourwebsite.com"
                   value={websiteUrl}
                   onChange={(e) => setWebsiteUrl(e.target.value)}
-                  className="w-full px-6 py-4 rounded-xl bg-[#F9F9FA] border border-slate-200 focus:border-[#478EDB] focus:bg-white outline-none transition-all duration-300 text-[#2E3538] placeholder:text-slate-400"
+                  className="w-full rounded-2xl border border-[#1f2522]/8 bg-[#fbfaf7] px-6 py-4 text-[#1f2522] outline-none transition-all duration-300 placeholder:text-[#9aa39f] focus:border-[#bc6c25]/35 focus:bg-white"
                   required
                 />
-                <p className="text-sm text-slate-400">
+                <p className="text-sm text-[#8a938f]">
                   We'll crawl your website to understand your content and build a knowledge base.
                 </p>
               </div>
 
               {error && (
-                <div className="flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl px-4 py-3">
+                <div className="flex items-center gap-2 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
                   <AlertCircle className="w-4 h-4 flex-shrink-0" />
                   {error}
                 </div>
@@ -182,30 +197,31 @@ export const GetStartedPage = () => {
 
               <button
                 type="submit"
-                className="group w-full py-4 bg-[#2E3538] text-white rounded-xl font-bold hover:bg-[#478EDB] transition-colors shadow-lg shadow-[#2E3538]/10 hover:shadow-[#478EDB]/20 flex items-center justify-center gap-2"
+                className="group flex w-full items-center justify-center gap-2 rounded-full bg-[#1f2522] py-4 font-semibold text-white shadow-[0_20px_45px_rgba(31,37,34,0.12)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#bc6c25]"
               >
                 <span>Crawl & Generate Code</span>
                 <ArrowRight className="w-5 h-5 transition-transform group-hover:translate-x-1" />
               </button>
             </form>
 
-            <div className="mt-8 pt-8 border-t border-slate-100">
-              <h3 className="text-sm font-medium text-[#2E3538] mb-4">What happens next?</h3>
-              <div className="space-y-3 text-sm text-slate-600">
+            <div className="mt-8 border-t border-[#1f2522]/8 pt-8">
+              <h3 className="mb-4 text-sm font-medium text-[#1f2522]">What happens next?</h3>
+              <div className="space-y-3 text-sm text-[#65726d]">
                 <div className="flex items-start gap-3">
-                  <span className="w-6 h-6 rounded-full bg-[#478EDB]/10 text-[#478EDB] flex items-center justify-center text-xs font-bold flex-shrink-0">1</span>
+                  <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#bc6c25]/10 text-xs font-bold text-[#bc6c25]">1</span>
                   <span>We crawl your website and extract all content</span>
                 </div>
                 <div className="flex items-start gap-3">
-                  <span className="w-6 h-6 rounded-full bg-[#478EDB]/10 text-[#478EDB] flex items-center justify-center text-xs font-bold flex-shrink-0">2</span>
+                  <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#bc6c25]/10 text-xs font-bold text-[#bc6c25]">2</span>
                   <span>Content is indexed into a vector knowledge base</span>
                 </div>
                 <div className="flex items-start gap-3">
-                  <span className="w-6 h-6 rounded-full bg-[#478EDB]/10 text-[#478EDB] flex items-center justify-center text-xs font-bold flex-shrink-0">3</span>
+                  <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-[#bc6c25]/10 text-xs font-bold text-[#bc6c25]">3</span>
                   <span>You get integration scripts to add the chatbot to your site</span>
                 </div>
               </div>
             </div>
+          </div>
           </div>
         </div>
       </div>

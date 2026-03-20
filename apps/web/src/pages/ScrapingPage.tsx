@@ -151,62 +151,59 @@ export const ScrapingPage = ({
   }, []);
 
   return (
-    <div className="animate-fade-in-up min-h-screen pt-24 pb-20 relative overflow-hidden flex items-center justify-center">
+    <div className="animate-fade-in-up relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f8f4ee] pb-20 pt-24">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-[-10%] right-[-5%] w-[600px] h-[600px] bg-[#8EBFF2] opacity-20 rounded-full blur-[100px] animate-pulse" />
-        <div className="absolute bottom-[-10%] left-[10%] w-[500px] h-[500px] bg-[#8691CA] opacity-20 rounded-full blur-[100px] animate-pulse delay-700" />
+        <div className="absolute right-[-5%] top-[-10%] h-[600px] w-[600px] rounded-full bg-[#f2d4b8] opacity-26 blur-[100px]" />
+        <div className="absolute bottom-[-10%] left-[10%] h-[500px] w-[500px] rounded-full bg-[#dbe5f1] opacity-22 blur-[100px]" />
       </div>
 
       <div className="relative z-10 w-full max-w-lg mx-auto px-6 text-center">
-        {/* Spinner / done icon */}
         <div className="relative w-28 h-28 mx-auto mb-10">
-          <div className={`absolute inset-0 rounded-full border-2 border-[#478EDB]/30 transition-all duration-700 ${done ? "scale-150 opacity-0" : "scale-100 opacity-100"}`} />
+          <div className={`absolute inset-0 rounded-full border-2 border-[#bc6c25]/20 transition-all duration-700 ${done ? "scale-150 opacity-0" : "scale-100 opacity-100"}`} />
           <div
-            className={`absolute inset-2 rounded-full border-2 border-t-[#478EDB] border-r-[#8691CA] border-b-transparent border-l-transparent ${done ? "border-green-400" : "animate-spin"}`}
+            className={`absolute inset-2 rounded-full border-2 border-b-transparent border-l-transparent border-r-[#456a92] border-t-[#bc6c25] ${done ? "border-green-400" : "animate-spin"}`}
             style={{ animationDuration: "1.2s" }}
           />
-          <div className={`absolute inset-4 rounded-full transition-all duration-500 ${done ? "bg-green-100" : "bg-[#478EDB]/10"}`} />
+          <div className={`absolute inset-4 rounded-full transition-all duration-500 ${done ? "bg-green-100" : "bg-[#f6eee3]"}`} />
           <div className="absolute inset-0 flex items-center justify-center">
             {done
               ? <CheckCircle2 className="w-10 h-10 text-green-500" />
-              : <Globe className="w-10 h-10 text-[#478EDB]" />
+              : <Globe className="w-10 h-10 text-[#bc6c25]" />
             }
           </div>
         </div>
 
-        <h2 className="font-serif text-3xl font-light text-[#2E3538] mb-2">
+        <h2 className="mb-2 font-display text-3xl font-light text-[#1f2522]">
           {done ? "All set!" : "Analyzing your website"}
         </h2>
-        <p className="text-slate-500 text-sm mb-4">
+        <p className="mb-4 text-sm text-[#65726d]">
           {done ? (
             pagesFound !== null ? (
-              <>Indexed <span className="text-[#478EDB] font-medium">{pagesFound} pages</span> from <span className="text-[#478EDB] font-medium">{hostname}</span>. Your NavBot is ready.</>
+              <>Indexed <span className="font-medium text-[#bc6c25]">{pagesFound} pages</span> from <span className="font-medium text-[#bc6c25]">{hostname}</span>. Your NavBot is ready.</>
             ) : "Your NavBot is ready to deploy."
           ) : (
             <>
-              Scanning <span className="text-[#478EDB] font-medium">{hostname}</span>
-              {pagesFound !== null && <> · <span className="text-[#478EDB] font-medium">{pagesFound} pages</span> found so far</>}
+              Scanning <span className="font-medium text-[#bc6c25]">{hostname}</span>
+              {pagesFound !== null && <> · <span className="font-medium text-[#bc6c25]">{pagesFound} pages</span> found so far</>}
               …
             </>
           )}
         </p>
 
-        {/* Progress bar */}
-        <div className="w-full bg-slate-100 rounded-full h-1.5 mb-1 overflow-hidden">
+        <div className="mb-1 h-1.5 w-full overflow-hidden rounded-full bg-[#ece7df]">
           <div
             className="h-full rounded-full"
             style={{
               width: `${progress}%`,
               background: done
                 ? "linear-gradient(90deg, #27C93F, #4ade80)"
-                : "linear-gradient(90deg, #478EDB, #8691CA)",
+                : "linear-gradient(90deg, #bc6c25, #456a92)",
               transition: "background 0.5s ease",
             }}
           />
         </div>
-        <p className="text-xs text-slate-400 text-right mb-8">{Math.round(progress)}%</p>
+        <p className="mb-8 text-right text-xs text-[#8a938f]">{Math.round(progress)}%</p>
 
-        {/* Steps */}
         <div className="space-y-3 text-left">
           {STEPS.map((step, idx) => {
             const Icon = step.icon;
@@ -220,29 +217,29 @@ export const ScrapingPage = ({
                   isStepDone
                     ? "bg-green-50 border-green-100 opacity-80"
                     : isActive
-                    ? "bg-white border-[#8EBFF2]/40 shadow-md shadow-[#8EBFF2]/10"
-                    : "bg-[#F9F9FA] border-slate-100 opacity-40"
+                    ? "bg-white border-[#bc6c25]/18 shadow-[0_16px_34px_rgba(31,37,34,0.05)]"
+                    : "bg-[#fbf8f3] border-white/80 opacity-50"
                 }`}
               >
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 transition-all duration-300 ${
-                  isStepDone ? "bg-green-100" : isActive ? "bg-[#478EDB]/10" : "bg-slate-100"
+                  isStepDone ? "bg-green-100" : isActive ? "bg-[#f6eee3]" : "bg-[#f1ece4]"
                 }`}>
-                  <Icon className={`w-4 h-4 ${isStepDone ? "text-green-600" : isActive ? "text-[#478EDB]" : "text-slate-400"}`} />
+                  <Icon className={`w-4 h-4 ${isStepDone ? "text-green-600" : isActive ? "text-[#bc6c25]" : "text-[#9aa39f]"}`} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium ${isStepDone ? "text-green-700" : isActive ? "text-[#2E3538]" : "text-slate-400"}`}>
+                  <p className={`text-sm font-medium ${isStepDone ? "text-green-700" : isActive ? "text-[#1f2522]" : "text-[#8a938f]"}`}>
                     {step.label}
                   </p>
-                  {isActive && <p className="text-xs text-slate-500 mt-0.5">{step.detail}</p>}
+                  {isActive && <p className="mt-0.5 text-xs text-[#65726d]">{step.detail}</p>}
                 </div>
                 {isStepDone && <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />}
-                {isActive && <div className="w-4 h-4 border-2 border-[#478EDB]/30 border-t-[#478EDB] rounded-full animate-spin flex-shrink-0" />}
+                {isActive && <div className="h-4 w-4 flex-shrink-0 animate-spin rounded-full border-2 border-[#bc6c25]/25 border-t-[#bc6c25]" />}
               </div>
             );
           })}
         </div>
 
-        <p className="mt-6 text-xs text-slate-400">
+        <p className="mt-6 text-xs text-[#8a938f]">
           {done ? "Crawl complete!" : "This may take a minute for larger sites — hang tight."}
         </p>
       </div>

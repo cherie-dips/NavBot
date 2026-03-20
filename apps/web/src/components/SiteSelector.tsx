@@ -1,7 +1,5 @@
 import { useState, useRef, useEffect } from "react";
 import {
-  Globe,
-  Plus,
   CheckCircle2,
   ChevronDown,
   ExternalLink,
@@ -58,18 +56,18 @@ export function SiteSelector({
         aria-haspopup="listbox"
         aria-expanded={open}
         className={`
-          group flex items-center gap-2 rounded-xl font-medium transition-all duration-200
-          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#478EDB]/30
+          group flex items-center gap-2 rounded-full font-medium transition-all duration-200
+          focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#bc6c25]/20
           ${variant === "navbar"
-            ? `px-3 py-1.5 text-sm border
+            ? `px-4 py-2 text-sm border
                ${selectedSite
-                 ? "bg-[#478EDB]/10 text-[#478EDB] border-transparent hover:bg-[#478EDB]/20"
-                 : "bg-white/0 text-slate-600 border-white/0 hover:bg-slate-100 hover:border-slate-200"
+                 ? "bg-white/76 text-[#1f2522] border-[#1f2522]/8 hover:border-[#bc6c25]/25"
+                 : "bg-white/72 text-[#65726d] border-[#1f2522]/8 hover:border-[#bc6c25]/20 hover:text-[#1f2522]"
                }`
             : `px-4 py-2.5 text-sm border
                ${selectedSite
-                 ? "bg-[#478EDB]/10 text-[#478EDB] border-transparent hover:bg-[#478EDB]/20"
-                 : "bg-[#F9F9FA] text-slate-600 border-slate-200 hover:border-slate-300"
+                 ? "bg-white text-[#1f2522] border-[#1f2522]/8 hover:border-[#bc6c25]/25"
+                 : "bg-[#fbf7f2] text-[#65726d] border-[#1f2522]/8 hover:border-[#bc6c25]/25"
                }`
           }
         `}
@@ -78,13 +76,13 @@ export function SiteSelector({
         {selectedSite ? (
           <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
         ) : (
-          <LayoutDashboard className={`w-3.5 h-3.5 flex-shrink-0 ${variant === "navbar" ? "text-slate-400" : "text-slate-400"}`} />
+          <LayoutDashboard className="h-3.5 w-3.5 flex-shrink-0 text-[#9aa39f]" />
         )}
 
         <span className="max-w-[160px] truncate leading-none">{label}</span>
 
         <ChevronDown
-          className={`w-3.5 h-3.5 flex-shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""} ${selectedSite ? "text-[#478EDB]" : "text-slate-400"}`}
+          className={`h-3.5 w-3.5 flex-shrink-0 text-[#9aa39f] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
         />
       </button>
 
@@ -92,12 +90,14 @@ export function SiteSelector({
       {open && (
         <div
           role="listbox"
-          className="absolute z-50 left-0 mt-2 bg-white rounded-2xl border border-slate-200/80 shadow-xl shadow-slate-300/30 overflow-hidden animate-fade-in-up min-w-[280px]"
+          className={`absolute z-50 mt-2 min-w-[280px] overflow-hidden rounded-[1.5rem] border border-[#1f2522]/8 bg-[#fbf8f3] shadow-xl shadow-[rgba(31,37,34,0.08)] animate-fade-in-up ${
+            variant === "navbar" ? "right-0" : "left-0"
+          }`}
           style={{ animationDuration: "0.15s" }}
         >
           {/* Header */}
-          <div className="px-4 pt-3 pb-2 border-b border-slate-100">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+          <div className="border-b border-[#e7dfd4] px-4 pb-2 pt-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8a938f]">
               Your websites
             </p>
           </div>
@@ -112,28 +112,28 @@ export function SiteSelector({
               className={`
                 w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-left transition-colors
                 ${!selectedSite
-                  ? "bg-slate-50 text-[#2E3538] font-medium"
-                  : "text-slate-600 hover:bg-slate-50"
+                  ? "bg-white text-[#1f2522] font-medium"
+                  : "text-[#65726d] hover:bg-white/70"
                 }
               `}
             >
-              <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0">
-                <LayoutDashboard className="w-4 h-4 text-slate-400" />
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#f3eee7]">
+                <LayoutDashboard className="h-4 w-4 text-[#8a938f]" />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] leading-tight">All sites</p>
-                <p className="text-[11px] text-slate-400 leading-tight mt-0.5">
+                <p className="mt-0.5 text-[11px] leading-tight text-[#8a938f]">
                   Combined view · {sites.length} site{sites.length !== 1 ? "s" : ""}
                 </p>
               </div>
-              {!selectedSite && <CheckCircle2 className="w-4 h-4 text-[#478EDB] flex-shrink-0" />}
+              {!selectedSite && <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-[#bc6c25]" />}
             </button>
           </div>
 
           {/* Site list */}
           {sites.length > 0 && (
             <>
-              <div className="mx-4 h-px bg-slate-100" />
+              <div className="mx-4 h-px bg-[#e7dfd4]" />
               <div className="py-1.5 px-2 space-y-0.5">
                 {sites.map(site => {
                   const isSelected = selectedSite?.id === site.id;
@@ -146,20 +146,20 @@ export function SiteSelector({
                       onClick={() => { onSelect(site); setOpen(false); }}
                       className={`
                         w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-left transition-colors group/item
-                        ${isSelected ? "bg-[#478EDB]/10 text-[#478EDB] font-medium border border-transparent hover:bg-[#478EDB]/20" : "text-slate-600 hover:bg-slate-50"}
+                        ${isSelected ? "bg-white text-[#1f2522] font-medium border border-[#1f2522]/8" : "text-[#65726d] hover:bg-white/70"}
                       `}
                     >
                       {/* Favicon-style icon */}
                       <div className={`
                         w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 text-[11px] font-bold uppercase
-                        ${isSelected ? "bg-[#478EDB]/15 text-[#478EDB]" : "bg-green-50 text-green-700"}
+                        ${isSelected ? "bg-[#f6eee3] text-[#bc6c25]" : "bg-[#eef5ea] text-green-700"}
                       `}>
                         {site.hostname.charAt(0)}
                       </div>
 
                       <div className="flex-1 min-w-0">
                         <p className="text-[13px] leading-tight truncate">{site.hostname}</p>
-                        <p className="text-[11px] text-slate-400 leading-tight mt-0.5">
+                        <p className="mt-0.5 text-[11px] leading-tight text-[#8a938f]">
                           {site.pagesIndexed} pages indexed
                         </p>
                       </div>
@@ -172,11 +172,11 @@ export function SiteSelector({
                           rel="noopener noreferrer"
                           onClick={e => e.stopPropagation()}
                           title={`Open ${site.url}`}
-                          className="opacity-0 group-hover/item:opacity-100 transition-opacity p-1 rounded-lg hover:bg-slate-200 text-slate-400 hover:text-slate-600"
+                          className="p-1 text-[#9aa39f] opacity-0 transition-opacity group-hover/item:opacity-100 rounded-lg hover:bg-[#f3eee7] hover:text-[#5f6b67]"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
                         </a>
-                        {isSelected && <CheckCircle2 className="w-4 h-4 text-[#478EDB]" />}
+                        {isSelected && <CheckCircle2 className="h-4 w-4 text-[#bc6c25]" />}
                       </div>
                     </button>
                   );
