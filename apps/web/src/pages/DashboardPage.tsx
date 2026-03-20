@@ -58,17 +58,24 @@ const TABS: { id: Tab; label: string; icon: typeof LayoutDashboard; desc: string
   { id: "overview",  label: "Overview",        icon: LayoutDashboard, desc: "Stats & quick view"      },
   { id: "websites",  label: "Websites",         icon: Globe,           desc: "Manage indexed sites"    },
   { id: "analytics", label: "Analytics",        icon: BarChart3,       desc: "Queries & FAQs"          },
-  { id: "social",    label: "Social Media",      icon: Share2,          desc: "Connect channels"        },
+  { id: "social",    label: "Social",            icon: Share2,          desc: "Connect channels"        },
   { id: "visitors",  label: "Visitors",          icon: Users,           desc: "Interaction history"     },
   { id: "settings",  label: "Settings",          icon: Mic,             desc: "Bot configuration"       },
   { id: "billing", label: "Billing", icon: CreditCard, desc: "Plan & invoices" }
 ];
 
+const DASH_PANEL =
+  "rounded-[1.75rem] border border-[#1f2522]/8 bg-white/76 shadow-[0_18px_40px_rgba(31,37,34,0.045)] backdrop-blur-xl";
+const DASH_PANEL_SOFT =
+  "rounded-[1.2rem] border border-[#1f2522]/8 bg-[#fbf7f2]";
+const DASH_BUTTON_PRIMARY =
+  "flex items-center gap-2 rounded-full bg-[#1f2522] px-4 py-2.5 text-sm font-medium text-white shadow-[0_16px_32px_rgba(31,37,34,0.12)] transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#bc6c25]";
+
 /* ─────────────────────────────────────────────────────────────────────────── */
 
 export const DashboardPage = ({
   onViewChange: _onViewChange,
-  externalSites,
+  externalSites: _externalSites,
   onSitesChange,
   selectedSite,
   onSiteSelect,
@@ -196,10 +203,10 @@ export const DashboardPage = ({
 
   if (integrationSite) {
     return (
-      <div className="min-h-screen bg-[#F9F9FA] pt-14">
-        <div className="max-w-[1400px] mx-auto px-6 pt-6 pb-12">
+      <div className="min-h-screen bg-[#f8f4ee] pt-14">
+        <div className="relative z-10 mx-auto max-w-[1400px] px-6 pb-12 pt-6">
           <button type="button" onClick={() => setIntegrationSite(null)}
-            className="text-sm text-slate-500 hover:text-[#478EDB] inline-flex items-center gap-1.5 mb-6 group">
+            className="mb-6 inline-flex items-center gap-1.5 text-sm text-[#65726d] group hover:text-[#bc6c25]">
             <span className="text-base leading-none group-hover:-translate-x-0.5 transition-transform">←</span>
             Back to dashboard
           </button>
@@ -215,44 +222,20 @@ export const DashboardPage = ({
   }
 
   const maxQueries = Math.max(...mockQueryHistory.map(d => d.queries));
+  const firstName = user?.name?.trim()?.split(" ")[0] || "Anjelica";
 
   return (
-    <div className="min-h-screen bg-[#F9F9FA] pt-14">
+    <div className="min-h-screen bg-[#f8f4ee] pt-14 text-[#1f2522]">
       {indexError && (
-        <div className="px-6 pt-4">
-          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-600">{indexError}</div>
+        <div className="relative z-10 px-6 pt-4">
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600">{indexError}</div>
         </div>
       )}
 
-      <div className="flex min-h-[calc(100vh-56px)]">
+      <div className="relative z-10 flex min-h-[calc(100vh-56px)]">
         {/* ── Sidebar ── */}
-        <aside className="w-56 flex-shrink-0 hidden lg:flex flex-col border-r border-slate-100 bg-white pt-5 pb-8 sticky top-14 self-start h-[calc(100vh-56px)] overflow-y-auto">
-          {/* Site context header in sidebar */}
-          {activeSite && (
-            <div className="px-5 mb-4">
-              <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-[#F9F9FA] border border-slate-100">
-                <div className="w-7 h-7 rounded-lg bg-[#478EDB]/10 flex items-center justify-center text-[#478EDB] text-[11px] font-bold uppercase flex-shrink-0">
-                  {activeSite.hostname.charAt(0)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-[#2E3538] truncate">{activeSite.hostname}</p>
-                  <p className="text-[10px] text-slate-400">{activeSite.pagesIndexed} pages</p>
-                </div>
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400 flex-shrink-0" />
-              </div>
-            </div>
-          )}
-
-          {!activeSite && (
-            <div className="px-5 mb-2">
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-1">
-                All websites
-              </p>
-            </div>
-          )}
-
-          {/* Nav items */}
-          <nav className="flex-1 px-3 space-y-0.5">
+        <aside className="sticky top-14 hidden h-[calc(100vh-56px)] w-[220px] flex-shrink-0 self-start overflow-y-auto border-r border-[#1f2522]/8 bg-[#fbf8f3] px-4 pb-5 pt-5 lg:flex lg:flex-col">
+          <nav className="flex-1 space-y-1">
             {TABS.map(tab => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -260,16 +243,20 @@ export const DashboardPage = ({
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`
-                    w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150
-                    ${isActive
-                      ? "bg-[#478EDB]/10 text-[#478EDB]"
-                      : "text-slate-500 hover:bg-slate-50 hover:text-[#2E3538]"
-                    }
-                  `}
+                  className={`w-full rounded-[1rem] px-3 py-2.5 text-left transition-all duration-200 ${
+                    isActive
+                      ? "bg-white text-[#1f2522] shadow-[0_10px_24px_rgba(31,37,34,0.04)]"
+                      : "text-[#65726d] hover:bg-white/70 hover:text-[#1f2522]"
+                  }`}
                 >
-                  <Icon className={`w-4 h-4 flex-shrink-0 ${isActive ? "text-[#478EDB]" : "text-slate-400"}`} />
-                  <span className="text-sm font-medium">{tab.label}</span>
+                  <div className="flex items-center gap-3">
+                    <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg ${
+                      isActive ? "bg-[#f6eee3] text-[#bc6c25]" : "bg-[#f3eee7] text-[#8a938f]"
+                    }`}>
+                      <Icon className="h-4 w-4" />
+                    </div>
+                    <p className="min-w-0 text-sm font-medium">{tab.label}</p>
+                  </div>
                 </button>
               );
             })}
@@ -277,12 +264,12 @@ export const DashboardPage = ({
         </aside>
 
         {/* ── Mobile tab bar ── */}
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm border-t border-slate-100 px-2 py-2 flex gap-1 overflow-x-auto">
+        <div className="fixed bottom-0 left-0 right-0 z-50 flex gap-1 overflow-x-auto border-t border-[#1f2522]/8 bg-[#fbf8f3]/95 px-2 py-2 backdrop-blur-xl lg:hidden">
           {TABS.map(tab => {
             const Icon = tab.icon;
             return (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                className={`flex flex-col items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-medium flex-shrink-0 transition-colors ${activeTab === tab.id ? "text-[#478EDB] bg-[#478EDB]/10" : "text-slate-400 hover:text-slate-600"}`}>
+                className={`flex flex-shrink-0 flex-col items-center gap-1 rounded-xl px-3 py-1.5 text-[10px] font-medium transition-colors ${activeTab === tab.id ? "bg-white text-[#bc6c25]" : "text-[#8a938f] hover:text-[#5f6b67]"}`}>
                 <Icon className="w-4 h-4" />
                 {tab.label}
               </button>
@@ -291,34 +278,42 @@ export const DashboardPage = ({
         </div>
 
         {/* ── Main content ── */}
-        <main className="flex-1 min-w-0 px-8 py-8 pb-24 lg:pb-8 overflow-auto" style={{ maxHeight: 'calc(100vh - 56px)' }}>
-          {/* Page title row */}
-          <div className="mb-6 flex items-center justify-between">
+        <main className="min-w-0 flex-1 overflow-auto px-5 pb-24 pt-6 lg:px-8 lg:pb-8 lg:pt-8" style={{ maxHeight: 'calc(100vh - 56px)' }}>
+          <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h1 className="font-serif text-2xl font-light text-[#2E3538]">
-                {TABS.find(t => t.id === activeTab)?.label}
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#8a938f]">
+                {activeSite ? activeSite.hostname : "Workspace"}
+              </p>
+              <h1 className="font-display text-[3rem] font-light leading-none tracking-[-0.055em] text-[#1f2522] md:text-[3.7rem]">
+                {activeTab === "overview" ? `Hello ${firstName}` : TABS.find(t => t.id === activeTab)?.label}
               </h1>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {activeSite
-                  ? `${activeSite.hostname} · ${TABS.find(t => t.id === activeTab)?.desc}`
-                  : `All sites · ${TABS.find(t => t.id === activeTab)?.desc}`
+              <p className="mt-3 text-sm text-[#65726d]">
+                {activeTab === "overview"
+                  ? "A quick view of your websites, conversations, and recent activity."
+                  : activeSite
+                    ? `${activeSite.hostname} · ${TABS.find(t => t.id === activeTab)?.desc}`
+                    : `All sites · ${TABS.find(t => t.id === activeTab)?.desc}`
                 }
               </p>
             </div>
 
-            {/* Contextual CTA per tab */}
-            {activeTab === "overview" && (
-              <button onClick={() => { setActiveTab("websites"); setShowAddSite(true); }}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#478EDB] text-white text-sm font-medium hover:bg-[#3b7ac2] transition-colors shadow-lg shadow-[#478EDB]/20">
-                <Plus className="w-4 h-4" /> Add website
-              </button>
-            )}
-            {activeTab === "websites" && (
-              <button onClick={() => setShowAddSite(!showAddSite)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#478EDB] text-white text-sm font-medium hover:bg-[#3b7ac2] transition-colors shadow-lg shadow-[#478EDB]/20">
-                <Plus className="w-4 h-4" /> Add website
-              </button>
-            )}
+            <div className="flex flex-wrap gap-3">
+              {activeTab === "overview" && (
+                <button onClick={() => { setActiveTab("websites"); setShowAddSite(true); }}
+                  className={DASH_BUTTON_PRIMARY}>
+                  <Plus className="w-4 h-4" /> Add website
+                </button>
+              )}
+              {activeTab === "websites" && (
+                <button onClick={() => setShowAddSite(!showAddSite)}
+                  className={DASH_BUTTON_PRIMARY}>
+                  <Plus className="w-4 h-4" /> Add website
+                </button>
+              )}
+              <div className="rounded-full border border-[#1f2522]/8 bg-white/72 px-4 py-2.5 text-sm text-[#65726d]">
+                {websites.length} {websites.length === 1 ? "website" : "websites"}
+              </div>
+            </div>
           </div>
 
           {/* Tab content */}
@@ -335,26 +330,26 @@ export const DashboardPage = ({
       {/* ── Delete confirmation modal ── */}
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 relative">
-            <button type="button" onClick={() => { setDeleteTarget(null); setDeleteConfirmText(""); setDeleteError(null); }} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+          <div className="relative mx-4 w-full max-w-md rounded-[1.9rem] border border-[#1f2522]/8 bg-[#fbf8f3] p-6 shadow-2xl">
+            <button type="button" onClick={() => { setDeleteTarget(null); setDeleteConfirmText(""); setDeleteError(null); }} className="absolute right-4 top-4 text-[#8a938f] hover:text-[#5f6b67]">
               <X className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center"><Trash2 className="w-5 h-5 text-red-600" /></div>
-              <div><h3 className="text-base font-medium text-[#2E3538]">Delete website</h3><p className="text-xs text-slate-400">{deleteTarget.hostname}</p></div>
+              <div><h3 className="text-base font-medium text-[#1f2522]">Delete website</h3><p className="text-xs text-[#8a938f]">{deleteTarget.hostname}</p></div>
             </div>
-            <p className="text-sm text-slate-600 mb-4">
+            <p className="mb-4 text-sm text-[#65726d]">
               This permanently deletes <span className="font-medium">{deleteTarget.hostname}</span> and all indexed data.
               Type the site ID to confirm:
             </p>
-            <div className="bg-[#F9F9FA] rounded-lg px-3 py-2 mb-3 text-xs font-mono text-slate-500 select-all">{deleteTarget.id}</div>
+            <div className="mb-3 rounded-lg bg-[#f3eee7] px-3 py-2 font-mono text-xs text-[#65726d] select-all">{deleteTarget.id}</div>
             <input type="text" value={deleteConfirmText} onChange={e => setDeleteConfirmText(e.target.value)} placeholder="Type site ID to confirm"
-              className="w-full px-4 py-3 rounded-xl bg-[#F9F9FA] border border-slate-200 focus:border-red-400 outline-none text-sm text-[#2E3538] font-mono" />
+              className="w-full rounded-xl border border-[#1f2522]/8 bg-white px-4 py-3 font-mono text-sm text-[#1f2522] outline-none focus:border-red-400" />
             {deleteError && <p className="text-xs text-red-600 mt-2 flex items-center gap-1"><AlertCircle className="w-3 h-3" /> {deleteError}</p>}
             <div className="flex justify-end gap-3 mt-5">
-              <button type="button" onClick={() => { setDeleteTarget(null); setDeleteConfirmText(""); setDeleteError(null); }} className="px-4 py-2.5 rounded-xl text-sm font-medium text-slate-600 hover:bg-slate-100">Cancel</button>
+              <button type="button" onClick={() => { setDeleteTarget(null); setDeleteConfirmText(""); setDeleteError(null); }} className="rounded-full px-4 py-2.5 text-sm font-medium text-[#65726d] hover:bg-[#f3eee7]">Cancel</button>
               <button type="button" disabled={deleteConfirmText !== deleteTarget.id || isDeleting} onClick={handleDeleteSite}
-                className="px-4 py-2.5 rounded-xl text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2">
+                className="flex items-center gap-2 rounded-full bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40">
                 {isDeleting ? <><Loader2 className="w-4 h-4 animate-spin" /> Deleting...</> : <><Trash2 className="w-4 h-4" /> Delete</>}
               </button>
             </div>
@@ -394,22 +389,22 @@ function UpdatePagesPanel({ site }: { site: Website }) {
   return (
     <div onClick={e => e.stopPropagation()} style={{ display: "contents" }}>
       <button type="button" onClick={e => { e.stopPropagation(); setExpanded(!expanded); setResult(null); }}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-[#478EDB] bg-[#478EDB]/10 hover:bg-[#478EDB]/20 transition-colors">
+        className="flex items-center gap-1.5 rounded-full bg-[#f6eee3] px-3 py-1.5 text-xs font-medium text-[#bc6c25] transition-colors hover:bg-[#efdfcd]">
         <RefreshCw className="w-3 h-3" /> Update Pages
         {expanded
           ? <ChevronUp className="w-3 h-3 ml-0.5" />
           : <ChevronDown className="w-3 h-3 ml-0.5" />}
       </button>
       {expanded && (
-        <div className="basis-full mt-1 p-4 bg-white rounded-xl border border-slate-200">
+        <div className={`mt-1 basis-full p-4 ${DASH_PANEL_SOFT}`}>
           <form onSubmit={handleSubmit}>
-            <label className="block text-xs font-medium text-slate-600 mb-1.5">URLs to recrawl (one per line)</label>
+            <label className="mb-1.5 block text-xs font-medium text-[#5f6b67]">URLs to recrawl (one per line)</label>
             <textarea value={urlsText} onChange={e => setUrlsText(e.target.value)} onClick={e => e.stopPropagation()}
               placeholder={`https://${site.hostname}/about`} rows={3}
-              className="w-full px-3 py-2 rounded-lg bg-[#F9F9FA] border border-slate-200 focus:border-[#478EDB] outline-none text-sm font-mono resize-none" />
+              className="w-full resize-none rounded-xl border border-[#1f2522]/8 bg-white px-3 py-2 text-sm font-mono outline-none focus:border-[#bc6c25]/35" />
             <div className="flex items-center justify-between mt-3">
               <button type="submit" disabled={isUpdating || !urlsText.trim()} onClick={e => e.stopPropagation()}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#478EDB] text-white text-xs font-medium hover:bg-[#3b7ac2] transition-colors disabled:opacity-50">
+                className="flex items-center gap-2 rounded-full bg-[#1f2522] px-4 py-2 text-xs font-medium text-white transition-all duration-300 hover:bg-[#bc6c25] disabled:opacity-50">
                 {isUpdating ? <><Loader2 className="w-3 h-3 animate-spin" /> Updating...</> : <><RefreshCw className="w-3 h-3" /> Recrawl</>}
               </button>
               {result && (
@@ -438,33 +433,31 @@ function OverviewTab({ websites, activeSite, onIntegrate, onSwitchTab }: {
 
   return (
     <div className="space-y-6">
-      {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: activeSite ? "Website" : "Active websites", value: activeSite ? "1" : (websites.length || mockStats.activeWebsites).toString(), icon: Globe, color: "#478EDB" },
+          { label: activeSite ? "Website" : "Active websites", value: activeSite ? "1" : (websites.length || mockStats.activeWebsites).toString(), icon: Globe, color: "#bc6c25" },
           { label: "Pages indexed", value: totalPages.toLocaleString(), icon: FileText, color: "#27C93F" },
-          { label: "Conversations", value: mockStats.totalConversations.toLocaleString(), icon: MessageSquare, color: "#8691CA" },
+          { label: "Conversations", value: mockStats.totalConversations.toLocaleString(), icon: MessageSquare, color: "#456a92" },
           { label: "Avg response", value: mockStats.avgResponseTime, icon: Clock, color: "#F59E0B" },
         ].map(stat => {
           const Icon = stat.icon;
           return (
-            <div key={stat.label} className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm">
+            <div key={stat.label} className={`${DASH_PANEL} p-5`}>
               <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-3" style={{ backgroundColor: stat.color + "15" }}>
                 <Icon className="w-4 h-4" style={{ color: stat.color }} />
               </div>
-              <p className="text-2xl font-light text-[#2E3538] mb-0.5">{stat.value}</p>
-              <p className="text-xs text-slate-400">{stat.label}</p>
+              <p className="mb-0.5 text-2xl font-light text-[#1f2522]">{stat.value}</p>
+              <p className="text-xs text-[#8a938f]">{stat.label}</p>
             </div>
           );
         })}
       </div>
 
-      {/* Chart + Recent */}
       <div className="grid md:grid-cols-5 gap-5">
-        <div className="md:col-span-2 bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+        <div className={`md:col-span-2 ${DASH_PANEL} p-6`}>
           <div className="flex items-center justify-between mb-5">
-            <h3 className="text-sm font-medium text-[#2E3538]">This week</h3>
-            <button onClick={() => onSwitchTab("analytics")} className="text-xs text-[#478EDB] hover:underline flex items-center gap-1">
+            <h3 className="text-sm font-medium text-[#1f2522]">This week</h3>
+            <button onClick={() => onSwitchTab("analytics")} className="flex items-center gap-1 text-xs text-[#bc6c25] hover:underline">
               Full analytics <ChevronRight className="w-3 h-3" />
             </button>
           </div>
@@ -474,33 +467,33 @@ function OverviewTab({ websites, activeSite, onIntegrate, onSwitchTab }: {
               const barH = Math.max((d.queries / maxQ) * 100, 4);
               return (
                 <div key={d.day} className="flex-1 flex flex-col items-center justify-end" style={{ height: "100%" }}>
-                  <div className="w-full rounded-md hover:opacity-75 transition-opacity" style={{ height: `${barH}%`, minHeight: "4px", background: "linear-gradient(to top, #478EDB, #8EBFF2)" }} />
-                  <span className="text-[10px] text-slate-400 mt-1.5">{d.day}</span>
+                  <div className="w-full rounded-md transition-opacity hover:opacity-75" style={{ height: `${barH}%`, minHeight: "4px", background: "linear-gradient(to top, #bc6c25, #ead4bd)" }} />
+                  <span className="mt-1.5 text-[10px] text-[#8a938f]">{d.day}</span>
                 </div>
               );
             })}
           </div>
         </div>
 
-        <div className="md:col-span-3 bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+        <div className={`md:col-span-3 ${DASH_PANEL} p-6`}>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium text-[#2E3538]">Recent conversations</h3>
-            <button onClick={() => onSwitchTab("visitors")} className="text-xs text-[#478EDB] hover:underline flex items-center gap-1">
+            <h3 className="text-sm font-medium text-[#1f2522]">Recent conversations</h3>
+            <button onClick={() => onSwitchTab("visitors")} className="flex items-center gap-1 text-xs text-[#bc6c25] hover:underline">
               See all <ChevronRight className="w-3 h-3" />
             </button>
           </div>
           <div className="space-y-2">
             {mockRecentConversations.slice(0, 3).map(conv => (
-              <div key={conv.id} className="flex items-start gap-3 p-3 rounded-xl bg-[#F9F9FA]">
-                <div className="w-7 h-7 rounded-lg bg-[#478EDB]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <MessageSquare className="w-3.5 h-3.5 text-[#478EDB]" />
+              <div key={conv.id} className="flex items-start gap-3 rounded-[1.1rem] bg-[#fbf7f2] p-3">
+                <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-[#f6eee3]">
+                  <MessageSquare className="h-3.5 w-3.5 text-[#bc6c25]" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-xs font-medium text-[#2E3538]">{conv.visitor}</span>
-                    <span className="text-[10px] text-slate-400">{conv.timestamp}</span>
+                    <span className="text-xs font-medium text-[#1f2522]">{conv.visitor}</span>
+                    <span className="text-[10px] text-[#8a938f]">{conv.timestamp}</span>
                   </div>
-                  <p className="text-xs text-slate-500 truncate">{conv.query}</p>
+                  <p className="truncate text-xs text-[#65726d]">{conv.query}</p>
                 </div>
               </div>
             ))}
@@ -508,30 +501,29 @@ function OverviewTab({ websites, activeSite, onIntegrate, onSwitchTab }: {
         </div>
       </div>
 
-      {/* Sites list */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="text-sm font-medium text-[#2E3538]">{activeSite ? "Site details" : "Your websites"}</h3>
-          <button onClick={() => onSwitchTab("websites")} className="text-xs text-[#478EDB] hover:underline flex items-center gap-1">
+      <div className={`${DASH_PANEL} overflow-hidden`}>
+        <div className="flex items-center justify-between border-b border-[#1f2522]/8 px-6 py-4">
+          <h3 className="text-sm font-medium text-[#1f2522]">{activeSite ? "Site details" : "Your websites"}</h3>
+          <button onClick={() => onSwitchTab("websites")} className="flex items-center gap-1 text-xs text-[#bc6c25] hover:underline">
             Manage <ChevronRight className="w-3 h-3" />
           </button>
         </div>
         {displaySites.length === 0 ? (
           <div className="text-center py-12">
-            <Globe className="w-10 h-10 text-slate-200 mx-auto mb-3" />
-            <p className="text-sm text-slate-400 mb-3">No websites yet</p>
-            <button onClick={() => onSwitchTab("websites")} className="text-sm text-[#478EDB] font-medium hover:underline">Add your first website →</button>
+            <Globe className="mx-auto mb-3 h-10 w-10 text-[#ddd3c6]" />
+            <p className="mb-3 text-sm text-[#8a938f]">No websites yet</p>
+            <button onClick={() => onSwitchTab("websites")} className="text-sm font-medium text-[#bc6c25] hover:underline">Add your first website →</button>
           </div>
         ) : (
-          <div className="divide-y divide-slate-50">
+          <div className="divide-y divide-[#f0e8dd]">
             {displaySites.map(site => (
-              <div key={site.id} className="flex items-center gap-4 px-6 py-4 hover:bg-[#F9F9FA] transition-colors">
-                <div className="w-9 h-9 rounded-xl bg-[#478EDB]/10 flex items-center justify-center text-[#478EDB] text-sm font-bold uppercase flex-shrink-0">
+              <div key={site.id} className="flex items-center gap-4 px-6 py-4 transition-colors hover:bg-[#fbf7f2]">
+                <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-[#f6eee3] text-sm font-bold uppercase text-[#bc6c25]">
                   {site.hostname.charAt(0)}
                 </div>
                 <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onIntegrate(site)}>
-                  <p className="text-sm font-medium text-[#2E3538] truncate">{site.hostname}</p>
-                  <p className="text-xs text-slate-400">{site.pagesIndexed} pages · {formatLocalDate(site.lastCrawled)}</p>
+                  <p className="truncate text-sm font-medium text-[#1f2522]">{site.hostname}</p>
+                  <p className="text-xs text-[#8a938f]">{site.pagesIndexed} pages · {formatLocalDate(site.lastCrawled)}</p>
                 </div>
                 
               </div>
@@ -553,25 +545,25 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
   return (
     <div className="space-y-4">
       {showAddSite && (
-        <div className="bg-white rounded-2xl p-6 border border-[#478EDB]/20 shadow-sm">
-          <h3 className="text-sm font-medium text-[#2E3538] mb-4">Add a new website</h3>
+        <div className={`${DASH_PANEL} p-6`}>
+          <h3 className="mb-4 text-sm font-medium text-[#1f2522]">Add a new website</h3>
           <form onSubmit={onAddWebsite} className="flex gap-3">
             <input type="url" placeholder="https://yourwebsite.com" value={newSiteUrl} onChange={e => setNewSiteUrl(e.target.value)} required
-              className="flex-1 px-4 py-3 rounded-xl bg-[#F9F9FA] border border-slate-200 focus:border-[#478EDB] focus:bg-white outline-none transition-all text-sm placeholder:text-slate-400" />
-            <button type="submit" className="px-6 py-3 rounded-xl bg-[#478EDB] text-white text-sm font-medium hover:bg-[#3b7ac2] transition-colors flex items-center gap-2 flex-shrink-0">
+              className="flex-1 rounded-2xl border border-[#1f2522]/8 bg-[#fbfaf7] px-4 py-3 text-sm outline-none transition-all placeholder:text-[#9aa39f] focus:border-[#bc6c25]/35 focus:bg-white" />
+            <button type="submit" className={`${DASH_BUTTON_PRIMARY} flex-shrink-0 px-6 py-3`}>
               Crawl & index <ArrowRight className="w-4 h-4" />
             </button>
           </form>
-          <p className="text-xs text-slate-400 mt-2">We'll crawl all pages, extract content, and build a searchable knowledge base.</p>
+          <p className="mt-2 text-xs text-[#8a938f]">We'll crawl all pages, extract content, and build a searchable knowledge base.</p>
         </div>
       )}
 
       {websites.length === 0 && !showAddSite && (
-        <div className="bg-white rounded-2xl p-16 border border-slate-100 text-center">
-          <Globe className="w-12 h-12 text-slate-200 mx-auto mb-4" />
-          <h3 className="text-base font-medium text-[#2E3538] mb-2">No websites yet</h3>
-          <p className="text-slate-400 text-sm mb-6">Add your first website to get started.</p>
-          <button onClick={() => setShowAddSite(true)} className="px-6 py-3 rounded-xl bg-[#478EDB] text-white text-sm font-medium hover:bg-[#3b7ac2] transition-colors">
+        <div className={`${DASH_PANEL} p-16 text-center`}>
+          <Globe className="mx-auto mb-4 h-12 w-12 text-[#ddd3c6]" />
+          <h3 className="mb-2 text-base font-medium text-[#1f2522]">No websites yet</h3>
+          <p className="mb-6 text-sm text-[#8a938f]">Add your first website to get started.</p>
+          <button onClick={() => setShowAddSite(true)} className={DASH_BUTTON_PRIMARY}>
             Add website
           </button>
         </div>
@@ -579,30 +571,28 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
 
       <div className="space-y-3">
         {websites.map(site => (
-          <div key={site.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden group">
-            {/* Site header row */}
+          <div key={site.id} className={`${DASH_PANEL} overflow-hidden group`}>
             <div className="flex items-center gap-4 px-6 py-5 cursor-pointer" onClick={() => onIntegrate(site)}>
-              <div className="w-10 h-10 rounded-xl bg-[#478EDB]/10 flex items-center justify-center text-[#478EDB] text-sm font-bold uppercase flex-shrink-0">
+              <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-[#f6eee3] text-sm font-bold uppercase text-[#bc6c25]">
                 {site.hostname.charAt(0)}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
-                  <h3 className="text-sm font-semibold text-[#2E3538] truncate">{site.hostname}</h3>
-                  <span className="text-[10px] font-medium text-green-600 bg-green-50 px-2 py-0.5 rounded-full flex-shrink-0">Active</span>
+                  <h3 className="truncate text-sm font-semibold text-[#1f2522]">{site.hostname}</h3>
+                  <span className="flex-shrink-0 rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-medium text-green-600">Active</span>
                 </div>
-                <p className="text-xs text-slate-400 truncate">{site.url}</p>
+                <p className="truncate text-xs text-[#8a938f]">{site.url}</p>
               </div>
-              <div className="flex items-center gap-5 text-xs text-slate-400 flex-shrink-0">
+              <div className="flex flex-shrink-0 items-center gap-5 text-xs text-[#8a938f]">
                 <span className="hidden md:flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> {site.pagesIndexed} pages</span>
                 <span className="hidden md:flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> {formatLocalDate(site.lastCrawled)}</span>
-                <button type="button" onClick={e => { e.stopPropagation(); onDelete(site); }} className="p-2 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors">
+                <button type="button" onClick={e => { e.stopPropagation(); onDelete(site); }} className="rounded-lg p-2 text-[#c6beb2] transition-colors hover:bg-red-50 hover:text-red-500">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            {/* Actions strip */}
-            <div className="flex items-center flex-wrap gap-2 px-6 py-3 bg-[#F9F9FA] border-t border-slate-100">
+            <div className="flex flex-wrap items-center gap-2 border-t border-[#1f2522]/8 bg-[#fbf7f2] px-6 py-3">
               <UpdatePagesPanel site={site} />
               <SitemapSyncPanel siteId={site.id} userId={userId} apiBase={API_BASE} hostname={site.hostname} />
             </div>
@@ -620,11 +610,10 @@ function AnalyticsTab({ maxQueries, activeSite }: { maxQueries: number; activeSi
 
   return (
     <div className="space-y-6">
-      {/* Sub-nav */}
-      <div className="flex gap-1 bg-[#F9F9FA] p-1 rounded-xl border border-slate-100 w-fit">
+      <div className="flex w-fit gap-1 rounded-xl border border-[#1f2522]/8 bg-[#f3eee7] p-1">
         {(["analytics", "faqs", "training"] as const).map(step => (
           <button key={step} onClick={() => setFaqView(step)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${faqView === step ? "bg-white text-[#2E3538] shadow-sm" : "text-slate-500 hover:text-slate-700"}`}>
+            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all ${faqView === step ? "bg-white text-[#1f2522] shadow-sm" : "text-[#8a938f] hover:text-[#5f6b67]"}`}>
             {step === "analytics" && <><BarChart3 className="w-3.5 h-3.5" /> Analytics</>}
             {step === "faqs"      && <><Brain className="w-3.5 h-3.5" /> FAQs</>}
             {step === "training"  && <><Zap className="w-3.5 h-3.5" /> Training</>}
@@ -635,38 +624,38 @@ function AnalyticsTab({ maxQueries, activeSite }: { maxQueries: number; activeSi
       {faqView === "analytics" && (
         <>
           <div className="grid md:grid-cols-2 gap-5">
-            <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+            <div className={`${DASH_PANEL} p-6`}>
               <div className="flex items-center justify-between mb-5">
-                <h3 className="text-sm font-medium text-[#2E3538]">Conversation volume (7 days)</h3>
-                <span className="text-xs text-slate-400">{mockStats.avgResponseTime} avg</span>
+                <h3 className="text-sm font-medium text-[#1f2522]">Conversation volume (7 days)</h3>
+                <span className="text-xs text-[#8a938f]">{mockStats.avgResponseTime} avg</span>
               </div>
               <div className="flex items-end gap-3" style={{ height: "9rem" }}>
                 {mockQueryHistory.map(d => {
                   const barH = Math.max((d.queries / maxQueries) * 100, 4);
                   return (
                     <div key={d.day} className="flex-1 flex flex-col items-center justify-end" style={{ height: "100%" }}>
-                      <span className="text-[10px] font-medium text-[#2E3538] mb-1.5">{d.queries}</span>
+                      <span className="mb-1.5 text-[10px] font-medium text-[#1f2522]">{d.queries}</span>
                       <div className="w-full rounded-lg hover:opacity-75 transition-opacity relative group/bar cursor-default"
-                        style={{ height: `${barH}%`, minHeight: "4px", background: "linear-gradient(to top, #478EDB, #8EBFF2)" }}>
-                        <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-[#2E3538] text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover/bar:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">
+                        style={{ height: `${barH}%`, minHeight: "4px", background: "linear-gradient(to top, #bc6c25, #ead4bd)" }}>
+                        <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-[#1f2522] px-2 py-1 text-[10px] text-white opacity-0 transition-opacity pointer-events-none group-hover/bar:opacity-100">
                           {d.queries}
                         </div>
                       </div>
-                      <span className="text-[10px] text-slate-400 mt-2">{d.day}</span>
+                      <span className="mt-2 text-[10px] text-[#8a938f]">{d.day}</span>
                     </div>
                   );
                 })}
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
-              <h3 className="text-sm font-medium text-[#2E3538] mb-4">Top questions</h3>
+            <div className={`${DASH_PANEL} p-6`}>
+              <h3 className="mb-4 text-sm font-medium text-[#1f2522]">Top questions</h3>
               <div className="space-y-1">
                 {mockTopQueries.map((q, i) => (
-                  <div key={i} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[#F9F9FA] transition-colors">
-                    <span className="text-xs font-mono text-slate-300 w-4 flex-shrink-0">#{i + 1}</span>
-                    <p className="text-sm text-[#2E3538] flex-1 truncate">{q.question}</p>
-                    <span className="text-[11px] text-slate-400 flex-shrink-0">{q.count}×</span>
+                  <div key={i} className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-[#fbf7f2]">
+                    <span className="w-4 flex-shrink-0 text-xs font-mono text-[#c3baad]">#{i + 1}</span>
+                    <p className="flex-1 truncate text-sm text-[#1f2522]">{q.question}</p>
+                    <span className="flex-shrink-0 text-[11px] text-[#8a938f]">{q.count}×</span>
                     <span className={`text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 ${q.answered ? "text-green-600 bg-green-50" : "text-amber-600 bg-amber-50"}`}>{q.answered ? "OK" : "Review"}</span>
                   </div>
                 ))}
@@ -676,19 +665,19 @@ function AnalyticsTab({ maxQueries, activeSite }: { maxQueries: number; activeSi
 
           <div className="grid md:grid-cols-3 gap-4">
             {[
-              { label: "Content summaries", value: mockStats.contentSummaries, icon: Search, color: "#478EDB" },
-              { label: "Page redirects", value: mockStats.redirectsTriggered, icon: ArrowUpRight, color: "#8691CA" },
+              { label: "Content summaries", value: mockStats.contentSummaries, icon: Search, color: "#bc6c25" },
+              { label: "Page redirects", value: mockStats.redirectsTriggered, icon: ArrowUpRight, color: "#456a92" },
               { label: "Active websites", value: mockStats.activeWebsites, icon: TrendingUp, color: "#27C93F" },
             ].map(stat => {
               const Icon = stat.icon;
               return (
-                <div key={stat.label} className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex items-center gap-4">
+                <div key={stat.label} className={`${DASH_PANEL} flex items-center gap-4 p-5`}>
                   <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: stat.color + "15" }}>
                     <Icon className="w-5 h-5" style={{ color: stat.color }} />
                   </div>
                   <div>
-                    <p className="text-2xl font-light text-[#2E3538]">{stat.value}</p>
-                    <p className="text-xs text-slate-400">{stat.label}</p>
+                    <p className="text-2xl font-light text-[#1f2522]">{stat.value}</p>
+                    <p className="text-xs text-[#8a938f]">{stat.label}</p>
                   </div>
                 </div>
               );
@@ -700,12 +689,12 @@ function AnalyticsTab({ maxQueries, activeSite }: { maxQueries: number; activeSi
       {faqView === "faqs" && (
         <div className="space-y-3">
           {mockFaqs.map((faq, i) => (
-            <div key={i} className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm flex gap-4">
-              <div className="w-8 h-8 rounded-lg bg-[#478EDB]/10 flex items-center justify-center flex-shrink-0 mt-0.5"><MessageSquare className="w-4 h-4 text-[#478EDB]" /></div>
+            <div key={i} className={`${DASH_PANEL} flex gap-4 p-5`}>
+              <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#f6eee3]"><MessageSquare className="h-4 w-4 text-[#bc6c25]" /></div>
               <div className="flex-1">
-                <h4 className="text-sm font-semibold text-[#2E3538] mb-1.5">{faq.question}</h4>
-                <p className="text-sm text-slate-500 leading-relaxed mb-2">{faq.answer}</p>
-                <p className="text-[11px] text-slate-400">From {faq.generatedFrom} conversations · <span className="text-green-600">Approved</span></p>
+                <h4 className="mb-1.5 text-sm font-semibold text-[#1f2522]">{faq.question}</h4>
+                <p className="mb-2 text-sm leading-relaxed text-[#65726d]">{faq.answer}</p>
+                <p className="text-[11px] text-[#8a938f]">From {faq.generatedFrom} conversations · <span className="text-green-600">Approved</span></p>
               </div>
             </div>
           ))}
@@ -714,32 +703,32 @@ function AnalyticsTab({ maxQueries, activeSite }: { maxQueries: number; activeSi
 
       {faqView === "training" && (
         <div className="space-y-5">
-          <div className="bg-white rounded-2xl p-8 border border-slate-100 shadow-sm text-center">
-            <div className="w-14 h-14 rounded-2xl bg-[#478EDB]/10 flex items-center justify-center mx-auto mb-4"><Zap className="w-7 h-7 text-[#478EDB]" /></div>
-            <h3 className="text-base font-semibold text-[#2E3538] mb-2">Model Training</h3>
-            <p className="text-sm text-slate-400 max-w-sm mx-auto mb-6">Continuously improves from your analytics data and approved FAQs.</p>
+          <div className={`${DASH_PANEL} p-8 text-center`}>
+            <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f6eee3]"><Zap className="h-7 w-7 text-[#bc6c25]" /></div>
+            <h3 className="mb-2 text-base font-semibold text-[#1f2522]">Model Training</h3>
+            <p className="mx-auto mb-6 max-w-sm text-sm text-[#8a938f]">Continuously improves from your analytics data and approved FAQs.</p>
             <div className="flex items-center justify-center gap-2 mb-6 flex-wrap">
               {[{ l: "Data", s: "done" }, { l: "FAQs", s: "done" }, { l: "Fine-tuning", s: "active" }, { l: "Deploy", s: "pending" }].map((step, i) => (
                 <div key={step.l} className="flex items-center gap-2">
-                  <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium ${step.s === "done" ? "bg-green-50 text-green-600" : step.s === "active" ? "bg-[#478EDB]/10 text-[#478EDB]" : "bg-slate-50 text-slate-400"}`}>
+                  <div className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium ${step.s === "done" ? "bg-green-50 text-green-600" : step.s === "active" ? "bg-[#f6eee3] text-[#bc6c25]" : "bg-[#f3eee7] text-[#8a938f]"}`}>
                     {step.s === "done" && <CheckCircle2 className="w-3 h-3" />}
-                    {step.s === "active" && <div className="w-3 h-3 border-2 border-[#478EDB]/30 border-t-[#478EDB] rounded-full animate-spin" />}
+                    {step.s === "active" && <div className="h-3 w-3 animate-spin rounded-full border-2 border-[#bc6c25]/25 border-t-[#bc6c25]" />}
                     {step.l}
                   </div>
-                  {i < 3 && <ChevronRight className="w-3.5 h-3.5 text-slate-300" />}
+                  {i < 3 && <ChevronRight className="h-3.5 w-3.5 text-[#c9c0b3]" />}
                 </div>
               ))}
             </div>
-            <div className="bg-[#F9F9FA] rounded-xl p-4 max-w-xs mx-auto">
-              <div className="flex justify-between text-xs text-slate-500 mb-2"><span>Progress</span><span>67%</span></div>
-              <div className="w-full bg-slate-200 rounded-full h-1.5"><div className="h-full rounded-full bg-gradient-to-r from-[#478EDB] to-[#8EBFF2]" style={{ width: "67%" }} /></div>
+            <div className="mx-auto max-w-xs rounded-xl bg-[#fbf7f2] p-4">
+              <div className="mb-2 flex justify-between text-xs text-[#65726d]"><span>Progress</span><span>67%</span></div>
+              <div className="h-1.5 w-full rounded-full bg-[#e6ddd1]"><div className="h-full rounded-full bg-gradient-to-r from-[#bc6c25] to-[#ead4bd]" style={{ width: "67%" }} /></div>
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4">
             {[{ label: "Training samples", value: "1,284" }, { label: "Approved FAQs", value: "4" }, { label: "Accuracy", value: "94.7%" }].map(s => (
-              <div key={s.label} className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm text-center">
-                <p className="text-2xl font-light text-[#2E3538]">{s.value}</p>
-                <p className="text-xs text-slate-400 mt-1">{s.label}</p>
+              <div key={s.label} className={`${DASH_PANEL} p-5 text-center`}>
+                <p className="text-2xl font-light text-[#1f2522]">{s.value}</p>
+                <p className="mt-1 text-xs text-[#8a938f]">{s.label}</p>
               </div>
             ))}
           </div>
@@ -759,18 +748,18 @@ function SocialTab({ activeSite }: { activeSite: Website | null }) {
     <div className="space-y-4">
       <div className="space-y-3">
         {accounts.map(account => (
-          <div key={account.platform} className="bg-white rounded-2xl px-6 py-4 border border-slate-100 shadow-sm flex items-center gap-4">
+          <div key={account.platform} className={`${DASH_PANEL} flex items-center gap-4 px-6 py-4`}>
             <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: account.color + "15" }}>
               <Share2 className="w-4 h-4" style={{ color: account.color }} />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-[#2E3538]">{account.platform}</span>
+                <span className="text-sm font-medium text-[#1f2522]">{account.platform}</span>
                 {account.connected && <span className="text-[10px] text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Connected</span>}
               </div>
-              <p className="text-xs text-slate-400">{account.handle} · {account.followers || account.subscribers}</p>
+              <p className="text-xs text-[#8a938f]">{account.handle} · {account.followers || account.subscribers}</p>
             </div>
-            <button onClick={() => toggle(account.platform)} className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all ${account.connected ? "border border-slate-200 text-slate-500 hover:text-red-500 hover:border-red-200 hover:bg-red-50" : "bg-[#478EDB] text-white hover:bg-[#3b7ac2]"}`}>
+            <button onClick={() => toggle(account.platform)} className={`rounded-full px-4 py-2 text-xs font-medium transition-all ${account.connected ? "border border-[#1f2522]/10 bg-white/70 text-[#65726d] hover:border-red-200 hover:bg-red-50 hover:text-red-500" : "bg-[#1f2522] text-white hover:bg-[#bc6c25]"}`}>
               {account.connected ? "Disconnect" : "Connect"}
             </button>
           </div>
@@ -787,34 +776,34 @@ function VisitorInsightsTab({ activeSite }: { activeSite: Website | null }) {
     <div className="space-y-5">
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: "Total conversations", value: mockStats.totalConversations.toString(), color: "#478EDB" },
-          { label: "This week", value: mockStats.conversationsThisWeek.toString(), color: "#8691CA" },
+          { label: "Total conversations", value: mockStats.totalConversations.toString(), color: "#bc6c25" },
+          { label: "This week", value: mockStats.conversationsThisWeek.toString(), color: "#456a92" },
           { label: "Summaries", value: mockStats.contentSummaries.toString(), color: "#27C93F" },
         ].map(stat => (
-          <div key={stat.label} className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm text-center">
-            <p className="text-2xl font-light text-[#2E3538]">{stat.value}</p>
+          <div key={stat.label} className={`${DASH_PANEL} p-5 text-center`}>
+            <p className="text-2xl font-light text-[#1f2522]">{stat.value}</p>
             <p className="text-xs mt-1" style={{ color: stat.color }}>{stat.label}</p>
           </div>
         ))}
       </div>
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100">
-          <h3 className="text-sm font-medium text-[#2E3538]">Recent interactions</h3>
+      <div className={`${DASH_PANEL} overflow-hidden`}>
+        <div className="border-b border-[#1f2522]/8 px-6 py-4">
+          <h3 className="text-sm font-medium text-[#1f2522]">Recent interactions</h3>
         </div>
-        <div className="divide-y divide-slate-50">
+        <div className="divide-y divide-[#f0e8dd]">
           {mockVisitorInteractions.map(item => (
-            <div key={item.id} className="flex items-center gap-4 px-6 py-4 hover:bg-[#F9F9FA] transition-colors">
-              <div className="w-8 h-8 rounded-full bg-[#478EDB]/10 flex items-center justify-center flex-shrink-0">
-                <MessageSquare className="w-3.5 h-3.5 text-[#478EDB]" />
+            <div key={item.id} className="flex items-center gap-4 px-6 py-4 transition-colors hover:bg-[#fbf7f2]">
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#f6eee3]">
+                <MessageSquare className="h-3.5 w-3.5 text-[#bc6c25]" />
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-sm font-medium text-[#2E3538]">{item.visitor}</span>
-                  <span className="text-[10px] text-slate-400">{item.timestamp}</span>
+                  <span className="text-sm font-medium text-[#1f2522]">{item.visitor}</span>
+                  <span className="text-[10px] text-[#8a938f]">{item.timestamp}</span>
                 </div>
-                <p className="text-xs text-slate-400 truncate">"{item.query}"</p>
+                <p className="truncate text-xs text-[#8a938f]">"{item.query}"</p>
               </div>
-              <span className="text-[10px] font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-500 flex-shrink-0">{item.source}</span>
+              <span className="flex-shrink-0 rounded-full bg-[#f3eee7] px-2 py-1 text-[10px] font-medium text-[#65726d]">{item.source}</span>
             </div>
           ))}
         </div>
@@ -833,7 +822,7 @@ function Toggle({ enabled, onChange, color }: { enabled: boolean; onChange: (v: 
       aria-checked={enabled}
       onClick={() => onChange(!enabled)}
       className="relative flex-shrink-0 w-12 h-7 rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-      style={{ backgroundColor: enabled ? color : "#e2e8f0", flexShrink: 0 }}
+      style={{ backgroundColor: enabled ? color : "#e7dfd4", flexShrink: 0 }}
     >
       <span
         className="absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200"
@@ -852,45 +841,42 @@ function SettingsTab({ voiceEnabled, setVoiceEnabled, webDataOnly, setWebDataOnl
 }) {
   return (
     <div className="space-y-4">
-      {/* Voice toggle */}
-      <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+      <div className={`${DASH_PANEL} p-6`}>
         <div className="flex items-center justify-between gap-6">
           <div className="flex items-center gap-4 min-w-0">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${voiceEnabled ? "bg-[#478EDB]/10" : "bg-slate-100"}`}>
-              {voiceEnabled ? <Volume2 className="w-5 h-5 text-[#478EDB]" /> : <VolumeX className="w-5 h-5 text-slate-400" />}
+            <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${voiceEnabled ? "bg-[#f6eee3]" : "bg-[#f3eee7]"}`}>
+              {voiceEnabled ? <Volume2 className="h-5 w-5 text-[#bc6c25]" /> : <VolumeX className="h-5 w-5 text-[#8a938f]" />}
             </div>
             <div className="min-w-0">
-              <h3 className="text-sm font-medium text-[#2E3538]">Voice input & responses</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Visitors can speak questions and hear answers read aloud.</p>
+              <h3 className="text-sm font-medium text-[#1f2522]">Voice input & responses</h3>
+              <p className="mt-0.5 text-xs text-[#8a938f]">Visitors can speak questions and hear answers read aloud.</p>
             </div>
           </div>
-          <Toggle enabled={voiceEnabled} onChange={setVoiceEnabled} color="#478EDB" />
+          <Toggle enabled={voiceEnabled} onChange={setVoiceEnabled} color="#bc6c25" />
         </div>
       </div>
 
-      {/* Website-only toggle */}
-      <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm">
+      <div className={`${DASH_PANEL} p-6`}>
         <div className="flex items-center justify-between gap-6">
           <div className="flex items-center gap-4 min-w-0">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${webDataOnly ? "bg-green-100" : "bg-slate-100"}`}>
-              <Globe className={`w-5 h-5 ${webDataOnly ? "text-green-600" : "text-slate-400"}`} />
+            <div className={`flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl ${webDataOnly ? "bg-green-100" : "bg-[#f3eee7]"}`}>
+              <Globe className={`h-5 w-5 ${webDataOnly ? "text-green-600" : "text-[#8a938f]"}`} />
             </div>
             <div className="min-w-0">
-              <h3 className="text-sm font-medium text-[#2E3538]">Website-only answers</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Bot only uses your indexed pages — never external sources.</p>
+              <h3 className="text-sm font-medium text-[#1f2522]">Website-only answers</h3>
+              <p className="mt-0.5 text-xs text-[#8a938f]">Bot only uses your indexed pages — never external sources.</p>
             </div>
           </div>
           <Toggle enabled={webDataOnly} onChange={setWebDataOnly} color="#22c55e" />
         </div>
       </div>
 
-      {/* Danger zone */}
-      <div className="bg-white rounded-2xl p-6 border border-red-100 shadow-sm">
+      <div className="rounded-[1.75rem] border border-red-100 bg-white/76 p-6 shadow-[0_18px_40px_rgba(31,37,34,0.045)] backdrop-blur-xl">
         <h3 className="text-sm font-semibold text-red-600 mb-1">Danger zone</h3>
-        <p className="text-xs text-slate-400 mb-4">
+        <p className="mb-4 text-xs text-[#8a938f]">
           {activeSite ? `Delete ${activeSite.hostname} and all its indexed data permanently.` : "Delete all data across all websites."}
         </p>
-        <button className="px-4 py-2 rounded-xl border border-red-200 text-red-600 text-xs font-medium hover:bg-red-50 transition-colors">
+        <button className="rounded-full border border-red-200 px-4 py-2 text-xs font-medium text-red-600 transition-colors hover:bg-red-50">
           {activeSite ? `Delete ${activeSite.hostname}` : "Delete all data"}
         </button>
       </div>

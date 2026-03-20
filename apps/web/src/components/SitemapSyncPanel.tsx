@@ -151,11 +151,10 @@ export function SitemapSyncPanel({
 
   return (
     <div onClick={(e) => e.stopPropagation()} style={{ display: "contents" }}>
-      {/* Toggle button */}
       <button
         type="button"
         onClick={handleExpand}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-violet-600 bg-violet-50 hover:bg-violet-100 transition-colors"
+        className="flex items-center gap-1.5 rounded-full bg-[#edf2f7] px-3 py-1.5 text-xs font-medium text-[#456a92] transition-colors hover:bg-[#dfe8f2]"
       >
         <Sparkles className="w-3 h-3" />
         Smart Sync
@@ -165,37 +164,36 @@ export function SitemapSyncPanel({
       </button>
 
       {expanded && (
-        <div className="basis-full mt-1 p-4 bg-[#F9F9FA] rounded-xl border border-slate-200 space-y-4">
+        <div className="mt-1 basis-full space-y-4 rounded-[1.2rem] border border-[#1f2522]/8 bg-[#fbf7f2] p-4">
 
           {/* Stats row */}
           <div className="flex items-center justify-between">
-            <div className="space-y-0.5 text-xs text-slate-500">
+            <div className="space-y-0.5 text-xs text-[#65726d]">
               {stats ? (
                 <>
                   <p>
-                    <span className="font-medium text-[#2E3538]">{stats.totalTracked}</span>
+                    <span className="font-medium text-[#1f2522]">{stats.totalTracked}</span>
                     {" "}pages tracked
                   </p>
                   <p>Last synced: <span className="font-medium">{formatDate(stats.lastSynced)}</span></p>
                 </>
               ) : (
-                <p className="text-slate-400 italic">
+                <p className="italic text-[#8a938f]">
                   {loading === "stats" ? "Loading…" : "No sync history yet"}
                 </p>
               )}
             </div>
             {loading === "stats" && (
-              <Loader2 className="w-3 h-3 animate-spin text-slate-400" />
+              <Loader2 className="h-3 w-3 animate-spin text-[#8a938f]" />
             )}
           </div>
 
-          {/* Action buttons */}
           <div className="flex gap-2 flex-wrap">
             <button
               type="button"
               onClick={handlePreview}
               disabled={!!loading}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:border-violet-300 hover:text-violet-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 rounded-full border border-[#1f2522]/8 bg-white px-3 py-2 text-xs font-medium text-[#65726d] transition-colors hover:border-[#456a92]/25 hover:text-[#456a92] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading === "preview"
                 ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -207,7 +205,7 @@ export function SitemapSyncPanel({
               type="button"
               onClick={handleSync}
               disabled={!!loading}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium bg-violet-600 text-white hover:bg-violet-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 rounded-full bg-[#1f2522] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#bc6c25] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {loading === "sync"
                 ? <Loader2 className="w-3 h-3 animate-spin" />
@@ -216,16 +214,15 @@ export function SitemapSyncPanel({
             </button>
           </div>
 
-          {/* Loading hint for full crawl */}
           {(loading === "preview" || loading === "sync") && (
-            <p className="text-[10px] text-slate-400 italic">
+            <p className="text-[10px] italic text-[#8a938f]">
               Crawling {hostname} — this may take a moment for larger sites…
             </p>
           )}
 
           {/* Error */}
           {error && (
-            <div className="flex items-start gap-2 text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">
+            <div className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">
               <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
@@ -236,14 +233,14 @@ export function SitemapSyncPanel({
             <div className="space-y-3">
               <div className="grid grid-cols-4 gap-2 text-xs">
                 {[
-                  { label: "Crawled", value: preview.crawledPages, color: "text-[#2E3538]" },
-                  { label: "Changed", value: preview.changedPages, color: preview.changedPages > 0 ? "text-amber-600" : "text-[#2E3538]" },
-                  { label: "New", value: preview.newPages, color: preview.newPages > 0 ? "text-blue-600" : "text-[#2E3538]" },
-                  { label: "Deleted", value: preview.deletedPages, color: preview.deletedPages > 0 ? "text-red-500" : "text-[#2E3538]" },
+                  { label: "Crawled", value: preview.crawledPages, color: "text-[#1f2522]" },
+                  { label: "Changed", value: preview.changedPages, color: preview.changedPages > 0 ? "text-amber-600" : "text-[#1f2522]" },
+                  { label: "New", value: preview.newPages, color: preview.newPages > 0 ? "text-blue-600" : "text-[#1f2522]" },
+                  { label: "Deleted", value: preview.deletedPages, color: preview.deletedPages > 0 ? "text-red-500" : "text-[#1f2522]" },
                 ].map((stat) => (
-                  <div key={stat.label} className="bg-white rounded-lg p-2 text-center border border-slate-100">
+                  <div key={stat.label} className="rounded-lg border border-[#1f2522]/8 bg-white p-2 text-center">
                     <p className={`text-base font-light ${stat.color}`}>{stat.value}</p>
-                    <p className="text-slate-400 text-[10px]">{stat.label}</p>
+                    <p className="text-[10px] text-[#8a938f]">{stat.label}</p>
                   </div>
                 ))}
               </div>
@@ -265,7 +262,7 @@ export function SitemapSyncPanel({
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); setShowChangedUrls(!showChangedUrls); }}
-                        className="text-xs text-violet-600 hover:underline flex items-center gap-1"
+                        className="flex items-center gap-1 text-xs text-[#456a92] hover:underline"
                       >
                         {showChangedUrls ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                         {showChangedUrls ? "Hide" : "Show"} changed URLs
@@ -277,7 +274,7 @@ export function SitemapSyncPanel({
                           {preview.changedUrls.map((entry) => (
                             <div
                               key={entry.url}
-                              className="flex items-center gap-2 text-[10px] bg-white rounded-lg px-2.5 py-2 border border-slate-100"
+                              className="flex items-center gap-2 rounded-lg border border-[#1f2522]/8 bg-white px-2.5 py-2 text-[10px]"
                             >
                               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
                                 entry.status === "new" ? "bg-blue-400" : "bg-amber-400"
@@ -289,11 +286,11 @@ export function SitemapSyncPanel({
                               }`}>
                                 {entry.status}
                               </span>
-                              <span className="text-slate-500 truncate font-mono">{entry.url}</span>
+                              <span className="truncate font-mono text-[#65726d]">{entry.url}</span>
                             </div>
                           ))}
                           {preview.changedPages > preview.changedUrls.length && (
-                            <p className="text-[10px] text-slate-400 px-2">
+                            <p className="px-2 text-[10px] text-[#8a938f]">
                               …and {preview.changedPages - preview.changedUrls.length} more
                             </p>
                           )}
@@ -322,14 +319,14 @@ export function SitemapSyncPanel({
                   </p>
                   <div className="grid grid-cols-4 gap-2 text-xs">
                     {[
-                      { label: "Checked", value: syncResult.checked, color: "text-[#2E3538]" },
+                      { label: "Checked", value: syncResult.checked, color: "text-[#1f2522]" },
                       { label: "Re-indexed", value: syncResult.stored, color: "text-green-600" },
-                      { label: "Skipped", value: syncResult.unchanged, color: "text-slate-400" },
-                      { label: "Deleted", value: syncResult.deleted, color: syncResult.deleted > 0 ? "text-red-500" : "text-slate-400" },
+                      { label: "Skipped", value: syncResult.unchanged, color: "text-[#8a938f]" },
+                      { label: "Deleted", value: syncResult.deleted, color: syncResult.deleted > 0 ? "text-red-500" : "text-[#8a938f]" },
                     ].map((stat) => (
-                      <div key={stat.label} className="bg-white rounded-lg p-2 text-center border border-slate-100">
+                      <div key={stat.label} className="rounded-lg border border-[#1f2522]/8 bg-white p-2 text-center">
                         <p className={`text-base font-light ${stat.color}`}>{stat.value}</p>
-                        <p className="text-slate-400 text-[10px]">{stat.label}</p>
+                        <p className="text-[10px] text-[#8a938f]">{stat.label}</p>
                       </div>
                     ))}
                   </div>
@@ -345,7 +342,7 @@ export function SitemapSyncPanel({
           )}
 
           {/* Explanation footer */}
-          <p className="text-[10px] text-slate-400 leading-relaxed border-t border-slate-200 pt-3">
+          <p className="border-t border-[#e7dfd4] pt-3 text-[10px] leading-relaxed text-[#8a938f]">
             Smart Sync re-crawls {hostname} and only re-embeds pages whose
             content has changed since the last index. Unchanged pages are
             skipped entirely, saving API calls and keeping costs low.

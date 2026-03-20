@@ -66,7 +66,7 @@ const App = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#F9F9FA] text-[#2E3538] selection:bg-[#8EBFF2] selection:text-[#FFFFFF] overflow-x-hidden font-sans">
+    <div className="min-h-screen overflow-x-hidden bg-[#f8f4ee] font-sans text-[#1f2522] selection:bg-[#f1d8bf] selection:text-[#1f2522]">
       <Navbar
         onViewChange={setCurrentView}
         currentView={currentView}

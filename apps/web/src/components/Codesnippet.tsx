@@ -17,9 +17,9 @@ export const CodeSnippet = ({ scriptId = "YOUR_ID" }: CodeSnippetProps) => {
 
     return (
         <div className="relative group perspective-1000">
-            <div className="absolute -inset-1 bg-gradient-to-r from-[#8EBFF2] via-[#8691CA] to-[#478EDB] rounded-3xl blur-lg opacity-30 group-hover:opacity-50 transition duration-700"></div>
+            <div className="absolute -inset-2 bg-gradient-to-r from-[#f1ceb0] via-[#dbe4ef] to-[#f3e1cf] rounded-[2rem] blur-xl opacity-80 group-hover:opacity-100 transition duration-700"></div>
 
-            <div className="relative bg-[#2E3538] rounded-3xl p-8 shadow-2xl overflow-hidden text-left border border-white/10">
+            <div className="relative bg-[#1f2522] rounded-[2rem] p-8 shadow-[0_30px_80px_rgba(31,37,34,0.18)] overflow-hidden text-left border border-white/10">
                 <div className="flex items-center gap-2 mb-6 pb-4 border-b border-white/10">
                     <div className="flex gap-2">
                         <div className="w-3 h-3 rounded-full bg-[#FF5F56]"></div>
@@ -27,38 +27,41 @@ export const CodeSnippet = ({ scriptId = "YOUR_ID" }: CodeSnippetProps) => {
                         <div className="w-3 h-3 rounded-full bg-[#27C93F]"></div>
                     </div>
                     <span className="ml-4 text-xs text-slate-400 font-mono">index.html</span>
+                    <span className="ml-auto rounded-full bg-white/10 px-3 py-1 text-[10px] uppercase tracking-[0.22em] text-[#f3d4ba]">
+                        install
+                    </span>
                 </div>
 
                 <div className="font-mono text-sm space-y-3 font-medium">
                     <div className="text-slate-500">
-                        <span className="text-[#8691CA]">&lt;!DOCTYPE</span>
+                        <span className="text-[#d9c0a8]">&lt;!DOCTYPE</span>
                         <span className="text-slate-400"> html</span>
-                        <span className="text-[#8691CA]">&gt;</span>
+                        <span className="text-[#d9c0a8]">&gt;</span>
                     </div>
                     <div className="text-slate-500">
-                        <span className="text-[#8691CA]">&lt;html</span>
-                        <span className="text-[#8691CA]">&gt;</span>
+                        <span className="text-[#d9c0a8]">&lt;html</span>
+                        <span className="text-[#d9c0a8]">&gt;</span>
                     </div>
                     <div className="text-slate-500 ml-4">
-                        <span className="text-[#8691CA]">&lt;head</span>
-                        <span className="text-[#8691CA]">&gt;</span>
+                        <span className="text-[#d9c0a8]">&lt;head</span>
+                        <span className="text-[#d9c0a8]">&gt;</span>
                     </div>
                     <div className="text-slate-500 ml-8">
-                        <span className="text-[#8691CA]">&lt;title&gt;</span>
+                        <span className="text-[#d9c0a8]">&lt;title&gt;</span>
                         <span className="text-white">Your Website</span>
-                        <span className="text-[#8691CA]">&lt;/title&gt;</span>
+                        <span className="text-[#d9c0a8]">&lt;/title&gt;</span>
                     </div>
 
-                    <div className="ml-8 bg-[#478EDB]/10 border border-[#478EDB]/30 rounded-xl p-4 my-4 relative group/code transition-all hover:bg-[#478EDB]/15">
+                    <div className="ml-8 bg-white/5 border border-[#f3e1cf]/20 rounded-2xl p-4 my-4 relative group/code transition-all hover:bg-white/10">
                         <div className="text-slate-300 break-all">
-                            <span className="text-[#8691CA]">&lt;script </span>
-                            <span className="text-[#8EBFF2]">src</span>
+                        <span className="text-[#d9c0a8]">&lt;script </span>
+                            <span className="text-[#c9d7ea]">src</span>
                             <span className="text-slate-500">=</span>
-                            <span className="text-[#F2994A]">"https://cdn.navbot.ai/widget.js"</span>
-                            <span className="text-[#8EBFF2] ml-2">data-id</span>
+                            <span className="text-[#F2C18E]">"https://cdn.navbot.ai/widget.js"</span>
+                            <span className="text-[#c9d7ea] ml-2">data-id</span>
                             <span className="text-slate-500">=</span>
-                            <span className="text-[#F2994A]">"{scriptId}"</span>
-                            <span className="text-[#8691CA]">&gt;&lt;/script&gt;</span>
+                            <span className="text-[#F2C18E]">"{scriptId}"</span>
+                        <span className="text-[#d9c0a8]">&gt;&lt;/script&gt;</span>
                         </div>
                         <button
                             onClick={handleCopy}
@@ -69,7 +72,7 @@ export const CodeSnippet = ({ scriptId = "YOUR_ID" }: CodeSnippetProps) => {
                     </div>
 
                     <div className="text-slate-500 ml-4">
-                        <span className="text-[#8691CA]">&lt;/head&gt;</span>
+                        <span className="text-[#d9c0a8]">&lt;/head&gt;</span>
                     </div>
                 </div>
             </div>
