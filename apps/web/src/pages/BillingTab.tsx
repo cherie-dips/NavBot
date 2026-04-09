@@ -138,9 +138,16 @@ function UsageBar({ label, used, max, color }: { label: string; used: number; ma
 interface BillingTabProps {
   /** Called after successful payment to navigate away (e.g. back to overview) */
   onPlanActivated?: (planId: string) => void;
+  /** Live usage from chat logs + indexed sites (optional) */
+  usage?: {
+    conversationsThisMonth: number;
+    pagesIndexed: number;
+    websiteCount: number;
+  } | null;
+  usageLoading?: boolean;
 }
 
-export function BillingTab({ onPlanActivated }: BillingTabProps) {
+export function BillingTab({ onPlanActivated, usage, usageLoading }: BillingTabProps) {
   // In a real app this would come from the backend / session
   const [currentPlanId, setCurrentPlanId] = useState<string>("pro");
   const [annual, setAnnual] = useState(false);
@@ -220,23 +227,26 @@ export function BillingTab({ onPlanActivated }: BillingTabProps) {
         <div className="px-6 py-5 grid md:grid-cols-3 gap-5">
           <UsageBar
             label="Conversations this month"
-            used={2847}
+            used={usageLoading ? 0 : (usage?.conversationsThisMonth ?? 0)}
             max={currentPlan.id === "free" ? 500 : currentPlan.id === "pro" ? 10000 : null}
             color={currentPlan.color}
           />
           <UsageBar
             label="Pages indexed"
-            used={124}
+            used={usageLoading ? 0 : (usage?.pagesIndexed ?? 0)}
             max={currentPlan.id === "free" ? 50 : null}
             color={currentPlan.color}
           />
           <UsageBar
             label="Active websites"
-            used={3}
+            used={usageLoading ? 0 : (usage?.websiteCount ?? 0)}
             max={currentPlan.id === "free" ? 1 : currentPlan.id === "pro" ? 5 : null}
             color={currentPlan.color}
           />
         </div>
+        {usageLoading && (
+          <p className="px-6 pb-3 text-xs text-[#8a938f]">Loading usage…</p>
+        )}
 
         {/* Features summary */}
         <div className="px-6 pb-5">

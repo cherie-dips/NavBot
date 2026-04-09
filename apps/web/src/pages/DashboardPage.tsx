@@ -9,10 +9,7 @@ import {
 import { authClient } from "../lib/auth-client";
 import { ScrapingPage } from "./ScrapingPage";
 import { IntegrationPanel } from "../components/IntegrationPanel";
-import {
-  mockStats, mockQueryHistory, mockTopQueries,
-  mockFaqs, mockSocialMedia, mockVisitorInteractions, mockRecentConversations,
-} from "../lib/mock-data";
+import { mockSocialMedia } from "../lib/mock-data";
 import { WidgetTheme } from "../components/ColorThemePicker";
 import { SitemapSyncPanel } from "../components/SitemapSyncPanel";
 import { SiteOption } from "../components/SiteSelector";
@@ -53,6 +50,46 @@ const API_BASE = (import.meta as any).env?.VITE_API_URL ?? "http://localhost:300
 const WIDGET_SCRIPT_URL =
   (import.meta as any).env?.VITE_WIDGET_SCRIPT_URL ??
   (typeof window !== "undefined" ? `${window.location.origin}/chat-widget.iife.js` : "/chat-widget.iife.js");
+
+/** Mirrors `GET /api/sites/dashboard-stats` */
+interface DashboardAnalytics {
+  totals: {
+    totalTurns: number;
+    last7Days: number;
+    thisCalendarMonth: number;
+    avgLatencyMs: number | null;
+    turnsWithSources: number;
+    voiceTurns: number;
+    textTurns: number;
+  };
+  volumeByDay: Array<{ date: string; dayLabel: string; count: number }>;
+  topQueries: Array<{ query: string; count: number; answered: boolean }>;
+  recentTurns: Array<{
+    id: number;
+    siteId: string;
+    query: string;
+    answerPreview: string | null;
+    createdAt: string;
+    channel: string;
+    sourceCount: number | null;
+  }>;
+  context: { websiteCount: number; pagesIndexed: number; faqCount: number };
+}
+
+function parseSqliteDatetime(s: string): Date {
+  if (s.includes("T")) return new Date(s.endsWith("Z") ? s : `${s}Z`);
+  return new Date(`${s.replace(" ", "T")}Z`);
+}
+
+function formatRelativeTime(iso: string): string {
+  const d = parseSqliteDatetime(iso);
+  const sec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+  if (sec < 45) return "Just now";
+  if (sec < 3600) return `${Math.floor(sec / 60)} min ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)} hr ago`;
+  if (sec < 172800) return "Yesterday";
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
 
 const TABS: { id: Tab; label: string; icon: typeof LayoutDashboard; desc: string }[] = [
   { id: "overview",  label: "Overview",        icon: LayoutDashboard, desc: "Stats & quick view"      },
@@ -96,6 +133,8 @@ export const DashboardPage = ({
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   // Sync internal websites → external SiteOptions for Navbar
   const syncToExternal = (wbs: Website[]) => {
@@ -136,6 +175,22 @@ export const DashboardPage = ({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const activeSiteId = selectedSite?.id ?? null;
+
+  useEffect(() => {
+    if (!user?.id) return;
+    setAnalyticsLoading(true);
+    const q = new URLSearchParams({ userId: user.id });
+    if (activeSiteId) q.set("siteId", activeSiteId);
+    fetch(`${API_BASE}/api/sites/dashboard-stats?${q.toString()}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: DashboardAnalytics | null) => {
+        if (data) setAnalytics(data);
+      })
+      .catch(() => {})
+      .finally(() => setAnalyticsLoading(false));
+  }, [user?.id, activeSiteId, websites.length]);
 
   const handleAddWebsite = (e: React.FormEvent) => {
     e.preventDefault();
@@ -221,8 +276,7 @@ export const DashboardPage = ({
     );
   }
 
-  const maxQueries = Math.max(...mockQueryHistory.map(d => d.queries));
-  const firstName = user?.name?.trim()?.split(" ")[0] || "Anjelica";
+  const firstName = user?.name?.trim()?.split(" ")[0] || "there";
 
   return (
     <div className="min-h-screen bg-[#f8f4ee] pt-14 text-[#1f2522]">
@@ -317,13 +371,40 @@ export const DashboardPage = ({
           </div>
 
           {/* Tab content */}
-          {activeTab === "overview"  && <OverviewTab websites={websites} activeSite={activeSite} onIntegrate={setIntegrationSite} onSwitchTab={setActiveTab} />}
+          {activeTab === "overview"  && (
+            <OverviewTab
+              websites={websites}
+              activeSite={activeSite}
+              onIntegrate={setIntegrationSite}
+              onSwitchTab={setActiveTab}
+              analytics={analytics}
+              analyticsLoading={analyticsLoading}
+            />
+          )}
           {activeTab === "websites"  && <WebsitesTab websites={websites} showAddSite={showAddSite} setShowAddSite={setShowAddSite} newSiteUrl={newSiteUrl} setNewSiteUrl={setNewSiteUrl} onAddWebsite={handleAddWebsite} onIntegrate={setIntegrationSite} onDelete={setDeleteTarget} userId={user?.id ?? ""} />}
-          {activeTab === "analytics" && <AnalyticsTab maxQueries={maxQueries} activeSite={activeSite} />}
+          {activeTab === "analytics" && (
+            <AnalyticsTab activeSite={activeSite} analytics={analytics} analyticsLoading={analyticsLoading} />
+          )}
           {activeTab === "social"    && <SocialTab activeSite={activeSite} />}
-          {activeTab === "visitors"  && <VisitorInsightsTab activeSite={activeSite} />}
+          {activeTab === "visitors"  && (
+            <VisitorInsightsTab activeSite={activeSite} analytics={analytics} analyticsLoading={analyticsLoading} />
+          )}
           {activeTab === "settings"  && <SettingsTab voiceEnabled={voiceEnabled} setVoiceEnabled={setVoiceEnabled} webDataOnly={webDataOnly} setWebDataOnly={setWebDataOnly} activeSite={activeSite} />}
-          {activeTab === "billing" && <BillingTab onPlanActivated={() => setActiveTab("overview")} />}
+          {activeTab === "billing" && (
+            <BillingTab
+              onPlanActivated={() => setActiveTab("overview")}
+              usage={
+                analytics
+                  ? {
+                      conversationsThisMonth: analytics.totals.thisCalendarMonth,
+                      pagesIndexed: analytics.context.pagesIndexed,
+                      websiteCount: analytics.context.websiteCount,
+                    }
+                  : null
+              }
+              usageLoading={analyticsLoading}
+            />
+          )}
         </main>
       </div>
 
@@ -423,22 +504,46 @@ function UpdatePagesPanel({ site }: { site: Website }) {
 
 /* ─── OVERVIEW TAB ───────────────────────────────────────────────────────── */
 
-function OverviewTab({ websites, activeSite, onIntegrate, onSwitchTab }: {
+function OverviewTab({ websites, activeSite, onIntegrate, onSwitchTab, analytics, analyticsLoading }: {
   websites: Website[]; activeSite: Website | null;
   onIntegrate: (s: Website) => void;
   onSwitchTab: (t: Tab) => void;
+  analytics: DashboardAnalytics | null;
+  analyticsLoading: boolean;
 }) {
   const displaySites = activeSite ? [activeSite] : websites;
-  const totalPages = displaySites.reduce((s, w) => s + (w.pagesIndexed || 0), 0) || mockStats.pagesIndexed;
+  const totalPages = displaySites.reduce((s, w) => s + (w.pagesIndexed || 0), 0);
+  const convoCount = analytics?.totals.totalTurns ?? 0;
+  const avgMs = analytics?.totals.avgLatencyMs;
+  const avgLabel =
+    analyticsLoading && !analytics
+      ? "…"
+      : avgMs != null
+        ? `${(avgMs / 1000).toFixed(1)}s`
+        : "—";
+  const weekBars = analytics?.volumeByDay?.length
+    ? analytics.volumeByDay
+    : Array.from({ length: 7 }, (_, i) => ({
+        date: `d${i}`,
+        dayLabel: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][(i + 4) % 7]!,
+        count: 0,
+      }));
+  const maxWeek = Math.max(...weekBars.map((d) => d.count), 1);
+  const recent = (analytics?.recentTurns ?? []).slice(0, 3);
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: activeSite ? "Website" : "Active websites", value: activeSite ? "1" : (websites.length || mockStats.activeWebsites).toString(), icon: Globe, color: "#bc6c25" },
+          { label: activeSite ? "Website" : "Active websites", value: activeSite ? "1" : websites.length.toString(), icon: Globe, color: "#bc6c25" },
           { label: "Pages indexed", value: totalPages.toLocaleString(), icon: FileText, color: "#27C93F" },
-          { label: "Conversations", value: mockStats.totalConversations.toLocaleString(), icon: MessageSquare, color: "#456a92" },
-          { label: "Avg response", value: mockStats.avgResponseTime, icon: Clock, color: "#F59E0B" },
+          {
+            label: "Chat turns",
+            value: analyticsLoading && !analytics ? "…" : convoCount.toLocaleString(),
+            icon: MessageSquare,
+            color: "#456a92",
+          },
+          { label: "Avg response", value: avgLabel, icon: Clock, color: "#F59E0B" },
         ].map(stat => {
           const Icon = stat.icon;
           return (
@@ -462,13 +567,12 @@ function OverviewTab({ websites, activeSite, onIntegrate, onSwitchTab }: {
             </button>
           </div>
           <div className="flex items-end gap-2" style={{ height: "6rem" }}>
-            {mockQueryHistory.map(d => {
-              const maxQ = Math.max(...mockQueryHistory.map(x => x.queries), 1);
-              const barH = Math.max((d.queries / maxQ) * 100, 4);
+            {weekBars.map((d) => {
+              const barH = Math.max((d.count / maxWeek) * 100, d.count > 0 ? 8 : 4);
               return (
-                <div key={d.day} className="flex-1 flex flex-col items-center justify-end" style={{ height: "100%" }}>
-                  <div className="w-full rounded-md transition-opacity hover:opacity-75" style={{ height: `${barH}%`, minHeight: "4px", background: "linear-gradient(to top, #bc6c25, #ead4bd)" }} />
-                  <span className="mt-1.5 text-[10px] text-[#8a938f]">{d.day}</span>
+                <div key={d.date} className="flex-1 flex flex-col items-center justify-end" style={{ height: "100%" }}>
+                  <div className="w-full rounded-md transition-opacity hover:opacity-75" style={{ height: `${barH}%`, minHeight: "4px", background: "linear-gradient(to top, #bc6c25, #ead4bd)" }} title={`${d.count} turns`} />
+                  <span className="mt-1.5 text-[10px] text-[#8a938f]">{d.dayLabel}</span>
                 </div>
               );
             })}
@@ -483,20 +587,27 @@ function OverviewTab({ websites, activeSite, onIntegrate, onSwitchTab }: {
             </button>
           </div>
           <div className="space-y-2">
-            {mockRecentConversations.slice(0, 3).map(conv => (
-              <div key={conv.id} className="flex items-start gap-3 rounded-[1.1rem] bg-[#fbf7f2] p-3">
-                <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-[#f6eee3]">
-                  <MessageSquare className="h-3.5 w-3.5 text-[#bc6c25]" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-xs font-medium text-[#1f2522]">{conv.visitor}</span>
-                    <span className="text-[10px] text-[#8a938f]">{conv.timestamp}</span>
+            {analyticsLoading && recent.length === 0 ? (
+              <p className="text-xs text-[#8a938f] py-2">Loading activity…</p>
+            ) : recent.length === 0 ? (
+              <p className="text-xs text-[#8a938f] py-2">No chat turns yet. Embed the widget and try a message.</p>
+            ) : (
+              recent.map((turn) => (
+                <div key={turn.id} className="flex items-start gap-3 rounded-[1.1rem] bg-[#fbf7f2] p-3">
+                  <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-[#f6eee3]">
+                    <MessageSquare className="h-3.5 w-3.5 text-[#bc6c25]" />
                   </div>
-                  <p className="truncate text-xs text-[#65726d]">{conv.query}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-xs font-medium text-[#1f2522]">Turn #{turn.id}</span>
+                      <span className="text-[10px] text-[#8a938f]">{formatRelativeTime(turn.createdAt)}</span>
+                      <span className="text-[10px] text-[#c3baad]">{turn.channel === "voice" ? "Voice" : "Text"}</span>
+                    </div>
+                    <p className="truncate text-xs text-[#65726d]">{turn.query}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -605,8 +716,45 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
 
 /* ─── ANALYTICS TAB ──────────────────────────────────────────────────────── */
 
-function AnalyticsTab({ maxQueries, activeSite }: { maxQueries: number; activeSite: Website | null }) {
+function AnalyticsTab({ activeSite, analytics, analyticsLoading }: {
+  activeSite: Website | null;
+  analytics: DashboardAnalytics | null;
+  analyticsLoading: boolean;
+}) {
   const [faqView, setFaqView] = useState<"analytics" | "faqs" | "training">("analytics");
+  const [faqItems, setFaqItems] = useState<Array<{ label: string; question: string }>>([]);
+  const [faqLoading, setFaqLoading] = useState(false);
+  const [faqErr, setFaqErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (faqView !== "faqs" || !activeSite) {
+      setFaqItems([]);
+      setFaqErr(null);
+      return;
+    }
+    setFaqLoading(true);
+    setFaqErr(null);
+    fetch(`${API_BASE}/api/sites/${encodeURIComponent(activeSite.id)}/faqs`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((body: { faqs?: Array<{ label: string; question: string }> }) => {
+        setFaqItems(body.faqs ?? []);
+      })
+      .catch(() => setFaqErr("Could not load FAQs."))
+      .finally(() => setFaqLoading(false));
+  }, [faqView, activeSite?.id]);
+
+  const vol = analytics?.volumeByDay?.length
+    ? analytics.volumeByDay
+    : Array.from({ length: 7 }, (_, i) => ({
+        date: `p${i}`,
+        dayLabel: ["S", "M", "T", "W", "T", "F", "S"][i]!,
+        count: 0,
+      }));
+  const maxBar = Math.max(...vol.map((d) => d.count), 1);
+  const avgMs = analytics?.totals.avgLatencyMs;
+  const avgStr = analyticsLoading && !analytics ? "…" : avgMs != null ? `${(avgMs / 1000).toFixed(1)}s avg` : "—";
+  const top = analytics?.topQueries ?? [];
+  const ctx = analytics?.context;
 
   return (
     <div className="space-y-6">
@@ -626,22 +774,22 @@ function AnalyticsTab({ maxQueries, activeSite }: { maxQueries: number; activeSi
           <div className="grid md:grid-cols-2 gap-5">
             <div className={`${DASH_PANEL} p-6`}>
               <div className="flex items-center justify-between mb-5">
-                <h3 className="text-sm font-medium text-[#1f2522]">Conversation volume (7 days)</h3>
-                <span className="text-xs text-[#8a938f]">{mockStats.avgResponseTime} avg</span>
+                <h3 className="text-sm font-medium text-[#1f2522]">Chat volume (7 days)</h3>
+                <span className="text-xs text-[#8a938f]">{avgStr}</span>
               </div>
               <div className="flex items-end gap-3" style={{ height: "9rem" }}>
-                {mockQueryHistory.map(d => {
-                  const barH = Math.max((d.queries / maxQueries) * 100, 4);
+                {vol.map((d) => {
+                  const barH = Math.max((d.count / maxBar) * 100, d.count > 0 ? 6 : 4);
                   return (
-                    <div key={d.day} className="flex-1 flex flex-col items-center justify-end" style={{ height: "100%" }}>
-                      <span className="mb-1.5 text-[10px] font-medium text-[#1f2522]">{d.queries}</span>
+                    <div key={d.date} className="flex-1 flex flex-col items-center justify-end" style={{ height: "100%" }}>
+                      <span className="mb-1.5 text-[10px] font-medium text-[#1f2522]">{d.count}</span>
                       <div className="w-full rounded-lg hover:opacity-75 transition-opacity relative group/bar cursor-default"
                         style={{ height: `${barH}%`, minHeight: "4px", background: "linear-gradient(to top, #bc6c25, #ead4bd)" }}>
                         <div className="absolute -top-7 left-1/2 -translate-x-1/2 whitespace-nowrap rounded bg-[#1f2522] px-2 py-1 text-[10px] text-white opacity-0 transition-opacity pointer-events-none group-hover/bar:opacity-100">
-                          {d.queries}
+                          {d.count}
                         </div>
                       </div>
-                      <span className="mt-2 text-[10px] text-[#8a938f]">{d.day}</span>
+                      <span className="mt-2 text-[10px] text-[#8a938f]">{d.dayLabel}</span>
                     </div>
                   );
                 })}
@@ -650,24 +798,32 @@ function AnalyticsTab({ maxQueries, activeSite }: { maxQueries: number; activeSi
 
             <div className={`${DASH_PANEL} p-6`}>
               <h3 className="mb-4 text-sm font-medium text-[#1f2522]">Top questions</h3>
-              <div className="space-y-1">
-                {mockTopQueries.map((q, i) => (
-                  <div key={i} className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-[#fbf7f2]">
-                    <span className="w-4 flex-shrink-0 text-xs font-mono text-[#c3baad]">#{i + 1}</span>
-                    <p className="flex-1 truncate text-sm text-[#1f2522]">{q.question}</p>
-                    <span className="flex-shrink-0 text-[11px] text-[#8a938f]">{q.count}×</span>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 ${q.answered ? "text-green-600 bg-green-50" : "text-amber-600 bg-amber-50"}`}>{q.answered ? "OK" : "Review"}</span>
-                  </div>
-                ))}
-              </div>
+              {analyticsLoading && top.length === 0 ? (
+                <div className="flex items-center gap-2 text-xs text-[#8a938f] py-6">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+                </div>
+              ) : top.length === 0 ? (
+                <p className="text-xs text-[#8a938f] py-4">No questions logged yet.</p>
+              ) : (
+                <div className="space-y-1">
+                  {top.map((q, i) => (
+                    <div key={`${q.query}-${i}`} className="flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-[#fbf7f2]">
+                      <span className="w-4 flex-shrink-0 text-xs font-mono text-[#c3baad]">#{i + 1}</span>
+                      <p className="flex-1 truncate text-sm text-[#1f2522]">{q.query}</p>
+                      <span className="flex-shrink-0 text-[11px] text-[#8a938f]">{q.count}×</span>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 ${q.answered ? "text-green-600 bg-green-50" : "text-amber-600 bg-amber-50"}`}>{q.answered ? "Sources" : "No match"}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
           <div className="grid md:grid-cols-3 gap-4">
             {[
-              { label: "Content summaries", value: mockStats.contentSummaries, icon: Search, color: "#bc6c25" },
-              { label: "Page redirects", value: mockStats.redirectsTriggered, icon: ArrowUpRight, color: "#456a92" },
-              { label: "Active websites", value: mockStats.activeWebsites, icon: TrendingUp, color: "#27C93F" },
+              { label: "Pages indexed", value: ctx?.pagesIndexed ?? 0, icon: Search, color: "#bc6c25" },
+              { label: "Turns with page sources", value: analytics?.totals.turnsWithSources ?? 0, icon: ArrowUpRight, color: "#456a92" },
+              { label: "Websites in view", value: ctx?.websiteCount ?? 0, icon: TrendingUp, color: "#27C93F" },
             ].map(stat => {
               const Icon = stat.icon;
               return (
@@ -676,7 +832,9 @@ function AnalyticsTab({ maxQueries, activeSite }: { maxQueries: number; activeSi
                     <Icon className="w-5 h-5" style={{ color: stat.color }} />
                   </div>
                   <div>
-                    <p className="text-2xl font-light text-[#1f2522]">{stat.value}</p>
+                    <p className="text-2xl font-light text-[#1f2522]">
+                      {analyticsLoading && !analytics ? "…" : typeof stat.value === "number" ? stat.value.toLocaleString() : stat.value}
+                    </p>
                     <p className="text-xs text-[#8a938f]">{stat.label}</p>
                   </div>
                 </div>
@@ -688,46 +846,52 @@ function AnalyticsTab({ maxQueries, activeSite }: { maxQueries: number; activeSi
 
       {faqView === "faqs" && (
         <div className="space-y-3">
-          {mockFaqs.map((faq, i) => (
-            <div key={i} className={`${DASH_PANEL} flex gap-4 p-5`}>
-              <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#f6eee3]"><MessageSquare className="h-4 w-4 text-[#bc6c25]" /></div>
-              <div className="flex-1">
-                <h4 className="mb-1.5 text-sm font-semibold text-[#1f2522]">{faq.question}</h4>
-                <p className="mb-2 text-sm leading-relaxed text-[#65726d]">{faq.answer}</p>
-                <p className="text-[11px] text-[#8a938f]">From {faq.generatedFrom} conversations · <span className="text-green-600">Approved</span></p>
-              </div>
+          {!activeSite ? (
+            <p className="text-sm text-[#65726d]">Select a website to load FAQs generated from its indexed content and popular queries.</p>
+          ) : faqLoading ? (
+            <div className={`${DASH_PANEL} flex items-center gap-2 p-6 text-sm text-[#8a938f]`}>
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading FAQs…
             </div>
-          ))}
+          ) : faqErr ? (
+            <p className="text-sm text-red-600">{faqErr}</p>
+          ) : faqItems.length === 0 ? (
+            <p className="text-sm text-[#8a938f]">No FAQs yet. They are created when visitors open the widget or when the API first requests them.</p>
+          ) : (
+            faqItems.map((faq, i) => (
+              <div key={`${faq.label}-${i}`} className={`${DASH_PANEL} flex gap-4 p-5`}>
+                <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#f6eee3]"><MessageSquare className="h-4 w-4 text-[#bc6c25]" /></div>
+                <div className="flex-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[#bc6c25] mb-1">{faq.label}</p>
+                  <h4 className="mb-2 text-sm font-semibold text-[#1f2522]">{faq.question}</h4>
+                  <p className="text-sm leading-relaxed text-[#65726d]">
+                    Answers are not stored here. When a visitor asks in the widget, NavBot answers from your live indexed pages (RAG).
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
 
       {faqView === "training" && (
         <div className="space-y-5">
-          <div className={`${DASH_PANEL} p-8 text-center`}>
+          <div className={`${DASH_PANEL} p-8`}>
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f6eee3]"><Zap className="h-7 w-7 text-[#bc6c25]" /></div>
-            <h3 className="mb-2 text-base font-semibold text-[#1f2522]">Model Training</h3>
-            <p className="mx-auto mb-6 max-w-sm text-sm text-[#8a938f]">Continuously improves from your analytics data and approved FAQs.</p>
-            <div className="flex items-center justify-center gap-2 mb-6 flex-wrap">
-              {[{ l: "Data", s: "done" }, { l: "FAQs", s: "done" }, { l: "Fine-tuning", s: "active" }, { l: "Deploy", s: "pending" }].map((step, i) => (
-                <div key={step.l} className="flex items-center gap-2">
-                  <div className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium ${step.s === "done" ? "bg-green-50 text-green-600" : step.s === "active" ? "bg-[#f6eee3] text-[#bc6c25]" : "bg-[#f3eee7] text-[#8a938f]"}`}>
-                    {step.s === "done" && <CheckCircle2 className="w-3 h-3" />}
-                    {step.s === "active" && <div className="h-3 w-3 animate-spin rounded-full border-2 border-[#bc6c25]/25 border-t-[#bc6c25]" />}
-                    {step.l}
-                  </div>
-                  {i < 3 && <ChevronRight className="h-3.5 w-3.5 text-[#c9c0b3]" />}
-                </div>
-              ))}
-            </div>
-            <div className="mx-auto max-w-xs rounded-xl bg-[#fbf7f2] p-4">
-              <div className="mb-2 flex justify-between text-xs text-[#65726d]"><span>Progress</span><span>67%</span></div>
-              <div className="h-1.5 w-full rounded-full bg-[#e6ddd1]"><div className="h-full rounded-full bg-gradient-to-r from-[#bc6c25] to-[#ead4bd]" style={{ width: "67%" }} /></div>
-            </div>
+            <h3 className="mb-2 text-base font-semibold text-[#1f2522] text-center">Knowledge base</h3>
+            <p className="mx-auto max-w-md text-sm text-[#8a938f] text-center">
+              NavBot does not train a separate model on your traffic. Each reply is retrieved from your crawled pages at question time. These numbers reflect how much real usage and FAQ structure you have accumulated.
+            </p>
           </div>
           <div className="grid grid-cols-3 gap-4">
-            {[{ label: "Training samples", value: "1,284" }, { label: "Approved FAQs", value: "4" }, { label: "Accuracy", value: "94.7%" }].map(s => (
+            {[
+              { label: "Logged chat turns", value: analytics?.totals.totalTurns ?? 0 },
+              { label: "FAQ entries", value: analytics?.context.faqCount ?? 0 },
+              { label: "Voice turns", value: analytics?.totals.voiceTurns ?? 0 },
+            ].map(s => (
               <div key={s.label} className={`${DASH_PANEL} p-5 text-center`}>
-                <p className="text-2xl font-light text-[#1f2522]">{s.value}</p>
+                <p className="text-2xl font-light text-[#1f2522]">
+                  {analyticsLoading && !analytics ? "…" : s.value.toLocaleString()}
+                </p>
                 <p className="mt-1 text-xs text-[#8a938f]">{s.label}</p>
               </div>
             ))}
@@ -746,6 +910,9 @@ function SocialTab({ activeSite }: { activeSite: Website | null }) {
 
   return (
     <div className="space-y-4">
+      <p className="text-xs text-[#8a938f]">
+        Demo connections only — not linked to chat transcripts{activeSite ? ` for ${activeSite.hostname}` : ""}.
+      </p>
       <div className="space-y-3">
         {accounts.map(account => (
           <div key={account.platform} className={`${DASH_PANEL} flex items-center gap-4 px-6 py-4`}>
@@ -771,17 +938,30 @@ function SocialTab({ activeSite }: { activeSite: Website | null }) {
 
 /* ─── VISITORS TAB ───────────────────────────────────────────────────────── */
 
-function VisitorInsightsTab({ activeSite }: { activeSite: Website | null }) {
+function VisitorInsightsTab({ activeSite, analytics, analyticsLoading }: {
+  activeSite: Website | null;
+  analytics: DashboardAnalytics | null;
+  analyticsLoading: boolean;
+}) {
+  const turns = analytics?.recentTurns ?? [];
+  const totals = analytics?.totals;
+
   return (
     <div className="space-y-5">
+      <p className="text-xs text-[#8a938f]">
+        The widget does not identify visitors. Each row is one logged question (text or voice) and stored answer preview.
+        {activeSite ? ` Scoped to ${activeSite.hostname}.` : " All your sites combined."}
+      </p>
       <div className="grid grid-cols-3 gap-4">
         {[
-          { label: "Total conversations", value: mockStats.totalConversations.toString(), color: "#bc6c25" },
-          { label: "This week", value: mockStats.conversationsThisWeek.toString(), color: "#456a92" },
-          { label: "Summaries", value: mockStats.contentSummaries.toString(), color: "#27C93F" },
+          { label: "Total chat turns", value: totals?.totalTurns ?? 0, color: "#bc6c25" },
+          { label: "Last 7 days", value: totals?.last7Days ?? 0, color: "#456a92" },
+          { label: "With page sources", value: totals?.turnsWithSources ?? 0, color: "#27C93F" },
         ].map(stat => (
           <div key={stat.label} className={`${DASH_PANEL} p-5 text-center`}>
-            <p className="text-2xl font-light text-[#1f2522]">{stat.value}</p>
+            <p className="text-2xl font-light text-[#1f2522]">
+              {analyticsLoading && !analytics ? "…" : stat.value.toLocaleString()}
+            </p>
             <p className="text-xs mt-1" style={{ color: stat.color }}>{stat.label}</p>
           </div>
         ))}
@@ -791,21 +971,37 @@ function VisitorInsightsTab({ activeSite }: { activeSite: Website | null }) {
           <h3 className="text-sm font-medium text-[#1f2522]">Recent interactions</h3>
         </div>
         <div className="divide-y divide-[#f0e8dd]">
-          {mockVisitorInteractions.map(item => (
-            <div key={item.id} className="flex items-center gap-4 px-6 py-4 transition-colors hover:bg-[#fbf7f2]">
-              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#f6eee3]">
-                <MessageSquare className="h-3.5 w-3.5 text-[#bc6c25]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-0.5">
-                  <span className="text-sm font-medium text-[#1f2522]">{item.visitor}</span>
-                  <span className="text-[10px] text-[#8a938f]">{item.timestamp}</span>
-                </div>
-                <p className="truncate text-xs text-[#8a938f]">"{item.query}"</p>
-              </div>
-              <span className="flex-shrink-0 rounded-full bg-[#f3eee7] px-2 py-1 text-[10px] font-medium text-[#65726d]">{item.source}</span>
+          {analyticsLoading && turns.length === 0 ? (
+            <div className="flex items-center gap-2 px-6 py-8 text-sm text-[#8a938f]">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading…
             </div>
-          ))}
+          ) : turns.length === 0 ? (
+            <p className="px-6 py-8 text-sm text-[#8a938f]">No interactions recorded yet.</p>
+          ) : (
+            turns.map((item) => (
+              <div key={item.id} className="flex items-start gap-4 px-6 py-4 transition-colors hover:bg-[#fbf7f2]">
+                <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-[#f6eee3]">
+                  <MessageSquare className="h-3.5 w-3.5 text-[#bc6c25]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 mb-0.5">
+                    <span className="text-sm font-medium text-[#1f2522]">Turn #{item.id}</span>
+                    <span className="text-[10px] text-[#8a938f]">{formatRelativeTime(item.createdAt)}</span>
+                    {!activeSite && (
+                      <span className="text-[10px] text-[#c3baad] font-mono truncate max-w-[120px]">{item.siteId}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-[#1f2522] font-medium truncate">"{item.query}"</p>
+                  {item.answerPreview && (
+                    <p className="mt-1 text-xs text-[#65726d] line-clamp-2">{item.answerPreview}</p>
+                  )}
+                </div>
+                <span className="flex-shrink-0 rounded-full bg-[#f3eee7] px-2 py-1 text-[10px] font-medium text-[#65726d]">
+                  {item.channel === "voice" ? "Voice" : "Text"}
+                </span>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

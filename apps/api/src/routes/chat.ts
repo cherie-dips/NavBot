@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
 import { answerQuestionWithRag, transcribeAndAnswer, synthesizeSpeech } from "../services/rag";
-import { trackQuery } from "../services/db";
+import { logChatTurn } from "../services/db";
 
 export const router: Router = Router();
 
@@ -20,12 +20,20 @@ router.post("/", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "siteId and message are required" });
     }
 
-    trackQuery(siteId, message);
-
+    const t0 = Date.now();
     const result = await answerQuestionWithRag({
       siteId,
       message,
       history: history || [],
+    });
+
+    logChatTurn({
+      siteId,
+      query: message,
+      channel: "text",
+      answerPreview: result.answer,
+      latencyMs: Date.now() - t0,
+      sourceCount: result.sources?.length ?? 0,
     });
 
     res.json(result);
@@ -82,6 +90,8 @@ router.post(
           .json({ error: "siteId and audio file are required" });
       }
 
+      const t0 = Date.now();
+
       // Parse history if the client sent it
       let history: Array<{ role: "user" | "assistant"; content: string }> = [];
       if (historyJson) {
@@ -98,6 +108,17 @@ router.post(
         mimeType: audio.mimetype,
         history,
       });
+
+      if (result.transcript && result.transcript.trim()) {
+        logChatTurn({
+          siteId,
+          query: result.transcript.trim(),
+          channel: "voice",
+          answerPreview: result.answer,
+          latencyMs: Date.now() - t0,
+          sourceCount: result.sources?.length ?? 0,
+        });
+      }
 
       res.json(result);
     } catch (err) {

@@ -55,6 +55,13 @@ db.exec(`
   );
 `);
 
+try { db.exec(`ALTER TABLE chat_query ADD COLUMN channel TEXT NOT NULL DEFAULT 'text'`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE chat_query ADD COLUMN answer_preview TEXT`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE chat_query ADD COLUMN latency_ms INTEGER`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE chat_query ADD COLUMN source_count INTEGER`); } catch { /* already exists */ }
+
+db.exec(`CREATE INDEX IF NOT EXISTS idx_chat_query_site_created ON chat_query(site_id, created_at)`);
+
 console.log("API database ready (shared navbot.db).");
 
 export interface SiteRow {
@@ -328,8 +335,37 @@ export function replaceFaqs(siteId: string, items: Array<{ label: string; questi
 // ---------------------------------------------------------------------------
 // Chat query tracking
 // ---------------------------------------------------------------------------
+const PREVIEW_MAX = 480;
+
+export function logChatTurn(params: {
+  siteId: string;
+  query: string;
+  channel: "text" | "voice";
+  answerPreview?: string | null;
+  latencyMs?: number | null;
+  sourceCount?: number | null;
+}): void {
+  const preview =
+    params.answerPreview && params.answerPreview.length > PREVIEW_MAX
+      ? params.answerPreview.slice(0, PREVIEW_MAX) + "…"
+      : params.answerPreview ?? null;
+
+  db.prepare(
+    `INSERT INTO chat_query (site_id, query, channel, answer_preview, latency_ms, source_count)
+     VALUES (@siteId, @query, @channel, @answer_preview, @latency_ms, @source_count)`
+  ).run({
+    siteId: params.siteId,
+    query: params.query,
+    channel: params.channel,
+    answer_preview: preview,
+    latency_ms: params.latencyMs ?? null,
+    source_count: params.sourceCount ?? null,
+  });
+}
+
+/** @deprecated use logChatTurn — kept for scripts / backward compatibility */
 export function trackQuery(siteId: string, query: string): void {
-  db.prepare("INSERT INTO chat_query (site_id, query) VALUES (?, ?)").run(siteId, query);
+  logChatTurn({ siteId, query, channel: "text" });
 }
 
 export function getTopQueries(siteId: string, limit = 20): Array<{ query: string; count: number }> {
@@ -340,4 +376,227 @@ export function getTopQueries(siteId: string, limit = 20): Array<{ query: string
        GROUP BY query ORDER BY count DESC LIMIT ?`
     )
     .all(siteId, limit) as Array<{ query: string; count: number }>;
+}
+
+export function deleteChatQueriesForSite(siteId: string): void {
+  db.prepare("DELETE FROM chat_query WHERE site_id = ?").run(siteId);
+}
+
+/** Remove conversation logs and generated FAQs when no owners remain for a site. */
+export function purgeSiteDerivedData(siteId: string): void {
+  deleteChatQueriesForSite(siteId);
+  db.prepare("DELETE FROM faq WHERE site_id = ?").run(siteId);
+}
+
+export function userOwnsSite(userId: string, siteId: string): boolean {
+  const row = db
+    .prepare("SELECT 1 as ok FROM site WHERE user_id = ? AND site_id = ? LIMIT 1")
+    .get(userId, siteId) as { ok: number } | undefined;
+  return !!row;
+}
+
+export interface DashboardAnalytics {
+  totals: {
+    totalTurns: number;
+    last7Days: number;
+    thisCalendarMonth: number;
+    avgLatencyMs: number | null;
+    turnsWithSources: number;
+    voiceTurns: number;
+    textTurns: number;
+  };
+  volumeByDay: Array<{ date: string; dayLabel: string; count: number }>;
+  topQueries: Array<{ query: string; count: number; answered: boolean }>;
+  recentTurns: Array<{
+    id: number;
+    siteId: string;
+    query: string;
+    answerPreview: string | null;
+    createdAt: string;
+    channel: string;
+    sourceCount: number | null;
+  }>;
+  context: {
+    websiteCount: number;
+    pagesIndexed: number;
+    faqCount: number;
+  };
+}
+
+function utcDayKeys(numDays: number): Array<{ date: string; dayLabel: string }> {
+  const labels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const out: Array<{ date: string; dayLabel: string }> = [];
+  for (let i = numDays - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - i);
+    const date = d.toISOString().slice(0, 10);
+    out.push({ date, dayLabel: labels[d.getUTCDay()]! });
+  }
+  return out;
+}
+
+export function getDashboardAnalytics(
+  userId: string,
+  filterSiteId?: string | null
+): DashboardAnalytics | null {
+  const sites = getSitesByUser(userId);
+  let siteIds = sites.map((s) => s.site_id);
+  if (filterSiteId) {
+    if (!siteIds.includes(filterSiteId)) return null;
+    siteIds = [filterSiteId];
+  }
+
+  const websiteCount = filterSiteId ? 1 : sites.length;
+  const pagesIndexed = (filterSiteId
+    ? sites.filter((s) => s.site_id === filterSiteId)
+    : sites
+  ).reduce((sum, s) => sum + (s.pages_indexed || 0), 0);
+
+  let faqCount = 0;
+  for (const sid of siteIds) {
+    const row = db.prepare("SELECT COUNT(*) as c FROM faq WHERE site_id = ?").get(sid) as { c: number };
+    faqCount += row.c;
+  }
+
+  const empty: DashboardAnalytics = {
+    totals: {
+      totalTurns: 0,
+      last7Days: 0,
+      thisCalendarMonth: 0,
+      avgLatencyMs: null,
+      turnsWithSources: 0,
+      voiceTurns: 0,
+      textTurns: 0,
+    },
+    volumeByDay: utcDayKeys(7).map((d) => ({ ...d, count: 0 })),
+    topQueries: [],
+    recentTurns: [],
+    context: { websiteCount, pagesIndexed, faqCount },
+  };
+
+  if (siteIds.length === 0) return empty;
+
+  const ph = siteIds.map(() => "?").join(",");
+
+  const totalTurns = db
+    .prepare(`SELECT COUNT(*) as c FROM chat_query WHERE site_id IN (${ph})`)
+    .get(...siteIds) as { c: number };
+
+  const last7 = db
+    .prepare(
+      `SELECT COUNT(*) as c FROM chat_query WHERE site_id IN (${ph})
+       AND datetime(created_at) >= datetime('now', '-7 days')`
+    )
+    .get(...siteIds) as { c: number };
+
+  const thisMonth = db
+    .prepare(
+      `SELECT COUNT(*) as c FROM chat_query WHERE site_id IN (${ph})
+       AND datetime(created_at) >= datetime('now', 'start of month')`
+    )
+    .get(...siteIds) as { c: number };
+
+  const avgRow = db
+    .prepare(
+      `SELECT AVG(latency_ms) as avg_ms FROM chat_query WHERE site_id IN (${ph}) AND latency_ms IS NOT NULL`
+    )
+    .get(...siteIds) as { avg_ms: number | null };
+
+  const withSources = db
+    .prepare(
+      `SELECT COUNT(*) as c FROM chat_query WHERE site_id IN (${ph})
+       AND COALESCE(source_count, 0) > 0`
+    )
+    .get(...siteIds) as { c: number };
+
+  const voiceRow = db
+    .prepare(
+      `SELECT COUNT(*) as c FROM chat_query WHERE site_id IN (${ph}) AND channel = 'voice'`
+    )
+    .get(...siteIds) as { c: number };
+
+  const textRow = db
+    .prepare(
+      `SELECT COUNT(*) as c FROM chat_query WHERE site_id IN (${ph}) AND channel = 'text'`
+    )
+    .get(...siteIds) as { c: number };
+
+  const volRows = db
+    .prepare(
+      `SELECT strftime('%Y-%m-%d', created_at) as d, COUNT(*) as c
+       FROM chat_query
+       WHERE site_id IN (${ph})
+         AND datetime(created_at) >= datetime('now', '-7 days')
+       GROUP BY d`
+    )
+    .all(...siteIds) as Array<{ d: string; c: number }>;
+
+  const volMap = new Map(volRows.map((r) => [r.d, r.c]));
+  const volumeByDay = utcDayKeys(7).map(({ date, dayLabel }) => ({
+    date,
+    dayLabel,
+    count: volMap.get(date) ?? 0,
+  }));
+
+  const topRows = db
+    .prepare(
+      `SELECT query,
+              COUNT(*) as cnt,
+              MAX(COALESCE(source_count, 0)) as max_src
+       FROM chat_query
+       WHERE site_id IN (${ph})
+       GROUP BY query
+       ORDER BY cnt DESC
+       LIMIT 15`
+    )
+    .all(...siteIds) as Array<{ query: string; cnt: number; max_src: number }>;
+
+  const recentRows = db
+    .prepare(
+      `SELECT id, site_id, query, answer_preview, created_at, channel, source_count
+       FROM chat_query
+       WHERE site_id IN (${ph})
+       ORDER BY id DESC
+       LIMIT 30`
+    )
+    .all(...siteIds) as Array<{
+      id: number;
+      site_id: string;
+      query: string;
+      answer_preview: string | null;
+      created_at: string;
+      channel: string;
+      source_count: number | null;
+    }>;
+
+  return {
+    totals: {
+      totalTurns: totalTurns.c,
+      last7Days: last7.c,
+      thisCalendarMonth: thisMonth.c,
+      avgLatencyMs:
+        avgRow.avg_ms != null && !Number.isNaN(avgRow.avg_ms)
+          ? Math.round(avgRow.avg_ms)
+          : null,
+      turnsWithSources: withSources.c,
+      voiceTurns: voiceRow.c,
+      textTurns: textRow.c,
+    },
+    volumeByDay,
+    topQueries: topRows.map((r) => ({
+      query: r.query,
+      count: r.cnt,
+      answered: r.max_src > 0,
+    })),
+    recentTurns: recentRows.map((r) => ({
+      id: r.id,
+      siteId: r.site_id,
+      query: r.query,
+      answerPreview: r.answer_preview,
+      createdAt: r.created_at,
+      channel: r.channel,
+      sourceCount: r.source_count,
+    })),
+    context: { websiteCount, pagesIndexed, faqCount },
+  };
 }

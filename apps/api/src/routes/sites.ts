@@ -17,6 +17,8 @@ import {
   upsertPageHashes,
   upsertPageLastmods,
   deletePageHashes,
+  getDashboardAnalytics,
+  purgeSiteDerivedData,
 } from "../services/db";
 import { getOrGenerateFaqs, refreshFaqs } from "../services/faq";
 
@@ -41,6 +43,21 @@ router.get("/", (req: Request, res: Response) => {
       widgetTheme: s.widget_theme ? JSON.parse(s.widget_theme) : null,
     }))
   );
+});
+
+/* ── Dashboard analytics (conversations, volume, top queries) ──────────── */
+router.get("/dashboard-stats", (req: Request, res: Response) => {
+  const userId = req.query.userId as string | undefined;
+  const siteIdRaw = req.query.siteId as string | undefined;
+  if (!userId) {
+    return res.status(400).json({ error: "userId query param is required" });
+  }
+  const filterSiteId = siteIdRaw?.trim() ? siteIdRaw.trim() : null;
+  const data = getDashboardAnalytics(userId, filterSiteId);
+  if (!data) {
+    return res.status(403).json({ error: "site not found or access denied" });
+  }
+  res.json(data);
 });
 
 /* ── Index a new site ──────────────────────────────────────────────────── */
@@ -182,6 +199,7 @@ router.delete("/:siteId", async (req: Request, res: Response) => {
   if (remainingUsers === 0) {
     vectorDeleted = await deleteSiteCollection(siteId);
     deletePageHashes(siteId);
+    purgeSiteDerivedData(siteId);
   }
 
   res.json({ deleted: dbDeleted, vectorStoreCleared: vectorDeleted });

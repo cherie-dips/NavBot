@@ -234,6 +234,8 @@ User question → Query expansion → Semantic search (top-8 chunks)
 
 **Base URL**: `http://localhost:3001`
 
+**Swagger UI** (all routes + example “test case” payloads): `http://localhost:3001/api-docs`
+
 ### Site Indexing
 
 | Method | Endpoint | Request Body | Response | Purpose |
