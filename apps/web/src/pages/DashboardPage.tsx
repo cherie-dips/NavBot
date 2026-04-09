@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   LayoutDashboard, Globe, Plus, BarChart3, MessageSquare, Share2,
   Mic, Users, Brain, ArrowRight, AlertCircle, TrendingUp, Clock,
@@ -47,6 +47,8 @@ interface DashboardPageProps {
 type Tab = "overview" | "websites" | "analytics" | "social" | "visitors" | "settings" | "billing";
 
 const API_BASE = (import.meta as any).env?.VITE_API_URL ?? "http://localhost:3001";
+/** Background refresh of chat analytics while the dashboard is open */
+const DASHBOARD_ANALYTICS_POLL_MS = 30_000;
 const WIDGET_SCRIPT_URL =
   (import.meta as any).env?.VITE_WIDGET_SCRIPT_URL ??
   (typeof window !== "undefined" ? `${window.location.origin}/chat-widget.iife.js` : "/chat-widget.iife.js");
@@ -89,6 +91,15 @@ function formatRelativeTime(iso: string): string {
   if (sec < 86400) return `${Math.floor(sec / 3600)} hr ago`;
   if (sec < 172800) return "Yesterday";
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function formatSyncAgo(ts: number): string {
+  const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (sec < 10) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  return `${Math.floor(sec / 86400)}d ago`;
 }
 
 const TABS: { id: Tab; label: string; icon: typeof LayoutDashboard; desc: string }[] = [
@@ -135,6 +146,8 @@ export const DashboardPage = ({
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsManualRefreshing, setAnalyticsManualRefreshing] = useState(false);
+  const [lastAnalyticsSyncedAt, setLastAnalyticsSyncedAt] = useState<number | null>(null);
 
   // Sync internal websites → external SiteOptions for Navbar
   const syncToExternal = (wbs: Website[]) => {
@@ -178,19 +191,52 @@ export const DashboardPage = ({
 
   const activeSiteId = selectedSite?.id ?? null;
 
+  const loadDashboardAnalytics = useCallback(
+    async (mode: "initial" | "silent" | "manual") => {
+      const uid = user?.id;
+      if (!uid) return;
+      if (mode === "initial") setAnalyticsLoading(true);
+      if (mode === "manual") setAnalyticsManualRefreshing(true);
+      try {
+        const q = new URLSearchParams({ userId: uid });
+        if (activeSiteId) q.set("siteId", activeSiteId);
+        const r = await fetch(`${API_BASE}/api/sites/dashboard-stats?${q.toString()}`);
+        if (r.ok) {
+          const data = (await r.json()) as DashboardAnalytics;
+          setAnalytics(data);
+          setLastAnalyticsSyncedAt(Date.now());
+        }
+      } catch {
+        /* network / parse */
+      } finally {
+        if (mode === "initial") setAnalyticsLoading(false);
+        if (mode === "manual") setAnalyticsManualRefreshing(false);
+      }
+    },
+    [user?.id, activeSiteId]
+  );
+
   useEffect(() => {
     if (!user?.id) return;
-    setAnalyticsLoading(true);
-    const q = new URLSearchParams({ userId: user.id });
-    if (activeSiteId) q.set("siteId", activeSiteId);
-    fetch(`${API_BASE}/api/sites/dashboard-stats?${q.toString()}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data: DashboardAnalytics | null) => {
-        if (data) setAnalytics(data);
-      })
-      .catch(() => {})
-      .finally(() => setAnalyticsLoading(false));
-  }, [user?.id, activeSiteId, websites.length]);
+    void loadDashboardAnalytics("initial");
+  }, [user?.id, activeSiteId, websites.length, loadDashboardAnalytics]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const poll = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void loadDashboardAnalytics("silent");
+    };
+    const id = window.setInterval(poll, DASHBOARD_ANALYTICS_POLL_MS);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void loadDashboardAnalytics("silent");
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [user?.id, activeSiteId, loadDashboardAnalytics]);
 
   const handleAddWebsite = (e: React.FormEvent) => {
     e.preventDefault();
@@ -277,6 +323,12 @@ export const DashboardPage = ({
   }
 
   const firstName = user?.name?.trim()?.split(" ")[0] || "there";
+  const showAnalyticsChrome =
+    !!user?.id &&
+    (activeTab === "overview" ||
+      activeTab === "analytics" ||
+      activeTab === "visitors" ||
+      activeTab === "billing");
 
   return (
     <div className="min-h-screen bg-[#f8f4ee] pt-14 text-[#1f2522]">
@@ -367,6 +419,30 @@ export const DashboardPage = ({
               <div className="rounded-full border border-[#1f2522]/8 bg-white/72 px-4 py-2.5 text-sm text-[#65726d]">
                 {websites.length} {websites.length === 1 ? "website" : "websites"}
               </div>
+              {showAnalyticsChrome && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void loadDashboardAnalytics("manual")}
+                    disabled={analyticsManualRefreshing}
+                    className="inline-flex items-center gap-2 rounded-full border border-[#1f2522]/10 bg-white/72 px-4 py-2.5 text-sm font-medium text-[#65726d] transition-colors hover:border-[#bc6c25]/30 hover:text-[#bc6c25] disabled:cursor-not-allowed disabled:opacity-50"
+                    title="Reload chat analytics from the server"
+                  >
+                    <RefreshCw
+                      className={`h-4 w-4 ${analyticsManualRefreshing ? "animate-spin" : ""}`}
+                    />
+                    Refresh stats
+                  </button>
+                  {lastAnalyticsSyncedAt != null && (
+                    <span
+                      className="text-xs text-[#8a938f] tabular-nums"
+                      title={new Date(lastAnalyticsSyncedAt).toLocaleString()}
+                    >
+                      Updated {formatSyncAgo(lastAnalyticsSyncedAt)}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 
