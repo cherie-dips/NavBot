@@ -89,6 +89,23 @@ function deduplicateSources(
   return Array.from(seen.values());
 }
 
+function stripInlineSourceMentions(answer: string): string {
+  return answer
+    .replace(/\(\s*Source\s*:[^)]+\)/gi, "")
+    .replace(/^source\s*:[\s\S]*$/gim, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function formatSourcesLine(
+  sources: Array<{ url: string; title: string; distance?: number }>
+): string {
+  if (!sources.length) return "";
+  const topSources = sources.slice(0, 2);
+  const items = topSources.map((s) => s.url);
+  return `Source: ${items.join(" | ")}`;
+}
+
 // ---------------------------------------------------------------------------
 // Simple retry wrapper for Sarvam calls (handles transient errors)
 // ---------------------------------------------------------------------------
@@ -210,9 +227,10 @@ RULES:
 2. If dates, deadlines, rounds, or schedules appear in the context, state them clearly and precisely.
 3. If the context contains a table, extract the relevant row/column and present it cleanly.
 4. If the answer is not in the context, say "I don't have that information" and suggest contacting the site owner.
-5. Always cite the source page title or URL when giving specific facts (deadlines, fees, names, etc.).
-6. Be concise. Do not repeat the question back. Do not pad your answer.
-7. If the user's question is conversational or a greeting, respond naturally without citing sources.
+5. Keep answers short and straightforward: 1-3 short sentences, no fluff, no repeated phrasing.
+6. Include useful next-step details only if they are directly relevant to the question.
+7. Do NOT include citations, markdown links, or "Source:" text in the body; plain answer text only.
+8. If the user's question is conversational or a greeting, respond naturally without citing sources.
 `.trim();
 
   const combinedSystemPrompt = `${systemPrompt}\n\nWEBSITE CONTEXT (your only knowledge source):\n\n${contextString}`;
@@ -237,14 +255,19 @@ RULES:
   );
 
   const rawAnswer: string = (completion as any).choices?.[0]?.message?.content ?? "";
-  const answer = rawAnswer
+  const answerBody = rawAnswer
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
     .replace(/<\/?think>/gi, "")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1: $2")
     .trim();
+  const sources = deduplicateSources(docs);
+  const cleanedBody = stripInlineSourceMentions(answerBody);
+  const sourcesLine = formatSourcesLine(sources);
+  const answer = sourcesLine ? `${cleanedBody}\n\n${sourcesLine}` : cleanedBody;
 
   return {
     answer,
-    sources: deduplicateSources(docs),
+    sources,
   };
 }
 

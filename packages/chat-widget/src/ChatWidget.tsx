@@ -16,16 +16,68 @@ function renderBotText(raw: string): React.ReactNode {
   const elements: React.ReactNode[] = [];
   let listItems: React.ReactNode[] = [];
   let listType: "ul" | "ol" | null = null;
+  const isTableSeparator = (line: string): boolean =>
+    /^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?$/.test(line.trim());
+  const isTableLikeRow = (line: string): boolean =>
+    line.trim().indexOf("|") !== -1 && line.trim().replace(/\|/g, "").trim().length > 0;
+  const splitTableCells = (line: string): string[] =>
+    line
+      .trim()
+      .replace(/^\|/, "")
+      .replace(/\|$/, "")
+      .split("|")
+      .map((c) => c.trim());
 
   const flushList = () => {
     if (listItems.length === 0) return;
     if (listType === "ol") {
-      elements.push(<ol key={`ol-${elements.length}`} style={{ margin: "6px 0", paddingLeft: "20px", listStyleType: "decimal" }}>{listItems}</ol>);
+      elements.push(
+        <ol
+          key={`ol-${elements.length}`}
+          style={{ margin: "6px 0", paddingLeft: "20px", listStyleType: "decimal", fontFamily: "inherit" }}
+        >
+          {listItems}
+        </ol>
+      );
     } else {
-      elements.push(<ul key={`ul-${elements.length}`} style={{ margin: "6px 0", paddingLeft: "20px", listStyleType: "disc" }}>{listItems}</ul>);
+      elements.push(
+        <ul
+          key={`ul-${elements.length}`}
+          style={{ margin: "6px 0", paddingLeft: "20px", listStyleType: "disc", fontFamily: "inherit" }}
+        >
+          {listItems}
+        </ul>
+      );
     }
     listItems = [];
     listType = null;
+  };
+
+  const linkifyText = (text: string, keyPrefix: string): React.ReactNode[] => {
+    const parts = text.split(/(https?:\/\/[^\s]+)/g);
+    return parts.map((part, idx) => {
+      if (/^https?:\/\/[^\s]+$/i.test(part)) {
+        return (
+          <a
+            key={`${keyPrefix}-lnk-${idx}`}
+            href={part}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              color: "#2563eb",
+              textDecoration: "underline",
+              textUnderlineOffset: "2px",
+              fontFamily: "inherit",
+              cursor: "pointer",
+              pointerEvents: "auto",
+            }}
+          >
+            {part}
+          </a>
+        );
+      }
+      return <React.Fragment key={`${keyPrefix}-txt-${idx}`}>{part}</React.Fragment>;
+    });
   };
 
   const formatInline = (text: string): React.ReactNode => {
@@ -35,31 +87,183 @@ function renderBotText(raw: string): React.ReactNode {
     let lastEnd = 0;
     let idx = 0;
     while ((match = boldRe.exec(text)) !== null) {
-      if (match.index > lastEnd) parts.push(text.slice(lastEnd, match.index));
+      if (match.index > lastEnd) {
+        parts.push(...linkifyText(text.slice(lastEnd, match.index), `seg-${idx}-pre`));
+      }
       parts.push(<strong key={`b-${idx++}`}>{match[1]}</strong>);
       lastEnd = match.index + match[0].length;
     }
-    if (lastEnd < text.length) parts.push(text.slice(lastEnd));
+    if (lastEnd < text.length) {
+      parts.push(...linkifyText(text.slice(lastEnd), `seg-${idx}-post`));
+    }
     return parts.length === 1 ? parts[0] : <>{parts}</>;
+  };
+
+  const renderSourcesLine = (line: string, key: number): React.ReactNode | null => {
+    const sourceMatch = line.match(/^source\s*:\s*(.+)$/i);
+    if (!sourceMatch) return null;
+    const rawItems = sourceMatch[1]
+      .split("|")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 2);
+    if (rawItems.length === 0) return null;
+    return (
+      <p
+        key={`src-${key}`}
+        style={{
+          margin: "4px 0",
+          fontFamily: "inherit",
+          fontSize: "inherit",
+          fontWeight: "inherit",
+          lineHeight: "inherit",
+          color: "inherit",
+        }}
+      >
+        <span>Source: </span>
+        <br />
+        {rawItems.map((item, i) => {
+          const urlMatch = item.match(/https?:\/\/[^\s]+/i);
+          const url = urlMatch ? urlMatch[0] : item;
+          return (
+            <React.Fragment key={`src-item-${i}`}>
+              <span
+                style={{
+                  display: "block",
+                  fontSize: "inherit",
+                  lineHeight: 1.4,
+                  fontFamily: "inherit",
+                  fontWeight: "inherit",
+                }}
+              >
+                {`${i + 1}. `}
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: "#2563eb",
+                    textDecoration: "underline",
+                    textUnderlineOffset: "2px",
+                    fontFamily: "inherit",
+                    cursor: "pointer",
+                    pointerEvents: "auto",
+                    fontSize: "inherit",
+                  }}
+                >
+                  {url}
+                </a>
+              </span>
+            </React.Fragment>
+          );
+        })}
+      </p>
+    );
   };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     const trimmed = line.trim();
     if (trimmed === "") { flushList(); continue; }
+    if (isTableLikeRow(trimmed) && i + 1 < lines.length && isTableSeparator(lines[i + 1]!)) {
+      flushList();
+      const headers = splitTableCells(trimmed);
+      const rowLines: string[] = [];
+      i += 2;
+      while (i < lines.length) {
+        const candidate = lines[i]!.trim();
+        if (!isTableLikeRow(candidate) || isTableSeparator(candidate)) break;
+        rowLines.push(candidate);
+        i++;
+      }
+      i--;
+      const rows = rowLines.map(splitTableCells).filter((cells) => cells.length > 0);
+      elements.push(
+        <div key={`tbl-wrap-${elements.length}`} style={{ width: "100%", overflowX: "auto", margin: "6px 0", fontFamily: "inherit" }}>
+          <table
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              tableLayout: "fixed",
+              fontFamily: "inherit",
+              fontSize: "inherit",
+              lineHeight: "inherit",
+            }}
+          >
+            <thead>
+              <tr>
+                {headers.map((h, idx) => (
+                  <th
+                    key={`th-${idx}`}
+                    style={{
+                      textAlign: "left",
+                      borderBottom: "1px solid rgba(15,23,42,0.2)",
+                      padding: "4px 6px",
+                      fontWeight: 600,
+                      fontFamily: "inherit",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {formatInline(h)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((cells, rIdx) => (
+                <tr key={`tr-${rIdx}`}>
+                  {headers.map((_, cIdx) => (
+                    <td
+                      key={`td-${rIdx}-${cIdx}`}
+                      style={{
+                        borderBottom: "1px solid rgba(15,23,42,0.08)",
+                        padding: "4px 6px",
+                        verticalAlign: "top",
+                        fontFamily: "inherit",
+                        wordBreak: "break-word",
+                      }}
+                    >
+                      {formatInline(cells[cIdx] ?? "")}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
     const bulletMatch = trimmed.match(/^[-•*]\s+(.+)/);
     const numberMatch = trimmed.match(/^\d+[.)]\s+(.+)/);
     if (bulletMatch) {
       if (listType !== "ul") flushList();
       listType = "ul";
-      listItems.push(<li key={`li-${i}`} style={{ marginBottom: "2px" }}>{formatInline(bulletMatch[1]!)}</li>);
+      listItems.push(
+        <li key={`li-${i}`} style={{ marginBottom: "2px", fontFamily: "inherit" }}>
+          {formatInline(bulletMatch[1]!)}
+        </li>
+      );
     } else if (numberMatch) {
       if (listType !== "ol") flushList();
       listType = "ol";
-      listItems.push(<li key={`li-${i}`} style={{ marginBottom: "2px" }}>{formatInline(numberMatch[1]!)}</li>);
+      listItems.push(
+        <li key={`li-${i}`} style={{ marginBottom: "2px", fontFamily: "inherit" }}>
+          {formatInline(numberMatch[1]!)}
+        </li>
+      );
     } else {
       flushList();
-      elements.push(<p key={`p-${i}`} style={{ margin: "4px 0" }}>{formatInline(trimmed)}</p>);
+      const sourceNode = renderSourcesLine(trimmed, i);
+      if (sourceNode) {
+        elements.push(sourceNode);
+        continue;
+      }
+      elements.push(
+        <p key={`p-${i}`} style={{ margin: "4px 0", fontFamily: "inherit" }}>
+          {formatInline(trimmed)}
+        </p>
+      );
     }
   }
   flushList();
@@ -76,6 +280,24 @@ type WidgetTheme = {
   iconColor?: string;
   sendBtnBg?: string;
   sendBtnColor?: string;
+  /** Backward compatibility for older embeds using `font` key */
+  font?: string;
+  fontFamily?: string;
+  widgetOpacity?: number;
+};
+
+type ResolvedWidgetTheme = {
+  primary: string;
+  launcherBg: string;
+  botBubbleBg: string;
+  userBubbleBg: string;
+  headerTextColor: string;
+  timestampColor: string;
+  iconColor: string;
+  sendBtnBg: string;
+  sendBtnColor: string;
+  fontFamily: string;
+  widgetOpacity: number;
 };
 
 type NavbotConfig = {
@@ -90,7 +312,7 @@ declare global {
   }
 }
 
-const DEFAULT_THEME: Required<WidgetTheme> = {
+const DEFAULT_THEME: ResolvedWidgetTheme = {
   primary: "#2E3538",
   launcherBg: "#2E3538",
   botBubbleBg: "rgba(255,255,255,0.4)",
@@ -100,9 +322,53 @@ const DEFAULT_THEME: Required<WidgetTheme> = {
   iconColor: "#94a3b8",
   sendBtnBg: "#2E3538",
   sendBtnColor: "#ffffff",
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  widgetOpacity: 0.45,
 };
 
-const getConfig = (): { apiBase: string; siteId: string; theme: Required<WidgetTheme> } => {
+const GOOGLE_FONT_MAP: Record<string, { family: string; stack: string }> = {
+  inter:        { family: "Inter",        stack: 'Inter, -apple-system, "Segoe UI", Roboto, Arial, sans-serif' },
+  poppins:      { family: "Poppins",      stack: 'Poppins, "Segoe UI", Roboto, Arial, sans-serif' },
+  roboto:       { family: "Roboto",       stack: 'Roboto, "Segoe UI", Arial, sans-serif' },
+  "open sans":  { family: "Open Sans",    stack: '"Open Sans", "Segoe UI", Roboto, Arial, sans-serif' },
+  lato:         { family: "Lato",         stack: 'Lato, "Segoe UI", Roboto, Arial, sans-serif' },
+  montserrat:   { family: "Montserrat",   stack: 'Montserrat, "Segoe UI", Roboto, Arial, sans-serif' },
+  merriweather: { family: "Merriweather", stack: "Merriweather, Georgia, serif" },
+};
+
+function normalizeFontFamily(raw?: string): string {
+  const v = (raw || "").trim();
+  if (!v) return DEFAULT_THEME.fontFamily;
+  const key = v.toLowerCase();
+  if (key === "system" || key === "system sans" || key === "default") {
+    return DEFAULT_THEME.fontFamily;
+  }
+  if (GOOGLE_FONT_MAP[key]) return GOOGLE_FONT_MAP[key].stack;
+  var keys = Object.keys(GOOGLE_FONT_MAP);
+  for (var i = 0; i < keys.length; i++) {
+    var entry = GOOGLE_FONT_MAP[keys[i]];
+    if (v.indexOf(entry.family) === 0) return entry.stack;
+  }
+  return v;
+}
+
+var _loadedFonts: Record<string, boolean> = {};
+function ensureGoogleFont(fontStack: string): void {
+  if (typeof document === "undefined") return;
+  var keys = Object.keys(GOOGLE_FONT_MAP);
+  for (var i = 0; i < keys.length; i++) {
+    var entry = GOOGLE_FONT_MAP[keys[i]];
+    if (fontStack.indexOf(entry.family) !== -1 && !_loadedFonts[entry.family]) {
+      _loadedFonts[entry.family] = true;
+      var link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "https://fonts.googleapis.com/css2?family=" + encodeURIComponent(entry.family) + ":wght@300;400;500;600;700&display=swap";
+      document.head.appendChild(link);
+    }
+  }
+}
+
+const getConfig = (): { apiBase: string; siteId: string; theme: ResolvedWidgetTheme } => {
   const globalConfig =
     typeof window !== "undefined" ? window.NAVBOT_CONFIG || {} : {};
   const apiBase =
@@ -115,7 +381,10 @@ const getConfig = (): { apiBase: string; siteId: string; theme: Required<WidgetT
     (typeof window !== "undefined"
       ? window.location.hostname || "unknown-site"
       : "unknown-site");
-  const theme: Required<WidgetTheme> = { ...DEFAULT_THEME, ...(globalConfig.theme ?? {}) };
+  const incoming = (globalConfig.theme ?? {}) as WidgetTheme;
+  const resolvedFont = normalizeFontFamily(incoming.fontFamily ?? incoming.font);
+  ensureGoogleFont(resolvedFont);
+  const theme: ResolvedWidgetTheme = { ...DEFAULT_THEME, ...incoming, fontFamily: resolvedFont };
   return { apiBase, siteId, theme };
 };
 
@@ -162,7 +431,8 @@ const WELCOME_MESSAGE: Message = {
 
 
 export const ChatWidget: React.FC = () => {
-  const { apiBase, siteId, theme } = getConfig();
+  const { apiBase, siteId, theme: initialTheme } = getConfig();
+  const [theme, setTheme] = useState<ResolvedWidgetTheme>(initialTheme);
 
   const [isOpen, setIsOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -191,6 +461,24 @@ export const ChatWidget: React.FC = () => {
     // Ping the API to trigger a background sitemap sync so knowledge is fresh
     fetch(`${apiBase}/api/sites/${encodeURIComponent(siteId)}/ping`).catch(() => {});
   }, []);
+  useEffect(() => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", `${apiBase}/api/sites/${encodeURIComponent(siteId)}/widget-config`);
+    xhr.onload = () => {
+      try {
+        const data = JSON.parse(xhr.responseText) as { theme?: WidgetTheme };
+        if (data?.theme) {
+          const resolvedFont = normalizeFontFamily(data.theme.fontFamily ?? data.theme.font);
+          ensureGoogleFont(resolvedFont);
+          setTheme((prev) => ({ ...prev, ...data.theme, fontFamily: resolvedFont }));
+        }
+      } catch {
+        /* ignore malformed response */
+      }
+    };
+    xhr.onerror = () => { /* ignore */ };
+    xhr.send();
+  }, [apiBase, siteId]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
   useEffect(() => { return () => { if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current); }; }, []);
 
@@ -359,7 +647,7 @@ export const ChatWidget: React.FC = () => {
 
   const resetStyle: React.CSSProperties = {
     all: "initial",
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+    fontFamily: theme.fontFamily,
     fontSize: "14px",
     lineHeight: "1.5",
     color: "#334155",
@@ -372,7 +660,9 @@ export const ChatWidget: React.FC = () => {
   };
 
   const textOnLauncher = textOnBg(theme.launcherBg);
-  const textOnPrimary = textOnBg(theme.primary);
+  const panelOpacity = Math.min(1, Math.max(0.2, theme.widgetOpacity ?? DEFAULT_THEME.widgetOpacity));
+  const panelBg = `rgba(255,255,255,${panelOpacity.toFixed(2)})`;
+  const glassBg = `rgba(255,255,255,${Math.max(0.15, panelOpacity - 0.2).toFixed(2)})`;
 
   return createPortal(
     <div style={resetStyle}>
@@ -383,7 +673,7 @@ export const ChatWidget: React.FC = () => {
           flexDirection: "column",
           width: "360px",
           height: isOpen ? "520px" : "0px",
-          background: "rgba(255,255,255,0.45)",
+          background: panelBg,
           backdropFilter: "blur(40px)",
           WebkitBackdropFilter: "blur(40px)",
           border: "1px solid rgba(255,255,255,0.25)",
@@ -400,7 +690,7 @@ export const ChatWidget: React.FC = () => {
       >
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", flexShrink: 0, borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
-          <span style={{ fontWeight: 600, fontSize: "14px", fontStyle: "italic", color: theme.headerTextColor, letterSpacing: "-0.02em", fontFamily: "Georgia, serif" }}>
+          <span style={{ fontWeight: 600, fontSize: "14px", fontStyle: "italic", color: theme.headerTextColor, letterSpacing: "-0.02em", fontFamily: "inherit" }}>
             navbot
           </span>
           <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
@@ -430,11 +720,12 @@ export const ChatWidget: React.FC = () => {
                 background: message.sender === "bot" ? theme.botBubbleBg : theme.userBubbleBg,
                 color: message.sender === "bot" ? "#334155" : "#1e293b",
                 border: message.sender === "bot" ? "1px solid rgba(255,255,255,0.25)" : "1px solid rgba(0,0,0,0.06)",
-                fontWeight: message.sender === "user" ? 500 : 400,
+                fontWeight: 500,
                 fontStyle: message.isVoice ? "italic" : "normal",
                 overflowWrap: "break-word",
                 wordBreak: "break-word",
                 whiteSpace: "pre-wrap",
+                fontFamily: "inherit",
               }}>
                 {message.sender === "bot" && !message.isVoice ? renderBotText(message.text) : message.text}
               </div>
@@ -484,7 +775,7 @@ export const ChatWidget: React.FC = () => {
             <div style={{
               alignSelf: "flex-start",
               width: "100%",
-              background: "rgba(255,255,255,0.55)",
+              background: glassBg,
               border: "1px solid rgba(255,255,255,0.25)",
               borderRadius: "16px",
               padding: "14px",
@@ -559,7 +850,7 @@ export const ChatWidget: React.FC = () => {
               {error}
             </div>
           )}
-          <div style={{ display: "flex", alignItems: "center", gap: "6px", background: "rgba(255,255,255,0.2)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "14px", padding: "4px 4px 4px 14px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", background: glassBg, border: "1px solid rgba(255,255,255,0.2)", borderRadius: "14px", padding: "4px 4px 4px 14px" }}>
             <input
               type="text"
               placeholder={isRecording ? "Recording… tap stop" : "Type a message…"}

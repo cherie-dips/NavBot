@@ -24,6 +24,8 @@ const DEFAULT_THEME: WidgetTheme = {
   iconColor: "#94a3b8",
   sendBtnBg: "#1f2522",
   sendBtnColor: "#ffffff",
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  widgetOpacity: 0.45,
 };
 
 function buildSnippets(
@@ -54,7 +56,7 @@ export const IntegrationPanel = ({
   apiBase = "http://localhost:3001",
   initialTheme = null,
 }: IntegrationPanelProps) => {
-  const [theme, setTheme] = useState<WidgetTheme>(initialTheme ?? DEFAULT_THEME);
+  const [theme, setTheme] = useState<WidgetTheme>(initialTheme ? { ...DEFAULT_THEME, ...initialTheme } : DEFAULT_THEME);
   const [activeTab, setActiveTab] = useState<"theme" | "code">("theme");
 
   const widgetSrcMatch = info.scriptTag.match(/src="([^"]+chat-widget[^"]+)"/);
@@ -126,6 +128,7 @@ export const IntegrationPanel = ({
             apiBase={apiBase}
             initialTheme={initialTheme}
             onSave={setTheme}
+            onThemeChange={setTheme}
           />
         </div>
       )}

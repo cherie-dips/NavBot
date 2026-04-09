@@ -311,6 +311,8 @@ export const openApiSpec = {
                     iconColor: "#94a3b8",
                     sendBtnBg: "#2E3538",
                     sendBtnColor: "#ffffff",
+                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+                    widgetOpacity: 0.45,
                   },
                 },
               },
@@ -843,6 +845,8 @@ export const openApiSpec = {
           iconColor: { type: "string" },
           sendBtnBg: { type: "string" },
           sendBtnColor: { type: "string" },
+          fontFamily: { type: "string" },
+          widgetOpacity: { type: "number", minimum: 0.2, maximum: 1 },
         },
       },
       ChatBody: {

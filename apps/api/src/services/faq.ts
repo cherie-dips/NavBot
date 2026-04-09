@@ -1,12 +1,14 @@
 import { SarvamAIClient } from "sarvamai";
 import { querySiteDocs } from "./vectorstore";
-import { getFaqsBySite, replaceFaqs, getTopQueries } from "./db";
+import { getFaqsBySite, replaceFaqs, getTopQueries, updateFaqAnswerPreview } from "./db";
+import { answerQuestionWithRag } from "./rag";
 
 const sarvam = new SarvamAIClient({
   apiSubscriptionKey: process.env.SARVAM_API_KEY ?? "",
 });
 
 const CHAT_MODEL = (process.env.SARVAM_CHAT_MODEL || "sarvam-m") as any;
+const FAQ_ANSWER_PREVIEW_MAX = 800;
 
 const SEED_QUERIES = [
   "admissions deadlines",
@@ -89,6 +91,25 @@ Example output:
   }
 }
 
+function normalizeAnswerPreview(answer: string): string {
+  const trimmed = answer.trim();
+  if (trimmed.length <= FAQ_ANSWER_PREVIEW_MAX) return trimmed;
+  return `${trimmed.slice(0, FAQ_ANSWER_PREVIEW_MAX)}…`;
+}
+
+async function generateAnswerForFaq(siteId: string, question: string): Promise<string | null> {
+  try {
+    const result = await answerQuestionWithRag({
+      siteId,
+      message: question,
+      history: [],
+    });
+    return result.answer ? normalizeAnswerPreview(result.answer) : null;
+  } catch {
+    return null;
+  }
+}
+
 function fallbackFaqs(): Array<{ label: string; question: string }> {
   return [
     { label: "About this website", question: "What is this website about?" },
@@ -100,22 +121,58 @@ function fallbackFaqs(): Array<{ label: string; question: string }> {
 /**
  * Get FAQs for a site. If none exist, generate and store them.
  */
-export async function getOrGenerateFaqs(siteId: string): Promise<Array<{ label: string; question: string }>> {
+export async function getOrGenerateFaqs(
+  siteId: string,
+  options?: { includeAnswers?: boolean }
+): Promise<Array<{ label: string; question: string; answerPreview?: string | null }>> {
+  const includeAnswers = options?.includeAnswers === true;
   const existing = getFaqsBySite(siteId);
   if (existing.length > 0) {
-    return existing.map((f) => ({ label: f.label, question: f.question }));
+    if (!includeAnswers) {
+      return existing.map((f) => ({ label: f.label, question: f.question }));
+    }
+    const enriched = await Promise.all(
+      existing.map(async (f) => {
+        const current = f.answer_preview ?? null;
+        if (current) {
+          return { label: f.label, question: f.question, answerPreview: current };
+        }
+        const generated = await generateAnswerForFaq(siteId, f.question);
+        if (generated) updateFaqAnswerPreview(f.id, generated);
+        return { label: f.label, question: f.question, answerPreview: generated };
+      })
+    );
+    return enriched;
   }
 
   const generated = await generateFaqsForSite(siteId);
-  replaceFaqs(siteId, generated);
-  return generated;
+  if (!includeAnswers) {
+    replaceFaqs(siteId, generated);
+    return generated;
+  }
+  const withAnswers = await Promise.all(
+    generated.map(async (faq) => ({
+      ...faq,
+      answerPreview: await generateAnswerForFaq(siteId, faq.question),
+    }))
+  );
+  replaceFaqs(siteId, withAnswers);
+  return withAnswers;
 }
 
 /**
  * Force-refresh FAQs for a site (incorporating latest user queries).
  */
-export async function refreshFaqs(siteId: string): Promise<Array<{ label: string; question: string }>> {
+export async function refreshFaqs(
+  siteId: string
+): Promise<Array<{ label: string; question: string; answerPreview?: string | null }>> {
   const generated = await generateFaqsForSite(siteId);
-  replaceFaqs(siteId, generated);
-  return generated;
+  const withAnswers = await Promise.all(
+    generated.map(async (faq) => ({
+      ...faq,
+      answerPreview: await generateAnswerForFaq(siteId, faq.question),
+    }))
+  );
+  replaceFaqs(siteId, withAnswers);
+  return withAnswers;
 }

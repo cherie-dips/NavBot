@@ -798,7 +798,9 @@ function AnalyticsTab({ activeSite, analytics, analyticsLoading }: {
   analyticsLoading: boolean;
 }) {
   const [faqView, setFaqView] = useState<"analytics" | "faqs" | "training">("analytics");
-  const [faqItems, setFaqItems] = useState<Array<{ label: string; question: string }>>([]);
+  const [faqItems, setFaqItems] = useState<
+    Array<{ label: string; question: string; answerPreview?: string | null }>
+  >([]);
   const [faqLoading, setFaqLoading] = useState(false);
   const [faqErr, setFaqErr] = useState<string | null>(null);
 
@@ -810,9 +812,9 @@ function AnalyticsTab({ activeSite, analytics, analyticsLoading }: {
     }
     setFaqLoading(true);
     setFaqErr(null);
-    fetch(`${API_BASE}/api/sites/${encodeURIComponent(activeSite.id)}/faqs`)
+    fetch(`${API_BASE}/api/sites/${encodeURIComponent(activeSite.id)}/faqs?includeAnswers=1`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((body: { faqs?: Array<{ label: string; question: string }> }) => {
+      .then((body: { faqs?: Array<{ label: string; question: string; answerPreview?: string | null }> }) => {
         setFaqItems(body.faqs ?? []);
       })
       .catch(() => setFaqErr("Could not load FAQs."))
@@ -940,7 +942,9 @@ function AnalyticsTab({ activeSite, analytics, analyticsLoading }: {
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-[#bc6c25] mb-1">{faq.label}</p>
                   <h4 className="mb-2 text-sm font-semibold text-[#1f2522]">{faq.question}</h4>
                   <p className="text-sm leading-relaxed text-[#65726d]">
-                    Answers are not stored here. When a visitor asks in the widget, NavBot answers from your live indexed pages (RAG).
+                    {faq.answerPreview?.trim()
+                      ? faq.answerPreview
+                      : "Answer preview unavailable right now. Try refreshing stats to regenerate this FAQ answer."}
                   </p>
                 </div>
               </div>

@@ -10,6 +10,8 @@ export interface WidgetTheme {
   iconColor: string;
   sendBtnBg: string;
   sendBtnColor: string;
+  fontFamily: string;
+  widgetOpacity: number;
 }
 
 interface ColorEntry {
@@ -32,6 +34,7 @@ interface ColorThemePickerProps {
   apiBase: string;
   initialTheme?: WidgetTheme | null;
   onSave?: (theme: WidgetTheme) => void;
+  onThemeChange?: (theme: WidgetTheme) => void;
 }
 
 const DEFAULT_THEME: WidgetTheme = {
@@ -44,6 +47,8 @@ const DEFAULT_THEME: WidgetTheme = {
   iconColor: "#94a3b8",
   sendBtnBg: "#2E3538",
   sendBtnColor: "#ffffff",
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  widgetOpacity: 0.45,
 };
 
 function isLight(hex: string): boolean {
@@ -71,6 +76,8 @@ function sourceLabel(source: string): string {
 
 function WidgetPreview({ theme }: { theme: WidgetTheme }) {
   const textOnLauncher = hexIsValid(theme.launcherBg) && !isLight(theme.launcherBg) ? "#fff" : "#1e293b";
+  const opacity = Math.min(1, Math.max(0.2, theme.widgetOpacity || 0.45));
+  const panelBg = `rgba(255,255,255,${opacity.toFixed(2)})`;
 
   return (
     <div
@@ -83,6 +90,7 @@ function WidgetPreview({ theme }: { theme: WidgetTheme }) {
         overflow: "hidden",
         border: "1px solid #e2e8f0",
         flexShrink: 0,
+        fontFamily: theme.fontFamily,
       }}
     >
       {/* Fake page background content */}
@@ -100,7 +108,7 @@ function WidgetPreview({ theme }: { theme: WidgetTheme }) {
           right: "10px",
           width: "260px",
           height: "360px",
-          background: "rgba(255,255,255,0.45)",
+          background: panelBg,
           backdropFilter: "blur(20px)",
           border: "1px solid rgba(255,255,255,0.25)",
           borderRadius: "18px",
@@ -127,7 +135,7 @@ function WidgetPreview({ theme }: { theme: WidgetTheme }) {
               fontSize: "11px",
               fontStyle: "italic",
               color: theme.headerTextColor,
-              fontFamily: "Georgia, serif",
+              fontFamily: "inherit",
             }}
           >
             navbot
@@ -398,6 +406,19 @@ const ROLES: { key: keyof WidgetTheme; label: string; description: string; group
   { key: "sendBtnColor", label: "Send button icon", description: "Send button arrow color", group: "Controls" },
 ];
 
+type ColorRole = typeof ROLES[number]["key"];
+
+const FONT_OPTIONS: Array<{ label: string; value: string }> = [
+  { label: "System Sans", value: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' },
+  { label: "Inter", value: 'Inter, -apple-system, "Segoe UI", Roboto, Arial, sans-serif' },
+  { label: "Poppins", value: 'Poppins, "Segoe UI", Roboto, Arial, sans-serif' },
+  { label: "Roboto", value: 'Roboto, "Segoe UI", Arial, sans-serif' },
+  { label: "Open Sans", value: '"Open Sans", "Segoe UI", Roboto, Arial, sans-serif' },
+  { label: "Lato", value: 'Lato, "Segoe UI", Roboto, Arial, sans-serif' },
+  { label: "Montserrat", value: 'Montserrat, "Segoe UI", Roboto, Arial, sans-serif' },
+  { label: "Merriweather", value: 'Merriweather, Georgia, serif' },
+];
+
 export function ColorThemePicker({
   siteId,
   siteUrl,
@@ -405,12 +426,14 @@ export function ColorThemePicker({
   apiBase,
   initialTheme,
   onSave,
+  onThemeChange,
 }: ColorThemePickerProps) {
   // Build palette swatches from saved theme so user always sees their colors
   const themeToPalette = (t: WidgetTheme): SitePalette => {
     const seen = new Set<string>();
     const entries: ColorEntry[] = [];
-    for (const val of Object.values(t)) {
+    for (const role of ROLES) {
+      const val = t[role.key];
       const hex = hexIsValid(val) ? val : null;
       if (hex && !seen.has(hex)) {
         seen.add(hex);
@@ -421,15 +444,19 @@ export function ColorThemePicker({
   };
 
   const [palette, setPalette] = useState<SitePalette | null>(
-    initialTheme ? themeToPalette(initialTheme) : null
+    initialTheme ? themeToPalette({ ...DEFAULT_THEME, ...initialTheme }) : null
   );
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState<string | null>(null);
-  const [theme, setTheme] = useState<WidgetTheme>(initialTheme ?? DEFAULT_THEME);
+  const [theme, setTheme] = useState<WidgetTheme>(initialTheme ? { ...DEFAULT_THEME, ...initialTheme } : DEFAULT_THEME);
+  useEffect(() => {
+    onThemeChange?.(theme);
+  }, [theme, onThemeChange]);
+
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [activeRole, setActiveRole] = useState<keyof WidgetTheme>("primary");
+  const [activeRole, setActiveRole] = useState<ColorRole>("primary");
 
   const extractFromSite = useCallback(async () => {
     setExtracting(true);
@@ -470,7 +497,7 @@ export function ColorThemePicker({
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const setColor = (role: keyof WidgetTheme, hex: string) => {
+  const setColor = (role: ColorRole, hex: string) => {
     setTheme((prev) => {
       const next = { ...prev, [role]: hex };
       if (role === "primary") {
@@ -664,6 +691,57 @@ export function ColorThemePicker({
                   }}
                 />
               </label>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 pt-2 border-t border-slate-100 sm:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Text font
+                </label>
+                <select
+                  value={theme.fontFamily}
+                  onChange={(e) => {
+                    setTheme((prev) => ({ ...prev, fontFamily: e.target.value }));
+                    setSaved(false);
+                  }}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-[#2E3538] outline-none focus:border-[#478EDB]"
+                >
+                  {FONT_OPTIONS.map((font) => (
+                    <option key={font.label} value={font.value}>
+                      {font.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Transparency ({Math.round((1 - theme.widgetOpacity) * 100)}%)
+                </label>
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                  <div className="mb-2 flex items-center justify-between text-[10px] font-medium text-slate-500">
+                    <span>0%</span>
+                    <span>80%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={80}
+                    step={1}
+                    value={Math.round((1 - theme.widgetOpacity) * 100)}
+                    onChange={(e) => {
+                      const transparencyPct = Number(e.target.value);
+                      const clampedPct = Math.max(0, Math.min(80, Number.isFinite(transparencyPct) ? transparencyPct : 0));
+                      const opacity = 1 - clampedPct / 100;
+                      setTheme((prev) => ({
+                        ...prev,
+                        widgetOpacity: Number(opacity.toFixed(2)),
+                      }));
+                      setSaved(false);
+                    }}
+                    className="w-full accent-[#478EDB]"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 

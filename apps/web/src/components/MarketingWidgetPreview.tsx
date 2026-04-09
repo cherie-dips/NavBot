@@ -10,6 +10,8 @@ export const MARKETING_WIDGET_THEME: WidgetTheme = {
   iconColor: "#7c8a85",
   sendBtnBg: "#1f2522",
   sendBtnColor: "#ffffff",
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  widgetOpacity: 0.62,
 };
 
 function isLight(hex: string): boolean {

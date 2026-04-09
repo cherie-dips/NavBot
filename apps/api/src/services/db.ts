@@ -45,6 +45,7 @@ db.exec(`
     updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
   );
 `);
+try { db.exec(`ALTER TABLE faq ADD COLUMN answer_preview TEXT`); } catch { /* already exists */ }
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS chat_query (
@@ -87,6 +88,8 @@ export interface WidgetTheme {
   iconColor: string;
   sendBtnBg: string;
   sendBtnColor: string;
+  fontFamily: string;
+  widgetOpacity: number;
 }
 
 export const DEFAULT_THEME: WidgetTheme = {
@@ -99,6 +102,8 @@ export const DEFAULT_THEME: WidgetTheme = {
   iconColor: "#94a3b8",
   sendBtnBg: "#2E3538",
   sendBtnColor: "#ffffff",
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+  widgetOpacity: 0.45,
 };
 
 export function upsertSite(params: {
@@ -309,6 +314,7 @@ export interface FaqRow {
   site_id: string;
   label: string;
   question: string;
+  answer_preview: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -320,16 +326,28 @@ export function getFaqsBySite(siteId: string): FaqRow[] {
     .all(siteId) as FaqRow[];
 }
 
-export function replaceFaqs(siteId: string, items: Array<{ label: string; question: string }>): void {
+export function replaceFaqs(
+  siteId: string,
+  items: Array<{ label: string; question: string; answerPreview?: string | null }>
+): void {
   const del = db.prepare("DELETE FROM faq WHERE site_id = ?");
   const ins = db.prepare(
-    "INSERT INTO faq (site_id, label, question, sort_order) VALUES (?, ?, ?, ?)"
+    "INSERT INTO faq (site_id, label, question, answer_preview, sort_order) VALUES (?, ?, ?, ?, ?)"
   );
   const tx = db.transaction(() => {
     del.run(siteId);
-    items.forEach((item, i) => ins.run(siteId, item.label, item.question, i));
+    items.forEach((item, i) =>
+      ins.run(siteId, item.label, item.question, item.answerPreview ?? null, i)
+    );
   });
   tx();
+}
+
+export function updateFaqAnswerPreview(faqId: number, answerPreview: string | null): void {
+  db.prepare("UPDATE faq SET answer_preview = ?, updated_at = datetime('now') WHERE id = ?").run(
+    answerPreview,
+    faqId
+  );
 }
 
 // ---------------------------------------------------------------------------

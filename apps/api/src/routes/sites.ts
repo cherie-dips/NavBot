@@ -240,7 +240,9 @@ router.get("/:siteId/widget-config", (req: Request, res: Response) => {
 router.get("/:siteId/faqs", async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
-    const faqs = await getOrGenerateFaqs(siteId);
+    const includeAnswers =
+      req.query.includeAnswers === "1" || req.query.includeAnswers === "true";
+    const faqs = await getOrGenerateFaqs(siteId, { includeAnswers });
     res.json({ siteId, faqs });
   } catch (err) {
     console.error("FAQ fetch error:", err);
