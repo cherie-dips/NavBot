@@ -448,6 +448,99 @@ export const openApiSpec = {
         },
       },
     },
+    "/api/sites/{siteId}/social": {
+      get: {
+        tags: ["Sites"],
+        summary: "Get social media handles for a site",
+        operationId: "getSocialHandles",
+        parameters: [
+          {
+            name: "siteId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            example: "example.com",
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Social handles object",
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/SocialHandles" },
+                examples: {
+                  withHandles: {
+                    summary: "Site with social handles",
+                    value: {
+                      instagram: "navbot_official",
+                      twitter: "navbot_ai",
+                      linkedin: "navbot-inc",
+                      facebook: "",
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      patch: {
+        tags: ["Sites"],
+        summary: "Update social media handles",
+        operationId: "patchSocialHandles",
+        parameters: [
+          {
+            name: "siteId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+            example: "example.com",
+          },
+          {
+            name: "userId",
+            in: "query",
+            required: true,
+            schema: { type: "string" },
+            example: "user_abc123",
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/SocialHandles" },
+              examples: {
+                update: {
+                  summary: "Set Instagram and Twitter",
+                  value: {
+                    instagram: "my_college_official",
+                    twitter: "my_college",
+                  },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Saved",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    ok: { type: "boolean" },
+                    handles: { $ref: "#/components/schemas/SocialHandles" },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Missing userId" },
+          "404": { description: "Site not found" },
+        },
+      },
+    },
     "/api/sites/{siteId}/ping": {
       get: {
         tags: ["Sites"],
@@ -847,6 +940,15 @@ export const openApiSpec = {
           sendBtnColor: { type: "string" },
           fontFamily: { type: "string" },
           widgetOpacity: { type: "number", minimum: 0.2, maximum: 1 },
+        },
+      },
+      SocialHandles: {
+        type: "object",
+        properties: {
+          instagram: { type: "string", description: "Instagram username (without @)" },
+          twitter: { type: "string", description: "Twitter/X username (without @)" },
+          linkedin: { type: "string", description: "LinkedIn handle or page slug" },
+          facebook: { type: "string", description: "Facebook page name or username" },
         },
       },
       ChatBody: {
