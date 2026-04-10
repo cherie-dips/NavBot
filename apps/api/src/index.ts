@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import morgan from "morgan";
+import path from "path";
 import { json, urlencoded } from "express";
 import swaggerUi from "swagger-ui-express";
 
@@ -32,6 +33,16 @@ app.use(
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+// Serve chat widget bundle — accessible at /widget/chat-widget.iife.js
+const widgetPath = process.env.WIDGET_DIST_PATH
+  || path.resolve(process.cwd(), "../../packages/chat-widget/dist");
+app.use("/widget", express.static(widgetPath, {
+  setHeaders: (res) => {
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+  },
+}));
 
 app.use("/api/sites", siteRouter);
 app.use("/api/sites", syncRouter); // /:siteId/sync routes

@@ -4,7 +4,7 @@ import path from "path";
 
 type BetterAuthOptions = Parameters<typeof betterAuth>[0];
 
-const dbPath = path.resolve(process.cwd(), "../../navbot.db");
+const dbPath = process.env.DATABASE_PATH || path.resolve(process.cwd(), "../../navbot.db");
 export const db: InstanceType<typeof Database> = new Database(dbPath);
 db.pragma("journal_mode = WAL");
 
@@ -35,7 +35,9 @@ export const authOptions: BetterAuthOptions = {
     enabled: true,
   },
   ...(Object.keys(socialProviders).length > 0 && { socialProviders }),
-  trustedOrigins: ["http://localhost:5173"],
+  trustedOrigins: (process.env.TRUSTED_ORIGINS || "http://localhost:5173")
+    .split(",")
+    .map((o) => o.trim()),
 };
 
 export const auth: ReturnType<typeof betterAuth> = betterAuth(authOptions);
