@@ -26,6 +26,7 @@ chroma/
 .DS_Store
 .vscode
 .cache
+.claude/
 
 # Test & tooling
 coverage/
