@@ -31,6 +31,7 @@ db.exec(`
 `);
 
 try { db.exec(`ALTER TABLE site ADD COLUMN widget_theme TEXT`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE site ADD COLUMN social_handles TEXT`); } catch { /* already exists */ }
 try { db.exec(`ALTER TABLE page_lastmod ADD COLUMN content_hash TEXT`); } catch { /* already exists */ }
 try { db.exec(`ALTER TABLE page_lastmod ADD COLUMN lastmod TEXT`); } catch { /* already exists */ }
 
@@ -617,4 +618,33 @@ export function getDashboardAnalytics(
     })),
     context: { websiteCount, pagesIndexed, faqCount },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Social handles
+// ---------------------------------------------------------------------------
+export interface SocialHandles {
+  instagram?: string;
+  twitter?: string;
+  linkedin?: string;
+  facebook?: string;
+}
+
+export function getSocialHandles(siteId: string): SocialHandles {
+  const row = db
+    .prepare(
+      `SELECT social_handles FROM site
+       WHERE site_id = ? AND social_handles IS NOT NULL AND social_handles != ''
+       LIMIT 1`
+    )
+    .get(siteId) as { social_handles: string | null } | undefined;
+  if (!row?.social_handles) return {};
+  try { return JSON.parse(row.social_handles) as SocialHandles; } catch { return {}; }
+}
+
+export function upsertSocialHandles(siteId: string, userId: string, handles: SocialHandles): boolean {
+  const result = db
+    .prepare(`UPDATE site SET social_handles = @handles WHERE site_id = @siteId AND user_id = @userId`)
+    .run({ handles: JSON.stringify(handles), siteId, userId });
+  return result.changes > 0;
 }

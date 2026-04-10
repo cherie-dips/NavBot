@@ -19,6 +19,9 @@ import {
   deletePageHashes,
   getDashboardAnalytics,
   purgeSiteDerivedData,
+  getSocialHandles,
+  upsertSocialHandles,
+  type SocialHandles,
 } from "../services/db";
 import { getOrGenerateFaqs, refreshFaqs } from "../services/faq";
 
@@ -260,6 +263,25 @@ router.post("/:siteId/faqs/refresh", async (req: Request, res: Response) => {
     console.error("FAQ refresh error:", err);
     res.status(500).json({ error: "failed_to_refresh_faqs" });
   }
+});
+
+/* ── Get social handles ───────────────────────────────────────────────── */
+router.get("/:siteId/social", (req: Request, res: Response) => {
+  const { siteId } = req.params;
+  const handles = getSocialHandles(siteId);
+  res.json(handles);
+});
+
+/* ── Save / update social handles ─────────────────────────────────────── */
+router.patch("/:siteId/social", (req: Request, res: Response) => {
+  const { siteId } = req.params;
+  const userId = req.query.userId as string | undefined;
+  if (!userId) return res.status(400).json({ error: "userId query param is required" });
+
+  const handles = req.body as SocialHandles;
+  const saved = upsertSocialHandles(siteId, userId, handles);
+  if (!saved) return res.status(404).json({ error: "site not found" });
+  res.json({ ok: true, handles });
 });
 
 /* ── Ping — widget calls this on load to trigger a background sync ───── */

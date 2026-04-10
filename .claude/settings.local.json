@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"router\\\\.\" /Users/anjelica/NavBot/apps/api/src/routes/*.ts)",
+      "Bash(npx tsc:*)",
+      "Bash(pnpm --filter web exec tsc --noEmit)",
+      "Bash(sqlite3:*)"
+    ]
+  }
+}

@@ -1,5 +1,6 @@
 import { SarvamAIClient } from "sarvamai";
 import { querySiteDocs, type RetrievedDoc } from "./vectorstore";
+import { hasSocialIntent, searchSocialMedia, buildSocialContextString } from "./social-search";
 
 // ---------------------------------------------------------------------------
 // Sarvam AI client
@@ -98,10 +99,18 @@ function stripInlineSourceMentions(answer: string): string {
 }
 
 function formatSourcesLine(
-  sources: Array<{ url: string; title: string; distance?: number }>
+  sources: Array<{ url: string; title: string; distance?: number }>,
+  hasSocial = false
 ): string {
   if (!sources.length) return "";
-  const topSources = sources.slice(0, 2);
+  // Only include vector sources with reasonable relevance (distance < 0.45)
+  // When social results are present, be stricter about website sources
+  const threshold = hasSocial ? 0.40 : 1.0;
+  const relevant = sources.filter(
+    (s) => s.distance === undefined || s.distance < threshold
+  );
+  const topSources = relevant.slice(0, 2);
+  if (!topSources.length) return "";
   const items = topSources.map((s) => s.url);
   return `Source: ${items.join(" | ")}`;
 }
@@ -199,14 +208,24 @@ export async function answerQuestionWithRag(params: {
       : "1 query"
   );
 
-  // 2. Retrieve relevant chunks
-  const docs = await querySiteDocs({
+  // 2. Retrieve relevant chunks + social media (in parallel if intent matches)
+  const docsPromise = querySiteDocs({
     siteId,
     query: retrievalQueries,
     topK: 8,
   });
 
-  if (docs.length === 0) {
+  const socialIntent = hasSocialIntent(message);
+  console.log(`[social] Intent detected: ${socialIntent} for query: "${message}"`);
+
+  const socialPromise = socialIntent
+    ? searchSocialMedia(siteId, message)
+    : Promise.resolve([]);
+
+  const [docs, socialResults] = await Promise.all([docsPromise, socialPromise]);
+  console.log(`[social] Got ${socialResults.length} social results, ${docs.length} vector docs`);
+
+  if (docs.length === 0 && socialResults.length === 0) {
     return {
       answer:
         "I couldn't find relevant information to answer that question. " +
@@ -217,23 +236,29 @@ export async function answerQuestionWithRag(params: {
 
   // 3. Build context block
   const contextString = buildContextString(docs);
+  const socialContextString = buildSocialContextString(socialResults);
 
   // 4. System prompt
   const systemPrompt = `
-You are NavBot, a helpful assistant that answers questions ONLY using content retrieved from the website with siteId: "${siteId}".
+You are NavBot, a helpful assistant that answers questions using content retrieved from the website with siteId: "${siteId}".
 
 RULES:
-1. Answer ONLY from the provided context. Do NOT use prior knowledge.
+1. Answer primarily from the provided website context. Do NOT use prior knowledge.
 2. If dates, deadlines, rounds, or schedules appear in the context, state them clearly and precisely.
 3. If the context contains a table, extract the relevant row/column and present it cleanly.
-4. If the answer is not in the context, say "I don't have that information" and suggest contacting the site owner.
-5. Keep answers short and straightforward: 1-3 short sentences, no fluff, no repeated phrasing.
-6. Include useful next-step details only if they are directly relevant to the question.
-7. Do NOT include citations, markdown links, or "Source:" text in the body; plain answer text only.
-8. If the user's question is conversational or a greeting, respond naturally without citing sources.
+4. If social media posts are provided, you may reference them and MUST include the post URL so the user can check it out.
+5. If the answer is not in any context, say "I don't have that information" and suggest contacting the site owner.
+6. Keep answers short and straightforward: 1-3 short sentences, no fluff, no repeated phrasing.
+7. Include useful next-step details only if they are directly relevant to the question.
+8. Do NOT include citations, markdown links, or "Source:" text in the body for website sources; plain answer text only. But DO include social media URLs inline.
+9. If the user's question is conversational or a greeting, respond naturally without citing sources.
 `.trim();
 
-  const combinedSystemPrompt = `${systemPrompt}\n\nWEBSITE CONTEXT (your only knowledge source):\n\n${contextString}`;
+  let combinedSystemPrompt = `${systemPrompt}\n\nWEBSITE CONTEXT (your primary knowledge source):\n\n${contextString}`;
+
+  if (socialContextString) {
+    combinedSystemPrompt += `\n\n---\n\nSOCIAL MEDIA POSTS (supplementary — include post URLs when referencing):\n\n${socialContextString}`;
+  }
 
   // 5. Build message array — keep last 6 history turns to manage token budget
   const rawMessages: SarvamMessage[] = [
@@ -261,8 +286,16 @@ RULES:
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1: $2")
     .trim();
   const sources = deduplicateSources(docs);
+
+  // Add social media URLs as sources
+  for (const sr of socialResults) {
+    if (!sources.find((s) => s.url === sr.url)) {
+      sources.push({ url: sr.url, title: `${sr.platform}: ${sr.title}` });
+    }
+  }
+
   const cleanedBody = stripInlineSourceMentions(answerBody);
-  const sourcesLine = formatSourcesLine(sources);
+  const sourcesLine = formatSourcesLine(sources, socialResults.length > 0);
   const answer = sourcesLine ? `${cleanedBody}\n\n${sourcesLine}` : cleanedBody;
 
   return {
