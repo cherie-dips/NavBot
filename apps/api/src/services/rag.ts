@@ -1,6 +1,7 @@
 import { SarvamAIClient } from "sarvamai";
 import { querySiteDocs, type RetrievedDoc } from "./vectorstore";
 import { hasSocialIntent, searchSocialMedia, buildSocialContextString } from "./social-search";
+import { getFaqUserAnswerForQuestion } from "./db";
 
 // ---------------------------------------------------------------------------
 // Sarvam AI client
@@ -198,6 +199,13 @@ export async function answerQuestionWithRag(params: {
   history: ChatHistoryItem[];
 }) {
   const { siteId, message, history } = params;
+  const faqUserAnswer = getFaqUserAnswerForQuestion(siteId, message);
+  if (faqUserAnswer && !faqUserAnswer.stale) {
+    return {
+      answer: faqUserAnswer.answer.trim(),
+      sources: [],
+    };
+  }
 
   // 1. Build multi-query retrieval set
   const retrievalQueries = buildRetrievalQueries(message);

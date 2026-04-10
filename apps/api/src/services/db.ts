@@ -47,6 +47,8 @@ db.exec(`
   );
 `);
 try { db.exec(`ALTER TABLE faq ADD COLUMN answer_preview TEXT`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE faq ADD COLUMN user_answer TEXT`); } catch { /* already exists */ }
+try { db.exec(`ALTER TABLE faq ADD COLUMN user_answer_updated_at TEXT`); } catch { /* already exists */ }
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS chat_query (
@@ -316,6 +318,8 @@ export interface FaqRow {
   label: string;
   question: string;
   answer_preview: string | null;
+  user_answer: string | null;
+  user_answer_updated_at: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -349,6 +353,58 @@ export function updateFaqAnswerPreview(faqId: number, answerPreview: string | nu
     answerPreview,
     faqId
   );
+}
+
+export function updateFaqUserAnswer(siteId: string, faqId: number, userAnswer: string): boolean {
+  const result = db
+    .prepare(
+      `UPDATE faq
+       SET user_answer = @userAnswer,
+           user_answer_updated_at = datetime('now'),
+           updated_at = datetime('now')
+       WHERE id = @faqId AND site_id = @siteId`
+    )
+    .run({ siteId, faqId, userAnswer });
+  return result.changes > 0;
+}
+
+function parseSqliteUtc(ts: string): Date {
+  if (ts.includes("T")) return new Date(ts.endsWith("Z") ? ts : `${ts}Z`);
+  return new Date(`${ts.replace(" ", "T")}Z`);
+}
+
+export function isFaqUserAnswerStale(siteId: string, userAnswerUpdatedAt: string | null): boolean {
+  if (!userAnswerUpdatedAt) return true;
+  const row = db
+    .prepare("SELECT MAX(indexed_at) as latest FROM page_lastmod WHERE site_id = ?")
+    .get(siteId) as { latest: string | null } | undefined;
+  if (!row?.latest) return false;
+  return parseSqliteUtc(row.latest).getTime() > parseSqliteUtc(userAnswerUpdatedAt).getTime();
+}
+
+export function getFaqUserAnswerForQuestion(
+  siteId: string,
+  question: string
+): { answer: string; stale: boolean } | null {
+  const row = db
+    .prepare(
+      `SELECT user_answer, user_answer_updated_at
+       FROM faq
+       WHERE site_id = ?
+         AND lower(trim(question)) = lower(trim(?))
+         AND user_answer IS NOT NULL
+         AND trim(user_answer) <> ''
+       ORDER BY id ASC
+       LIMIT 1`
+    )
+    .get(siteId, question) as
+    | { user_answer: string | null; user_answer_updated_at: string | null }
+    | undefined;
+  if (!row?.user_answer) return null;
+  return {
+    answer: row.user_answer,
+    stale: isFaqUserAnswerStale(siteId, row.user_answer_updated_at),
+  };
 }
 
 // ---------------------------------------------------------------------------

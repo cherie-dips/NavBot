@@ -798,10 +798,29 @@ function AnalyticsTab({ activeSite, analytics, analyticsLoading }: {
 }) {
   const [faqView, setFaqView] = useState<"analytics" | "faqs" | "training">("analytics");
   const [faqItems, setFaqItems] = useState<
-    Array<{ label: string; question: string; answerPreview?: string | null }>
+    Array<{
+      id?: number;
+      label: string;
+      question: string;
+      answerPreview?: string | null;
+      answer?: string | null;
+      hasUserAnswer?: boolean;
+      userAnswerIsStale?: boolean;
+    }>
   >([]);
   const [faqLoading, setFaqLoading] = useState(false);
   const [faqErr, setFaqErr] = useState<string | null>(null);
+  const [selectedFaq, setSelectedFaq] = useState<(typeof faqItems)[number] | null>(null);
+  const [editedFaqAnswer, setEditedFaqAnswer] = useState("");
+  const [savingFaq, setSavingFaq] = useState(false);
+  const [faqSaveMsg, setFaqSaveMsg] = useState<string | null>(null);
+
+  const oneLinePreview = (text: string | null | undefined, max = 120): string => {
+    const single = (text ?? "").replace(/\s+/g, " ").trim();
+    if (!single) return "Answer preview unavailable right now.";
+    if (single.length <= max) return single;
+    return `${single.slice(0, max).trimEnd()} +more`;
+  };
 
   useEffect(() => {
     if (faqView !== "faqs" || !activeSite) {
@@ -813,12 +832,67 @@ function AnalyticsTab({ activeSite, analytics, analyticsLoading }: {
     setFaqErr(null);
     fetch(`${API_BASE}/api/sites/${encodeURIComponent(activeSite.id)}/faqs?includeAnswers=1`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((body: { faqs?: Array<{ label: string; question: string; answerPreview?: string | null }> }) => {
+      .then((body: {
+        faqs?: Array<{
+          id?: number;
+          label: string;
+          question: string;
+          answerPreview?: string | null;
+          answer?: string | null;
+          hasUserAnswer?: boolean;
+          userAnswerIsStale?: boolean;
+        }>;
+      }) => {
         setFaqItems(body.faqs ?? []);
+        setSelectedFaq((prev) => {
+          if (!prev?.id) return prev;
+          const next = (body.faqs ?? []).find((f) => f.id === prev.id) ?? null;
+          if (next) setEditedFaqAnswer(next.answer ?? next.answerPreview ?? "");
+          return next;
+        });
       })
       .catch(() => setFaqErr("Could not load FAQs."))
       .finally(() => setFaqLoading(false));
   }, [faqView, activeSite?.id]);
+
+  const saveFaqAnswer = async () => {
+    if (!activeSite || !selectedFaq?.id || !editedFaqAnswer.trim()) return;
+    setSavingFaq(true);
+    setFaqSaveMsg(null);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/sites/${encodeURIComponent(activeSite.id)}/faqs/${selectedFaq.id}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ answer: editedFaqAnswer.trim() }),
+        }
+      );
+      if (!res.ok) throw new Error();
+      const saved = editedFaqAnswer.trim();
+      setFaqItems((prev) =>
+        prev.map((f) =>
+          f.id === selectedFaq.id
+            ? {
+                ...f,
+                answer: saved,
+                answerPreview: saved,
+                hasUserAnswer: true,
+                userAnswerIsStale: false,
+              }
+            : f
+        )
+      );
+      setSelectedFaq((prev) =>
+        prev ? { ...prev, answer: saved, answerPreview: saved, hasUserAnswer: true, userAnswerIsStale: false } : prev
+      );
+      setFaqSaveMsg("Saved. Future answers to this FAQ will follow your feedback unless content changes.");
+    } catch {
+      setFaqSaveMsg("Could not save this response. Please try again.");
+    } finally {
+      setSavingFaq(false);
+    }
+  };
 
   const vol = analytics?.volumeByDay?.length
     ? analytics.volumeByDay
@@ -933,20 +1007,71 @@ function AnalyticsTab({ activeSite, analytics, analyticsLoading }: {
             <p className="text-sm text-red-600">{faqErr}</p>
           ) : faqItems.length === 0 ? (
             <p className="text-sm text-[#8a938f]">No FAQs yet. They are created when visitors open the widget or when the API first requests them.</p>
+          ) : selectedFaq ? (
+            <div className={`${DASH_PANEL} p-6`}>
+              <button
+                type="button"
+                onClick={() => { setSelectedFaq(null); setFaqSaveMsg(null); }}
+                className="mb-4 text-xs font-medium text-[#bc6c25] hover:underline"
+              >
+                ← Back to FAQs
+              </button>
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[#bc6c25]">{selectedFaq.label}</p>
+              <h4 className="mb-3 text-base font-semibold text-[#1f2522]">{selectedFaq.question}</h4>
+              <div className="mb-5 rounded-xl bg-[#fbf7f2] p-4">
+                <p className="mb-2 text-xs font-medium text-[#8a938f]">Current chatbot answer</p>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap text-[#47534d]">
+                  {selectedFaq.answer?.trim() || selectedFaq.answerPreview?.trim() || "Answer unavailable."}
+                </p>
+                {selectedFaq.hasUserAnswer && selectedFaq.userAnswerIsStale && (
+                  <p className="mt-2 text-xs text-amber-700">
+                    Your saved response is currently out of date due to newer indexed content.
+                  </p>
+                )}
+              </div>
+              <label className="mb-2 block text-xs font-medium text-[#65726d]">
+                Edit chatbot response for this FAQ
+              </label>
+              <textarea
+                value={editedFaqAnswer}
+                onChange={(e) => setEditedFaqAnswer(e.target.value)}
+                rows={8}
+                className="w-full resize-y rounded-xl border border-[#1f2522]/12 bg-white px-4 py-3 text-sm leading-relaxed text-[#1f2522] outline-none focus:border-[#bc6c25]/40"
+                placeholder="Write the preferred answer..."
+              />
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={savingFaq || !editedFaqAnswer.trim()}
+                  onClick={() => void saveFaqAnswer()}
+                  className="rounded-full bg-[#1f2522] px-4 py-2 text-xs font-medium text-white transition-all hover:bg-[#bc6c25] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {savingFaq ? "Saving..." : "Save response"}
+                </button>
+                {faqSaveMsg && <p className="text-xs text-[#65726d]">{faqSaveMsg}</p>}
+              </div>
+            </div>
           ) : (
             faqItems.map((faq, i) => (
-              <div key={`${faq.label}-${i}`} className={`${DASH_PANEL} flex gap-4 p-5`}>
+              <button
+                key={`${faq.label}-${i}`}
+                type="button"
+                onClick={() => {
+                  setSelectedFaq(faq);
+                  setEditedFaqAnswer(faq.answer ?? faq.answerPreview ?? "");
+                  setFaqSaveMsg(null);
+                }}
+                className={`${DASH_PANEL} flex w-full gap-4 p-5 text-left transition-colors hover:bg-[#fbf7f2]`}
+              >
                 <div className="mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-[#f6eee3]"><MessageSquare className="h-4 w-4 text-[#bc6c25]" /></div>
                 <div className="flex-1">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-[#bc6c25] mb-1">{faq.label}</p>
                   <h4 className="mb-2 text-sm font-semibold text-[#1f2522]">{faq.question}</h4>
-                  <p className="text-sm leading-relaxed text-[#65726d]">
-                    {faq.answerPreview?.trim()
-                      ? faq.answerPreview
-                      : "Answer preview unavailable right now. Try refreshing stats to regenerate this FAQ answer."}
+                  <p className="text-sm text-[#65726d]">
+                    {oneLinePreview(faq.answer ?? faq.answerPreview)}
                   </p>
                 </div>
-              </div>
+              </button>
             ))
           )}
         </div>

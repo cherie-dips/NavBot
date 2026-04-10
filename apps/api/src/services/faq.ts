@@ -1,6 +1,13 @@
 import { SarvamAIClient } from "sarvamai";
 import { querySiteDocs } from "./vectorstore";
-import { getFaqsBySite, replaceFaqs, getTopQueries, updateFaqAnswerPreview } from "./db";
+import {
+  getFaqsBySite,
+  replaceFaqs,
+  getTopQueries,
+  updateFaqAnswerPreview,
+  isFaqUserAnswerStale,
+  updateFaqUserAnswer,
+} from "./db";
 import { answerQuestionWithRag } from "./rag";
 
 const sarvam = new SarvamAIClient({
@@ -124,7 +131,17 @@ function fallbackFaqs(): Array<{ label: string; question: string }> {
 export async function getOrGenerateFaqs(
   siteId: string,
   options?: { includeAnswers?: boolean }
-): Promise<Array<{ label: string; question: string; answerPreview?: string | null }>> {
+): Promise<
+  Array<{
+    id?: number;
+    label: string;
+    question: string;
+    answerPreview?: string | null;
+    answer?: string | null;
+    hasUserAnswer?: boolean;
+    userAnswerIsStale?: boolean;
+  }>
+> {
   const includeAnswers = options?.includeAnswers === true;
   const existing = getFaqsBySite(siteId);
   if (existing.length > 0) {
@@ -133,13 +150,36 @@ export async function getOrGenerateFaqs(
     }
     const enriched = await Promise.all(
       existing.map(async (f) => {
+        const hasUserAnswer = !!f.user_answer?.trim();
+        const userAnswerIsStale = hasUserAnswer
+          ? isFaqUserAnswerStale(siteId, f.user_answer_updated_at)
+          : false;
+        const effectiveUserAnswer = hasUserAnswer && !userAnswerIsStale ? f.user_answer : null;
         const current = f.answer_preview ?? null;
-        if (current) {
-          return { label: f.label, question: f.question, answerPreview: current };
+        const resolvedCurrent = effectiveUserAnswer ?? current;
+        if (resolvedCurrent) {
+          return {
+            id: f.id,
+            label: f.label,
+            question: f.question,
+            answerPreview: normalizeAnswerPreview(resolvedCurrent),
+            answer: resolvedCurrent,
+            hasUserAnswer,
+            userAnswerIsStale,
+          };
         }
         const generated = await generateAnswerForFaq(siteId, f.question);
         if (generated) updateFaqAnswerPreview(f.id, generated);
-        return { label: f.label, question: f.question, answerPreview: generated };
+        const effective = effectiveUserAnswer ?? generated;
+        return {
+          id: f.id,
+          label: f.label,
+          question: f.question,
+          answerPreview: effective ? normalizeAnswerPreview(effective) : null,
+          answer: effective,
+          hasUserAnswer,
+          userAnswerIsStale,
+        };
       })
     );
     return enriched;
@@ -175,4 +215,10 @@ export async function refreshFaqs(
   );
   replaceFaqs(siteId, withAnswers);
   return withAnswers;
+}
+
+export function saveFaqUserAnswer(siteId: string, faqId: number, userAnswer: string): boolean {
+  const normalized = userAnswer.trim();
+  if (!normalized) return false;
+  return updateFaqUserAnswer(siteId, faqId, normalized);
 }

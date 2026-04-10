@@ -23,7 +23,7 @@ import {
   upsertSocialHandles,
   type SocialHandles,
 } from "../services/db";
-import { getOrGenerateFaqs, refreshFaqs } from "../services/faq";
+import { getOrGenerateFaqs, refreshFaqs, saveFaqUserAnswer } from "../services/faq";
 
 export const router: Router = Router();
 
@@ -282,6 +282,22 @@ router.patch("/:siteId/social", (req: Request, res: Response) => {
   const saved = upsertSocialHandles(siteId, userId, handles);
   if (!saved) return res.status(404).json({ error: "site not found" });
   res.json({ ok: true, handles });
+});
+
+/* ── Save user-edited FAQ answer (dashboard) ───────────────────────────── */
+router.patch("/:siteId/faqs/:faqId", (req: Request, res: Response) => {
+  const { siteId, faqId } = req.params;
+  const { answer } = req.body as { answer?: string };
+  if (!answer?.trim()) {
+    return res.status(400).json({ error: "answer is required" });
+  }
+  const id = Number(faqId);
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ error: "invalid faqId" });
+  }
+  const ok = saveFaqUserAnswer(siteId, id, answer);
+  if (!ok) return res.status(404).json({ error: "faq not found" });
+  res.json({ ok: true, siteId, faqId: id });
 });
 
 /* ── Ping — widget calls this on load to trigger a background sync ───── */
