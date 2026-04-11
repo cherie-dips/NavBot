@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
-    "build": "tsc -p tsconfig.json",
+    "build": "pnpm --filter @repo/color-extractor build && tsc -p tsconfig.json",
     "playwright:install": "playwright install chromium"
   },
   "dependencies": {
