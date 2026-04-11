@@ -31,6 +31,21 @@ app.use(
   }) as unknown as express.RequestHandler
 );
 
+/** Base URL — browsers and uptime checks often hit `/` first; there is no HTML homepage. */
+app.get("/", (_req: express.Request, res: express.Response) => {
+  res.json({
+    service: "navbot-api",
+    ok: true,
+    health: "/health",
+    docs: "/api-docs",
+    api: {
+      sites: "/api/sites",
+      chat: "/api/chat",
+      colors: "/api/colors",
+    },
+  });
+});
+
 app.get("/health", (_req: express.Request, res: express.Response) => {
   res.json({ status: "ok" });
 });
