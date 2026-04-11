@@ -1,72 +1,98 @@
-import Database from "better-sqlite3";
-import path from "path";
+import pg from "pg";
 
-const dbPath = path.resolve(process.cwd(), "../../navbot.db");
-const db = new Database(dbPath);
-
-db.pragma("journal_mode = WAL");
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS site (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    site_id       TEXT    NOT NULL,
-    user_id       TEXT    NOT NULL,
-    url           TEXT    NOT NULL,
-    hostname      TEXT    NOT NULL,
-    status        TEXT    NOT NULL DEFAULT 'active',
-    pages_indexed INTEGER NOT NULL DEFAULT 0,
-    added_at      TEXT    NOT NULL DEFAULT (datetime('now')),
-    last_crawled  TEXT    NOT NULL DEFAULT (datetime('now')),
-    widget_theme  TEXT,
-    UNIQUE(site_id, user_id)
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error(
+    "DATABASE_URL is not set. Add it to apps/api/.env (e.g. Render PostgreSQL internal URL)."
   );
+}
 
-  CREATE TABLE IF NOT EXISTS page_lastmod (
-    site_id      TEXT NOT NULL,
-    url          TEXT NOT NULL,
-    content_hash TEXT,
-    indexed_at   TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (site_id, url)
-  );
-`);
+export const pool = new pg.Pool({
+  connectionString,
+  max: 20,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
+});
 
-try { db.exec(`ALTER TABLE site ADD COLUMN widget_theme TEXT`); } catch { /* already exists */ }
-try { db.exec(`ALTER TABLE site ADD COLUMN social_handles TEXT`); } catch { /* already exists */ }
-try { db.exec(`ALTER TABLE page_lastmod ADD COLUMN content_hash TEXT`); } catch { /* already exists */ }
-try { db.exec(`ALTER TABLE page_lastmod ADD COLUMN lastmod TEXT`); } catch { /* already exists */ }
+let schemaReady: Promise<void> | null = null;
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS faq (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    site_id     TEXT    NOT NULL,
-    label       TEXT    NOT NULL,
-    question    TEXT    NOT NULL,
-    sort_order  INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at  TEXT    NOT NULL DEFAULT (datetime('now'))
-  );
-`);
-try { db.exec(`ALTER TABLE faq ADD COLUMN answer_preview TEXT`); } catch { /* already exists */ }
-try { db.exec(`ALTER TABLE faq ADD COLUMN user_answer TEXT`); } catch { /* already exists */ }
-try { db.exec(`ALTER TABLE faq ADD COLUMN user_answer_updated_at TEXT`); } catch { /* already exists */ }
+export function initAppDatabase(): Promise<void> {
+  if (!schemaReady) {
+    schemaReady = ensureSchema().then(() => {
+      console.log("API database ready (PostgreSQL).");
+    });
+  }
+  return schemaReady;
+}
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS chat_query (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    site_id     TEXT    NOT NULL,
-    query       TEXT    NOT NULL,
-    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
-  );
-`);
+async function ensureSchema(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS site (
+      id BIGSERIAL PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      hostname TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      pages_indexed INTEGER NOT NULL DEFAULT 0,
+      added_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_crawled TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      widget_theme TEXT,
+      social_handles TEXT,
+      UNIQUE(site_id, user_id)
+    );
 
-try { db.exec(`ALTER TABLE chat_query ADD COLUMN channel TEXT NOT NULL DEFAULT 'text'`); } catch { /* already exists */ }
-try { db.exec(`ALTER TABLE chat_query ADD COLUMN answer_preview TEXT`); } catch { /* already exists */ }
-try { db.exec(`ALTER TABLE chat_query ADD COLUMN latency_ms INTEGER`); } catch { /* already exists */ }
-try { db.exec(`ALTER TABLE chat_query ADD COLUMN source_count INTEGER`); } catch { /* already exists */ }
+    CREATE TABLE IF NOT EXISTS page_lastmod (
+      site_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      content_hash TEXT,
+      lastmod TEXT,
+      indexed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (site_id, url)
+    );
 
-db.exec(`CREATE INDEX IF NOT EXISTS idx_chat_query_site_created ON chat_query(site_id, created_at)`);
+    CREATE TABLE IF NOT EXISTS faq (
+      id BIGSERIAL PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      label TEXT NOT NULL,
+      question TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      answer_preview TEXT,
+      user_answer TEXT,
+      user_answer_updated_at TIMESTAMPTZ
+    );
 
-console.log("API database ready (shared navbot.db).");
+    CREATE TABLE IF NOT EXISTS chat_query (
+      id BIGSERIAL PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      query TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      channel TEXT NOT NULL DEFAULT 'text',
+      answer_preview TEXT,
+      latency_ms INTEGER,
+      source_count INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chat_query_site_created ON chat_query(site_id, created_at);
+  `);
+}
+
+function toIso(v: unknown): string {
+  if (v instanceof Date) return v.toISOString();
+  if (typeof v === "string") {
+    if (v.includes("T")) return v.endsWith("Z") ? v : `${v}Z`;
+    return `${v.replace(" ", "T")}Z`;
+  }
+  return String(v);
+}
+
+function numId(v: unknown): number {
+  if (typeof v === "number") return v;
+  if (typeof v === "string") return Number(v);
+  return Number(v);
+}
 
 export interface SiteRow {
   id: number;
@@ -109,209 +135,258 @@ export const DEFAULT_THEME: WidgetTheme = {
   widgetOpacity: 0.45,
 };
 
-export function upsertSite(params: {
+export async function upsertSite(params: {
   siteId: string;
   userId: string;
   url: string;
   hostname: string;
   pagesIndexed: number;
-}): SiteRow {
-  const stmt = db.prepare(`
+}): Promise<SiteRow> {
+  const { rows } = await pool.query(
+    `
     INSERT INTO site (site_id, user_id, url, hostname, pages_indexed, last_crawled)
-    VALUES (@siteId, @userId, @url, @hostname, @pagesIndexed, datetime('now'))
-    ON CONFLICT(site_id, user_id) DO UPDATE SET
-      url           = @url,
-      hostname      = @hostname,
-      pages_indexed = @pagesIndexed,
-      last_crawled  = datetime('now'),
-      status        = 'active'
+    VALUES ($1, $2, $3, $4, $5, NOW())
+    ON CONFLICT (site_id, user_id) DO UPDATE SET
+      url = EXCLUDED.url,
+      hostname = EXCLUDED.hostname,
+      pages_indexed = EXCLUDED.pages_indexed,
+      last_crawled = NOW(),
+      status = 'active'
     RETURNING *
-  `);
-  return stmt.get({
-    siteId: params.siteId,
-    userId: params.userId,
-    url: params.url,
-    hostname: params.hostname,
-    pagesIndexed: params.pagesIndexed,
-  }) as SiteRow;
+    `,
+    [params.siteId, params.userId, params.url, params.hostname, params.pagesIndexed]
+  );
+  const r = rows[0] as Record<string, unknown>;
+  return {
+    id: numId(r.id),
+    site_id: r.site_id as string,
+    user_id: r.user_id as string,
+    url: r.url as string,
+    hostname: r.hostname as string,
+    status: r.status as string,
+    pages_indexed: Number(r.pages_indexed),
+    added_at: toIso(r.added_at),
+    last_crawled: toIso(r.last_crawled),
+    widget_theme: (r.widget_theme as string | null) ?? null,
+  };
 }
 
-export function getSitesByUser(userId: string): SiteRow[] {
-  return db
-    .prepare("SELECT *, added_at || 'Z' as added_at, last_crawled || 'Z' as last_crawled FROM site WHERE user_id = ? ORDER BY added_at DESC")
-    .all(userId) as SiteRow[];
+export async function getSitesByUser(userId: string): Promise<SiteRow[]> {
+  const { rows } = await pool.query(
+    `SELECT * FROM site WHERE user_id = $1 ORDER BY added_at DESC`,
+    [userId]
+  );
+  return rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return {
+      id: numId(row.id),
+      site_id: row.site_id as string,
+      user_id: row.user_id as string,
+      url: row.url as string,
+      hostname: row.hostname as string,
+      status: row.status as string,
+      pages_indexed: Number(row.pages_indexed),
+      added_at: toIso(row.added_at),
+      last_crawled: toIso(row.last_crawled),
+      widget_theme: (row.widget_theme as string | null) ?? null,
+    };
+  });
 }
 
-export function deleteSite(siteId: string, userId: string): boolean {
-  const result = db
-    .prepare("DELETE FROM site WHERE site_id = ? AND user_id = ?")
-    .run(siteId, userId);
-  return result.changes > 0;
+export async function deleteSite(siteId: string, userId: string): Promise<boolean> {
+  const result = await pool.query(`DELETE FROM site WHERE site_id = $1 AND user_id = $2`, [
+    siteId,
+    userId,
+  ]);
+  return (result.rowCount ?? 0) > 0;
 }
 
-
-export function upsertSiteTheme(siteId: string, userId: string, theme: WidgetTheme): boolean {
-  const result = db
-    .prepare(`UPDATE site SET widget_theme = @theme WHERE site_id = @siteId AND user_id = @userId`)
-    .run({ theme: JSON.stringify(theme), siteId, userId });
-  return result.changes > 0;
+export async function upsertSiteTheme(
+  siteId: string,
+  userId: string,
+  theme: WidgetTheme
+): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE site SET widget_theme = $1 WHERE site_id = $2 AND user_id = $3`,
+    [JSON.stringify(theme), siteId, userId]
+  );
+  return (result.rowCount ?? 0) > 0;
 }
 
-export function getSiteTheme(siteId: string, userId: string): WidgetTheme | null {
-  const row = db
-    .prepare(`SELECT widget_theme FROM site WHERE site_id = ? AND user_id = ?`)
-    .get(siteId, userId) as { widget_theme: string | null } | undefined;
+export async function getSiteTheme(
+  siteId: string,
+  userId: string
+): Promise<WidgetTheme | null> {
+  const { rows } = await pool.query(
+    `SELECT widget_theme FROM site WHERE site_id = $1 AND user_id = $2`,
+    [siteId, userId]
+  );
+  const row = rows[0] as { widget_theme: string | null } | undefined;
   if (!row?.widget_theme) return null;
-  try { return JSON.parse(row.widget_theme) as WidgetTheme; } catch { return null; }
+  try {
+    return JSON.parse(row.widget_theme) as WidgetTheme;
+  } catch {
+    return null;
+  }
 }
 
-export function getSiteThemePublic(siteId: string): WidgetTheme | null {
-  const row = db
-    .prepare(`SELECT widget_theme FROM site WHERE site_id = ?`)
-    .get(siteId) as { widget_theme: string | null } | undefined;
+export async function getSiteThemePublic(siteId: string): Promise<WidgetTheme | null> {
+  const { rows } = await pool.query(`SELECT widget_theme FROM site WHERE site_id = $1`, [siteId]);
+  const row = rows[0] as { widget_theme: string | null } | undefined;
   if (!row?.widget_theme) return null;
-  try { return JSON.parse(row.widget_theme) as WidgetTheme; } catch { return null; }
+  try {
+    return JSON.parse(row.widget_theme) as WidgetTheme;
+  } catch {
+    return null;
+  }
 }
 
-
-/**
- * Returns a map of { url → content_hash } for all tracked pages of a site.
- * An empty object means the site has never been synced / hashes not yet stored.
- */
-export function getPageHashes(siteId: string): Record<string, string> {
-  const rows = db
-    .prepare(`SELECT url, content_hash FROM page_lastmod WHERE site_id = ?`)
-    .all(siteId) as { url: string; content_hash: string | null }[];
-
+export async function getPageHashes(siteId: string): Promise<Record<string, string>> {
+  const { rows } = await pool.query(
+    `SELECT url, content_hash FROM page_lastmod WHERE site_id = $1`,
+    [siteId]
+  );
   const result: Record<string, string> = {};
-  for (const row of rows) {
+  for (const row of rows as { url: string; content_hash: string | null }[]) {
     if (row.content_hash) result[row.url] = row.content_hash;
   }
   return result;
 }
 
-/**
- * Upserts content hashes for a batch of pages.
- * Called after every crawl (initial index + syncs).
- */
-export function upsertPageHashes(
+export async function upsertPageHashes(
   siteId: string,
   pages: Array<{ url: string; hash: string }>
-): void {
-  const stmt = db.prepare(`
-    INSERT INTO page_lastmod (site_id, url, content_hash, indexed_at)
-    VALUES (@siteId, @url, @hash, datetime('now'))
-    ON CONFLICT(site_id, url) DO UPDATE SET
-      content_hash = @hash,
-      indexed_at   = datetime('now')
-  `);
-
-  const runAll = db.transaction((items: typeof pages) => {
-    for (const p of items) stmt.run({ siteId, url: p.url, hash: p.hash });
-  });
-
-  runAll(pages);
+): Promise<void> {
+  if (pages.length === 0) return;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const stmt = `
+      INSERT INTO page_lastmod (site_id, url, content_hash, indexed_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (site_id, url) DO UPDATE SET
+        content_hash = EXCLUDED.content_hash,
+        indexed_at = NOW()
+    `;
+    for (const p of pages) {
+      await client.query(stmt, [siteId, p.url, p.hash]);
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
-export function deletePageHashes(siteId: string): void {
-  db.prepare(`DELETE FROM page_lastmod WHERE site_id = ?`).run(siteId);
+export async function deletePageHashes(siteId: string): Promise<void> {
+  await pool.query(`DELETE FROM page_lastmod WHERE site_id = $1`, [siteId]);
 }
 
-export function getSyncStats(siteId: string): {
+export async function getSyncStats(siteId: string): Promise<{
   totalTracked: number;
   lastSynced: string | null;
-} {
-  const row = db
-    .prepare(
-      `SELECT COUNT(*) as total,
-              CASE WHEN MAX(indexed_at) IS NOT NULL THEN MAX(indexed_at) || 'Z' ELSE NULL END as last_synced
-       FROM page_lastmod WHERE site_id = ?`
-    )
-    .get(siteId) as { total: number; last_synced: string | null } | undefined;
-
+}> {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS total,
+            MAX(indexed_at) AS last_synced
+     FROM page_lastmod WHERE site_id = $1`,
+    [siteId]
+  );
+  const row = rows[0] as { total: number; last_synced: Date | null } | undefined;
   return {
     totalTracked: row?.total ?? 0,
-    lastSynced: row?.last_synced ?? null,
+    lastSynced: row?.last_synced ? toIso(row.last_synced) : null,
   };
 }
 
-
-export function getTrackedUrls(siteId: string): Set<string> {
-  const rows = db
-    .prepare(`SELECT url FROM page_lastmod WHERE site_id = ?`)
-    .all(siteId) as { url: string }[];
-  return new Set(rows.map((r) => r.url));
+export async function getTrackedUrls(siteId: string): Promise<Set<string>> {
+  const { rows } = await pool.query(`SELECT url FROM page_lastmod WHERE site_id = $1`, [siteId]);
+  return new Set((rows as { url: string }[]).map((r) => r.url));
 }
 
-export function deletePageHashesForUrls(siteId: string, urls: string[]): void {
+export async function deletePageHashesForUrls(siteId: string, urls: string[]): Promise<void> {
   if (urls.length === 0) return;
-  const stmt = db.prepare(`DELETE FROM page_lastmod WHERE site_id = ? AND url = ?`);
-  const runAll = db.transaction(() => {
-    for (const url of urls) stmt.run(siteId, url);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    for (const url of urls) {
+      await client.query(`DELETE FROM page_lastmod WHERE site_id = $1 AND url = $2`, [siteId, url]);
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+export async function getSiteCountBySiteId(siteId: string): Promise<number> {
+  const { rows } = await pool.query(`SELECT COUNT(*)::int AS cnt FROM site WHERE site_id = $1`, [
+    siteId,
+  ]);
+  return (rows[0] as { cnt: number }).cnt;
+}
+
+export async function getAllActiveSites(): Promise<SiteRow[]> {
+  const { rows } = await pool.query(`SELECT * FROM site WHERE status = 'active'`);
+  return rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return {
+      id: numId(row.id),
+      site_id: row.site_id as string,
+      user_id: row.user_id as string,
+      url: row.url as string,
+      hostname: row.hostname as string,
+      status: row.status as string,
+      pages_indexed: Number(row.pages_indexed),
+      added_at: toIso(row.added_at),
+      last_crawled: toIso(row.last_crawled),
+      widget_theme: (row.widget_theme as string | null) ?? null,
+    };
   });
-  runAll();
 }
 
-/**
- * Returns the number of users who have registered a given siteId.
- */
-export function getSiteCountBySiteId(siteId: string): number {
-  const row = db
-    .prepare("SELECT COUNT(*) as cnt FROM site WHERE site_id = ?")
-    .get(siteId) as { cnt: number };
-  return row.cnt;
-}
-
-/**
- * Returns all active sites across all users.
- */
-export function getAllActiveSites(): SiteRow[] {
-  return db
-    .prepare("SELECT * FROM site WHERE status = 'active'")
-    .all() as SiteRow[];
-}
-
-/**
- * Returns a map of { url → lastmod } from the page_lastmod table.
- * Used for sitemap-based diff to detect which pages have changed.
- */
-export function getPageLastmods(siteId: string): Record<string, string | null> {
-  const rows = db
-    .prepare(`SELECT url, lastmod FROM page_lastmod WHERE site_id = ?`)
-    .all(siteId) as { url: string; lastmod: string | null }[];
-
+export async function getPageLastmods(siteId: string): Promise<Record<string, string | null>> {
+  const { rows } = await pool.query(`SELECT url, lastmod FROM page_lastmod WHERE site_id = $1`, [
+    siteId,
+  ]);
   const result: Record<string, string | null> = {};
-  for (const row of rows) {
+  for (const row of rows as { url: string; lastmod: string | null }[]) {
     result[row.url] = row.lastmod;
   }
   return result;
 }
 
-/**
- * Updates the lastmod timestamp for pages from the sitemap.
- */
-export function upsertPageLastmods(
+export async function upsertPageLastmods(
   siteId: string,
   pages: Array<{ url: string; lastmod: string | null }>
-): void {
-  const stmt = db.prepare(`
-    INSERT INTO page_lastmod (site_id, url, lastmod, indexed_at)
-    VALUES (@siteId, @url, @lastmod, datetime('now'))
-    ON CONFLICT(site_id, url) DO UPDATE SET
-      lastmod    = @lastmod,
-      indexed_at = datetime('now')
-  `);
-
-  const runAll = db.transaction((items: typeof pages) => {
-    for (const p of items) stmt.run({ siteId, url: p.url, lastmod: p.lastmod });
-  });
-
-  runAll(pages);
+): Promise<void> {
+  if (pages.length === 0) return;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const stmt = `
+      INSERT INTO page_lastmod (site_id, url, lastmod, indexed_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (site_id, url) DO UPDATE SET
+        lastmod = EXCLUDED.lastmod,
+        indexed_at = NOW()
+    `;
+    for (const p of pages) {
+      await client.query(stmt, [siteId, p.url, p.lastmod]);
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
-// ---------------------------------------------------------------------------
-// FAQ helpers
-// ---------------------------------------------------------------------------
 export interface FaqRow {
   id: number;
   site_id: string;
@@ -325,149 +400,194 @@ export interface FaqRow {
   updated_at: string;
 }
 
-export function getFaqsBySite(siteId: string): FaqRow[] {
-  return db
-    .prepare("SELECT * FROM faq WHERE site_id = ? ORDER BY sort_order ASC, id ASC")
-    .all(siteId) as FaqRow[];
+export async function getFaqsBySite(siteId: string): Promise<FaqRow[]> {
+  const { rows } = await pool.query(
+    `SELECT * FROM faq WHERE site_id = $1 ORDER BY sort_order ASC, id ASC`,
+    [siteId]
+  );
+  return rows.map((r) => {
+    const row = r as Record<string, unknown>;
+    return {
+      id: numId(row.id),
+      site_id: row.site_id as string,
+      label: row.label as string,
+      question: row.question as string,
+      answer_preview: (row.answer_preview as string | null) ?? null,
+      user_answer: (row.user_answer as string | null) ?? null,
+      user_answer_updated_at: row.user_answer_updated_at
+        ? toIso(row.user_answer_updated_at)
+        : null,
+      sort_order: Number(row.sort_order),
+      created_at: toIso(row.created_at),
+      updated_at: toIso(row.updated_at),
+    };
+  });
 }
 
-export function replaceFaqs(
+export async function replaceFaqs(
   siteId: string,
   items: Array<{ label: string; question: string; answerPreview?: string | null }>
-): void {
-  const del = db.prepare("DELETE FROM faq WHERE site_id = ?");
-  const ins = db.prepare(
-    "INSERT INTO faq (site_id, label, question, answer_preview, sort_order) VALUES (?, ?, ?, ?, ?)"
-  );
-  const tx = db.transaction(() => {
-    del.run(siteId);
-    items.forEach((item, i) =>
-      ins.run(siteId, item.label, item.question, item.answerPreview ?? null, i)
-    );
-  });
-  tx();
+): Promise<void> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM faq WHERE site_id = $1`, [siteId]);
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]!;
+      await client.query(
+        `INSERT INTO faq (site_id, label, question, answer_preview, sort_order)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [siteId, item.label, item.question, item.answerPreview ?? null, i]
+      );
+    }
+    await client.query("COMMIT");
+  } catch (e) {
+    await client.query("ROLLBACK");
+    throw e;
+  } finally {
+    client.release();
+  }
 }
 
-export function updateFaqAnswerPreview(faqId: number, answerPreview: string | null): void {
-  db.prepare("UPDATE faq SET answer_preview = ?, updated_at = datetime('now') WHERE id = ?").run(
+export async function updateFaqAnswerPreview(
+  faqId: number,
+  answerPreview: string | null
+): Promise<void> {
+  await pool.query(`UPDATE faq SET answer_preview = $1, updated_at = NOW() WHERE id = $2`, [
     answerPreview,
-    faqId
+    faqId,
+  ]);
+}
+
+export async function updateFaqUserAnswer(
+  siteId: string,
+  faqId: number,
+  userAnswer: string
+): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE faq
+     SET user_answer = $1,
+         user_answer_updated_at = NOW(),
+         updated_at = NOW()
+     WHERE id = $2 AND site_id = $3`,
+    [userAnswer, faqId, siteId]
   );
+  return (result.rowCount ?? 0) > 0;
 }
 
-export function updateFaqUserAnswer(siteId: string, faqId: number, userAnswer: string): boolean {
-  const result = db
-    .prepare(
-      `UPDATE faq
-       SET user_answer = @userAnswer,
-           user_answer_updated_at = datetime('now'),
-           updated_at = datetime('now')
-       WHERE id = @faqId AND site_id = @siteId`
-    )
-    .run({ siteId, faqId, userAnswer });
-  return result.changes > 0;
-}
-
-function parseSqliteUtc(ts: string): Date {
+function parseUtcTimestamp(ts: string): Date {
   if (ts.includes("T")) return new Date(ts.endsWith("Z") ? ts : `${ts}Z`);
   return new Date(`${ts.replace(" ", "T")}Z`);
 }
 
-export function isFaqUserAnswerStale(siteId: string, userAnswerUpdatedAt: string | null): boolean {
+export async function isFaqUserAnswerStale(
+  siteId: string,
+  userAnswerUpdatedAt: string | null
+): Promise<boolean> {
   if (!userAnswerUpdatedAt) return true;
-  const row = db
-    .prepare("SELECT MAX(indexed_at) as latest FROM page_lastmod WHERE site_id = ?")
-    .get(siteId) as { latest: string | null } | undefined;
-  if (!row?.latest) return false;
-  return parseSqliteUtc(row.latest).getTime() > parseSqliteUtc(userAnswerUpdatedAt).getTime();
+  const { rows } = await pool.query(
+    `SELECT MAX(indexed_at) AS latest FROM page_lastmod WHERE site_id = $1`,
+    [siteId]
+  );
+  const latest = rows[0] as { latest: Date | null } | undefined;
+  if (!latest?.latest) return false;
+  const latestMs =
+    latest.latest instanceof Date ? latest.latest.getTime() : parseUtcTimestamp(toIso(latest.latest)).getTime();
+  return latestMs > parseUtcTimestamp(userAnswerUpdatedAt).getTime();
 }
 
-export function getFaqUserAnswerForQuestion(
+export async function getFaqUserAnswerForQuestion(
   siteId: string,
   question: string
-): { answer: string; stale: boolean } | null {
-  const row = db
-    .prepare(
-      `SELECT user_answer, user_answer_updated_at
-       FROM faq
-       WHERE site_id = ?
-         AND lower(trim(question)) = lower(trim(?))
-         AND user_answer IS NOT NULL
-         AND trim(user_answer) <> ''
-       ORDER BY id ASC
-       LIMIT 1`
-    )
-    .get(siteId, question) as
-    | { user_answer: string | null; user_answer_updated_at: string | null }
+): Promise<{ answer: string; stale: boolean } | null> {
+  const { rows } = await pool.query(
+    `SELECT user_answer, user_answer_updated_at
+     FROM faq
+     WHERE site_id = $1
+       AND lower(trim(question)) = lower(trim($2))
+       AND user_answer IS NOT NULL
+       AND trim(user_answer) <> ''
+     ORDER BY id ASC
+     LIMIT 1`,
+    [siteId, question]
+  );
+  const row = rows[0] as
+    | { user_answer: string | null; user_answer_updated_at: Date | string | null }
     | undefined;
   if (!row?.user_answer) return null;
+  const updatedAtStr = row.user_answer_updated_at
+    ? row.user_answer_updated_at instanceof Date
+      ? row.user_answer_updated_at.toISOString()
+      : String(row.user_answer_updated_at)
+    : null;
   return {
     answer: row.user_answer,
-    stale: isFaqUserAnswerStale(siteId, row.user_answer_updated_at),
+    stale: await isFaqUserAnswerStale(siteId, updatedAtStr),
   };
 }
 
-// ---------------------------------------------------------------------------
-// Chat query tracking
-// ---------------------------------------------------------------------------
 const PREVIEW_MAX = 480;
 
-export function logChatTurn(params: {
+export async function logChatTurn(params: {
   siteId: string;
   query: string;
   channel: "text" | "voice";
   answerPreview?: string | null;
   latencyMs?: number | null;
   sourceCount?: number | null;
-}): void {
+}): Promise<void> {
   const preview =
     params.answerPreview && params.answerPreview.length > PREVIEW_MAX
       ? params.answerPreview.slice(0, PREVIEW_MAX) + "…"
       : params.answerPreview ?? null;
 
-  db.prepare(
+  await pool.query(
     `INSERT INTO chat_query (site_id, query, channel, answer_preview, latency_ms, source_count)
-     VALUES (@siteId, @query, @channel, @answer_preview, @latency_ms, @source_count)`
-  ).run({
-    siteId: params.siteId,
-    query: params.query,
-    channel: params.channel,
-    answer_preview: preview,
-    latency_ms: params.latencyMs ?? null,
-    source_count: params.sourceCount ?? null,
-  });
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      params.siteId,
+      params.query,
+      params.channel,
+      preview,
+      params.latencyMs ?? null,
+      params.sourceCount ?? null,
+    ]
+  );
 }
 
 /** @deprecated use logChatTurn — kept for scripts / backward compatibility */
-export function trackQuery(siteId: string, query: string): void {
-  logChatTurn({ siteId, query, channel: "text" });
+export async function trackQuery(siteId: string, query: string): Promise<void> {
+  await logChatTurn({ siteId, query, channel: "text" });
 }
 
-export function getTopQueries(siteId: string, limit = 20): Array<{ query: string; count: number }> {
-  return db
-    .prepare(
-      `SELECT query, COUNT(*) as count FROM chat_query
-       WHERE site_id = ?
-       GROUP BY query ORDER BY count DESC LIMIT ?`
-    )
-    .all(siteId, limit) as Array<{ query: string; count: number }>;
+export async function getTopQueries(
+  siteId: string,
+  limit = 20
+): Promise<Array<{ query: string; count: number }>> {
+  const { rows } = await pool.query(
+    `SELECT query, COUNT(*)::int AS count FROM chat_query
+     WHERE site_id = $1
+     GROUP BY query ORDER BY count DESC LIMIT $2`,
+    [siteId, limit]
+  );
+  return rows as Array<{ query: string; count: number }>;
 }
 
-export function deleteChatQueriesForSite(siteId: string): void {
-  db.prepare("DELETE FROM chat_query WHERE site_id = ?").run(siteId);
+export async function deleteChatQueriesForSite(siteId: string): Promise<void> {
+  await pool.query(`DELETE FROM chat_query WHERE site_id = $1`, [siteId]);
 }
 
-/** Remove conversation logs and generated FAQs when no owners remain for a site. */
-export function purgeSiteDerivedData(siteId: string): void {
-  deleteChatQueriesForSite(siteId);
-  db.prepare("DELETE FROM faq WHERE site_id = ?").run(siteId);
+export async function purgeSiteDerivedData(siteId: string): Promise<void> {
+  await deleteChatQueriesForSite(siteId);
+  await pool.query(`DELETE FROM faq WHERE site_id = $1`, [siteId]);
 }
 
-export function userOwnsSite(userId: string, siteId: string): boolean {
-  const row = db
-    .prepare("SELECT 1 as ok FROM site WHERE user_id = ? AND site_id = ? LIMIT 1")
-    .get(userId, siteId) as { ok: number } | undefined;
-  return !!row;
+export async function userOwnsSite(userId: string, siteId: string): Promise<boolean> {
+  const { rows } = await pool.query(
+    `SELECT 1 AS ok FROM site WHERE user_id = $1 AND site_id = $2 LIMIT 1`,
+    [userId, siteId]
+  );
+  return rows.length > 0;
 }
 
 export interface DashboardAnalytics {
@@ -510,11 +630,11 @@ function utcDayKeys(numDays: number): Array<{ date: string; dayLabel: string }> 
   return out;
 }
 
-export function getDashboardAnalytics(
+export async function getDashboardAnalytics(
   userId: string,
   filterSiteId?: string | null
-): DashboardAnalytics | null {
-  const sites = getSitesByUser(userId);
+): Promise<DashboardAnalytics | null> {
+  const sites = await getSitesByUser(userId);
   let siteIds = sites.map((s) => s.site_id);
   if (filterSiteId) {
     if (!siteIds.includes(filterSiteId)) return null;
@@ -522,15 +642,15 @@ export function getDashboardAnalytics(
   }
 
   const websiteCount = filterSiteId ? 1 : sites.length;
-  const pagesIndexed = (filterSiteId
-    ? sites.filter((s) => s.site_id === filterSiteId)
-    : sites
-  ).reduce((sum, s) => sum + (s.pages_indexed || 0), 0);
+  const pagesIndexed = (filterSiteId ? sites.filter((s) => s.site_id === filterSiteId) : sites).reduce(
+    (sum, s) => sum + (s.pages_indexed || 0),
+    0
+  );
 
   let faqCount = 0;
   for (const sid of siteIds) {
-    const row = db.prepare("SELECT COUNT(*) as c FROM faq WHERE site_id = ?").get(sid) as { c: number };
-    faqCount += row.c;
+    const { rows } = await pool.query(`SELECT COUNT(*)::int AS c FROM faq WHERE site_id = $1`, [sid]);
+    faqCount += (rows[0] as { c: number }).c;
   }
 
   const empty: DashboardAnalytics = {
@@ -551,124 +671,119 @@ export function getDashboardAnalytics(
 
   if (siteIds.length === 0) return empty;
 
-  const ph = siteIds.map(() => "?").join(",");
+  const ph = siteIds.map((_, i) => `$${i + 1}`).join(", ");
 
-  const totalTurns = db
-    .prepare(`SELECT COUNT(*) as c FROM chat_query WHERE site_id IN (${ph})`)
-    .get(...siteIds) as { c: number };
+  const totalTurns = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM chat_query WHERE site_id IN (${ph})`,
+    siteIds
+  );
+  const last7 = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM chat_query WHERE site_id IN (${ph})
+     AND created_at >= NOW() - INTERVAL '7 days'`,
+    siteIds
+  );
+  const thisMonth = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM chat_query WHERE site_id IN (${ph})
+     AND created_at >= date_trunc('month', CURRENT_TIMESTAMP)`,
+    siteIds
+  );
+  const avgRow = await pool.query(
+    `SELECT AVG(latency_ms) AS avg_ms FROM chat_query WHERE site_id IN (${ph}) AND latency_ms IS NOT NULL`,
+    siteIds
+  );
+  const withSources = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM chat_query WHERE site_id IN (${ph})
+     AND COALESCE(source_count, 0) > 0`,
+    siteIds
+  );
+  const voiceRow = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM chat_query WHERE site_id IN (${ph}) AND channel = 'voice'`,
+    siteIds
+  );
+  const textRow = await pool.query(
+    `SELECT COUNT(*)::int AS c FROM chat_query WHERE site_id IN (${ph}) AND channel = 'text'`,
+    siteIds
+  );
+  const volRows = await pool.query(
+    `SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS d, COUNT(*)::int AS c
+     FROM chat_query
+     WHERE site_id IN (${ph})
+       AND created_at >= NOW() - INTERVAL '7 days'
+     GROUP BY d`,
+    siteIds
+  );
 
-  const last7 = db
-    .prepare(
-      `SELECT COUNT(*) as c FROM chat_query WHERE site_id IN (${ph})
-       AND datetime(created_at) >= datetime('now', '-7 days')`
-    )
-    .get(...siteIds) as { c: number };
-
-  const thisMonth = db
-    .prepare(
-      `SELECT COUNT(*) as c FROM chat_query WHERE site_id IN (${ph})
-       AND datetime(created_at) >= datetime('now', 'start of month')`
-    )
-    .get(...siteIds) as { c: number };
-
-  const avgRow = db
-    .prepare(
-      `SELECT AVG(latency_ms) as avg_ms FROM chat_query WHERE site_id IN (${ph}) AND latency_ms IS NOT NULL`
-    )
-    .get(...siteIds) as { avg_ms: number | null };
-
-  const withSources = db
-    .prepare(
-      `SELECT COUNT(*) as c FROM chat_query WHERE site_id IN (${ph})
-       AND COALESCE(source_count, 0) > 0`
-    )
-    .get(...siteIds) as { c: number };
-
-  const voiceRow = db
-    .prepare(
-      `SELECT COUNT(*) as c FROM chat_query WHERE site_id IN (${ph}) AND channel = 'voice'`
-    )
-    .get(...siteIds) as { c: number };
-
-  const textRow = db
-    .prepare(
-      `SELECT COUNT(*) as c FROM chat_query WHERE site_id IN (${ph}) AND channel = 'text'`
-    )
-    .get(...siteIds) as { c: number };
-
-  const volRows = db
-    .prepare(
-      `SELECT strftime('%Y-%m-%d', created_at) as d, COUNT(*) as c
-       FROM chat_query
-       WHERE site_id IN (${ph})
-         AND datetime(created_at) >= datetime('now', '-7 days')
-       GROUP BY d`
-    )
-    .all(...siteIds) as Array<{ d: string; c: number }>;
-
-  const volMap = new Map(volRows.map((r) => [r.d, r.c]));
+  const volMap = new Map(
+    (volRows.rows as Array<{ d: string; c: number }>).map((r) => [r.d, r.c])
+  );
   const volumeByDay = utcDayKeys(7).map(({ date, dayLabel }) => ({
     date,
     dayLabel,
     count: volMap.get(date) ?? 0,
   }));
 
-  const topRows = db
-    .prepare(
-      `SELECT query,
-              COUNT(*) as cnt,
-              MAX(COALESCE(source_count, 0)) as max_src
-       FROM chat_query
-       WHERE site_id IN (${ph})
-       GROUP BY query
-       ORDER BY cnt DESC
-       LIMIT 15`
-    )
-    .all(...siteIds) as Array<{ query: string; cnt: number; max_src: number }>;
+  const topRows = await pool.query(
+    `SELECT query,
+            COUNT(*)::int AS cnt,
+            MAX(COALESCE(source_count, 0))::int AS max_src
+     FROM chat_query
+     WHERE site_id IN (${ph})
+     GROUP BY query
+     ORDER BY cnt DESC
+     LIMIT 15`,
+    siteIds
+  );
 
-  const recentRows = db
-    .prepare(
-      `SELECT id, site_id, query, answer_preview, created_at, channel, source_count
-       FROM chat_query
-       WHERE site_id IN (${ph})
-       ORDER BY id DESC
-       LIMIT 30`
-    )
-    .all(...siteIds) as Array<{
-      id: number;
-      site_id: string;
-      query: string;
-      answer_preview: string | null;
-      created_at: string;
-      channel: string;
-      source_count: number | null;
-    }>;
+  const recentRows = await pool.query(
+    `SELECT id, site_id, query, answer_preview, created_at, channel, source_count
+     FROM chat_query
+     WHERE site_id IN (${ph})
+     ORDER BY id DESC
+     LIMIT 30`,
+    siteIds
+  );
+
+  const tt = totalTurns.rows[0] as { c: number };
+  const l7 = last7.rows[0] as { c: number };
+  const tm = thisMonth.rows[0] as { c: number };
+  const ar = avgRow.rows[0] as { avg_ms: string | null };
+  const ws = withSources.rows[0] as { c: number };
+  const vr = voiceRow.rows[0] as { c: number };
+  const tr = textRow.rows[0] as { c: number };
+  const avgMs = ar.avg_ms != null ? parseFloat(ar.avg_ms) : null;
 
   return {
     totals: {
-      totalTurns: totalTurns.c,
-      last7Days: last7.c,
-      thisCalendarMonth: thisMonth.c,
-      avgLatencyMs:
-        avgRow.avg_ms != null && !Number.isNaN(avgRow.avg_ms)
-          ? Math.round(avgRow.avg_ms)
-          : null,
-      turnsWithSources: withSources.c,
-      voiceTurns: voiceRow.c,
-      textTurns: textRow.c,
+      totalTurns: tt.c,
+      last7Days: l7.c,
+      thisCalendarMonth: tm.c,
+      avgLatencyMs: avgMs != null && !Number.isNaN(avgMs) ? Math.round(avgMs) : null,
+      turnsWithSources: ws.c,
+      voiceTurns: vr.c,
+      textTurns: tr.c,
     },
     volumeByDay,
-    topQueries: topRows.map((r) => ({
+    topQueries: (topRows.rows as Array<{ query: string; cnt: number; max_src: number }>).map((r) => ({
       query: r.query,
       count: r.cnt,
       answered: r.max_src > 0,
     })),
-    recentTurns: recentRows.map((r) => ({
-      id: r.id,
+    recentTurns: (
+      recentRows.rows as Array<{
+        id: unknown;
+        site_id: string;
+        query: string;
+        answer_preview: string | null;
+        created_at: unknown;
+        channel: string;
+        source_count: number | null;
+      }>
+    ).map((r) => ({
+      id: numId(r.id),
       siteId: r.site_id,
       query: r.query,
       answerPreview: r.answer_preview,
-      createdAt: r.created_at,
+      createdAt: toIso(r.created_at),
       channel: r.channel,
       sourceCount: r.source_count,
     })),
@@ -676,9 +791,6 @@ export function getDashboardAnalytics(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Social handles
-// ---------------------------------------------------------------------------
 export interface SocialHandles {
   instagram?: string;
   twitter?: string;
@@ -686,21 +798,30 @@ export interface SocialHandles {
   facebook?: string;
 }
 
-export function getSocialHandles(siteId: string): SocialHandles {
-  const row = db
-    .prepare(
-      `SELECT social_handles FROM site
-       WHERE site_id = ? AND social_handles IS NOT NULL AND social_handles != ''
-       LIMIT 1`
-    )
-    .get(siteId) as { social_handles: string | null } | undefined;
+export async function getSocialHandles(siteId: string): Promise<SocialHandles> {
+  const { rows } = await pool.query(
+    `SELECT social_handles FROM site
+     WHERE site_id = $1 AND social_handles IS NOT NULL AND social_handles <> ''
+     LIMIT 1`,
+    [siteId]
+  );
+  const row = rows[0] as { social_handles: string | null } | undefined;
   if (!row?.social_handles) return {};
-  try { return JSON.parse(row.social_handles) as SocialHandles; } catch { return {}; }
+  try {
+    return JSON.parse(row.social_handles) as SocialHandles;
+  } catch {
+    return {};
+  }
 }
 
-export function upsertSocialHandles(siteId: string, userId: string, handles: SocialHandles): boolean {
-  const result = db
-    .prepare(`UPDATE site SET social_handles = @handles WHERE site_id = @siteId AND user_id = @userId`)
-    .run({ handles: JSON.stringify(handles), siteId, userId });
-  return result.changes > 0;
+export async function upsertSocialHandles(
+  siteId: string,
+  userId: string,
+  handles: SocialHandles
+): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE site SET social_handles = $1 WHERE site_id = $2 AND user_id = $3`,
+    [JSON.stringify(handles), siteId, userId]
+  );
+  return (result.rowCount ?? 0) > 0;
 }

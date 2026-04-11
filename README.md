@@ -15,8 +15,8 @@ Visitors often struggle to find concrete information (deadlines, fees, program d
 ### What NavBot does
 
 - **Crawls** a website (same hostname), extracts readable text (including structured content such as tables), and **chunks** it for search.
-- **Stores** embeddings in **ChromaDB** (per-site collections) so questions can be matched **semantically** to the right passages.
-- **Answers** using **Sarvam AI** only from retrieved context, with **sources** (URLs) attached to the response.
+- **Stores** embeddings in **Pinecone** (one index, per-site namespaces) so questions can be matched **semantically** to the right passages.
+- **Answers** using **Google Gemini** only from retrieved context, with **sources** (URLs) attached to the response (agentic retrieval, optional LLM judge, and code execution for math when relevant).
 - **Widgets** can be dropped on any page via a **script tag**; the dashboard generates the snippet and theme configuration.
 - **Dashboard** features include site management, integration instructions, analytics-style views (volume, top queries, recent turns), **generated FAQs** with optional admin-edited answers that influence live replies when still “fresh” relative to indexing.
 
@@ -33,8 +33,8 @@ Visitors often struggle to find concrete information (deadlines, fees, program d
 
 - **Node.js** (LTS recommended)
 - **pnpm** (`pnpm@8.x` matches the repo; see root `package.json`)
-- For local Chroma (if not using Chroma Cloud): a running **Chroma** instance (default client URL `http://localhost:8000` unless overridden)
-- **Sarvam API key** for LLM (and optionally **OpenAI API key** for embeddings—see below)
+- A **Pinecone** account and **serverless dense index** (cosine metric; dimension must match the embedding model, default **1024** for `llama-text-embed-v2`)
+- **Google API key** (`GOOGLE_API_KEY` or `GEMINI_API_KEY`) for Gemini LLM, STT, and TTS (vectors use Pinecone Inference, not Gemini)
 
 ### Clone and install
 
@@ -49,11 +49,11 @@ pnpm install
 Configure each app that you run. Typical local development:
 
 
-| App                             | File                  | Variables (summary)                                                                                                                                                                            |
-| ------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Auth server** (`apps/server`) | `.env`                | `CORS_ORIGIN` (e.g. `http://localhost:5173`); optional `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` for OAuth                                        |
-| **API** (`apps/api`)            | `.env`                | `SARVAM_API_KEY` (chat/voice); optional `SARVAM_CHAT_MODEL`; local Chroma `CHROMA_URL` or Cloud `CHROMA_API_KEY` + `CHROMA_TENANT` + `CHROMA_DATABASE`; optional `OPENAI_API_KEY` (embeddings) |
-| **Web** (`apps/web`)            | `.env` / `.env.local` | `VITE_AUTH_URL` `VITE_API_URL` `VITE_WIDGET_SCRIPT_URL` (URL where `chat-widget.iife.js` is served in dev/prod)                                                                                |
+| App                             | File                  | Variables (summary)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Auth server** (`apps/server`) | `.env`                | `CORS_ORIGIN` (e.g. `http://localhost:5173`); optional `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` for OAuth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| **API** (`apps/api`)            | `.env`                | `**PINECONE_API_KEY`**, `**PINECONE_INDEX**`. Optional: `PINECONE_EMBEDDING_MODEL` (default `llama-text-embed-v2`), `PINECONE_EMBEDDING_DIMENSION` (default `1024`, must match index for vector upserts). `**PINECONE_UPSERT_MODE**`: omit or `auto` (**default**) — NavBot calls Pinecone `describeIndex` and picks `records` (integrated embedding indexes) vs `vectors` (plain dense). Set `records` or `vectors` to override. `**PINECONE_EMBED_TEXT_FIELD`**: optional override; with `auto`, taken from index `fieldMap` when present (fallback `chunk_text`). `**GOOGLE_API_KEY**` (or `GEMINI_API_KEY`). Optional: `GEMINI_CHAT_MODEL`, `GEMINI_PLANNER_MODEL`, `GEMINI_JUDGE_MODEL`, `GEMINI_STT_MODEL`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE`, `AGENTIC_RAG_MAX_ROUNDS`, `ENABLE_LLM_JUDGE`, `ENABLE_CODE_EXECUTION`. **SPAs / React:** `NAVBOT_BROWSER_CRAWL`=`auto` (default) | `always` | `off`; run once `pnpm --filter api playwright:install`. Optional `NAVBOT_BROWSER_TIMEOUT_MS`, `NAVBOT_BROWSER_SETTLE_MS`. |
+| **Web** (`apps/web`)            | `.env` / `.env.local` | `VITE_AUTH_URL` `VITE_API_URL` `VITE_WIDGET_SCRIPT_URL` (URL where `chat-widget.iife.js` is served in dev/prod)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 
 ### Run the stack (development)
@@ -95,9 +95,9 @@ pnpm --filter @repo/chat-widget build
 
 **Auth server (`apps/server`):** Implements **better-auth** on top of the same **SQLite** file as the API (`navbot.db` at the repo root). It issues and validates sessions for the web app. User identifiers from auth are passed to the API (today often as `userId` query parameters from the dashboard) to scope site lists, themes, sync, and analytics.
 
-**NavBot API (**`apps/api`**):** Single Express application that orchestrates **crawling**, **writes and reads application tables** in SQLite, **queries and updates** the **ChromaDB** collection for each `siteId`, and calls **Sarvam** for LLM chat, speech-to-text, and text-to-speech. Chroma uses OpenAI **text-embedding-3-small** for embeddings; the browser never calls OpenAI directly.
+**NavBot API (**`apps/api`**):** Single Express application that orchestrates **crawling**, **writes and reads application tables** in SQLite, **queries and updates** vectors in **Pinecone** (namespace `site_<siteId>` per site) using **Pinecone Inference** embeddings (default `**llama-text-embed-v2`**), and calls **Google Gemini** for LLM chat, speech-to-text, and text-to-speech. The browser never calls these APIs directly.
 
-**Data flow for a typical chat:** Widget sends `POST /api/chat` with `siteId` and `message`. The API may return an admin-approved FAQ answer from SQLite if it matches the question and is not stale; otherwise it **embeds/expands the query**, **retrieves chunks** from the site’s Chroma collection, builds context, calls **Sarvam** for a completion, formats the answer (including sources), and **logs** a row to `chat_query` in SQLite.
+**Data flow for a typical chat:** Widget sends `POST /api/chat` with `siteId` and `message`. The API may return an admin-approved FAQ answer from SQLite if it matches the question and is not stale; otherwise it runs **agentic retrieval** (planner + optional refiner), **retrieves chunks** from the site’s Pinecone namespace, builds context, calls **Gemini** for a completion (with optional **code execution** for math), runs an optional **LLM judge** pass, formats the answer (including sources), and **logs** a row to `chat_query` in SQLite.
 
 **Background freshness:** `GET /api/sites/:siteId/ping` (used when the widget loads) triggers **non-blocking** sitemap sync work so indexed content can stay aligned with the live site without blocking the UI.
 
@@ -125,37 +125,34 @@ pnpm --filter @repo/chat-widget build
 
 **How it is used:** The API reads/writes sites and analytics; the auth server authenticates users; user IDs from auth tie dashboard requests (e.g. `?userId=`) to rows in `site`.
 
-### ChromaDB (vector store)
+### Pinecone (vector store)
 
 **Purpose:** Semantic retrieval for RAG.
 
-- **Client:** `chromadb` npm package (`apps/api/src/services/vectorstore.ts`).
-- **Modes:**
-  - **Local:** `ChromaClient` with `CHROMA_URL` (default `http://localhost:8000`).
-  - **Cloud:** `CloudClient` when `CHROMA_API_KEY`, `CHROMA_TENANT`, and `CHROMA_DATABASE` are set.
+- **Client:** `@pinecone-database/pinecone` (`apps/api/src/services/vectorstore.ts`).
+- **Index:** One **dense** serverless index (name from `**PINECONE_INDEX`**), **cosine** metric, dimension matching `**PINECONE_EMBEDDING_DIMENSION`** (default **1024** for `**llama-text-embed-v2`**).
 
-**Collections:** One per site, named with prefix `site_` + `siteId` (e.g. hostname-based id).
+**Namespaces:** One per site, named `site_` + `siteId` (same isolation idea as the old per-site Chroma collections).
 
-**Embeddings:**
+**Embeddings:** Default (**`PINECONE_UPSERT_MODE` unset or `auto`**) uses **`describeIndex`**: integrated indexes (with `embed` in the API response) use **`upsertRecords`**; others use **Inference + vector upsert**. **Reindex** all sites after changing model or index settings.
 
-- If `**OPENAI_API_KEY`** is set, the API configures Chroma to use **OpenAI `text-embedding-3-small`** for upserts and queries.
-- Otherwise Chroma falls back to its **default** embedding behavior (see `apps/api/src/services/vectorstore.ts`).
+**Console “no records”:** Vectors are stored under namespace `**site_<siteId>`** (usually `site_` + hostname, e.g. `site_www.example.com`). In the index **Browser**, open the **namespace** selector and choose that name—not the empty/default namespace.
 
 **Pipeline:**
 
-1. **Upsert:** Crawled pages → chunking (~900 characters, overlap) → batch upsert with metadata (`siteId`, `url`, `title`, chunk indices).
-2. **Query:** User message (plus optional query expansion) → embedding search → top-K chunks → dedupe by URL → context string for the LLM.
+1. **Upsert:** Crawled pages → chunking (~900 characters, overlap) → either Pinecone **`upsertRecords`** (integrated index) or Inference embed + **`upsert`** with metadata (`siteId`, `url`, `title`, chunk indices, and passage text for RAG).
+2. **Query:** User message → **agentic retrieval** (rule expansion + Gemini planner / refiner) → embed queries → vector search → top-K chunks → dedupe by URL → context string for the LLM.
 
-### Sarvam AI (LLM + voice)
+### Google Gemini (LLM + voice)
 
-**Purpose:** Answer generation and optional speech features.
+**Purpose:** Answer generation, speech, and optional reasoning tools.
 
-- **Chat completions** for RAG answers (`apps/api/src/services/rag.ts`).
-- **Speech-to-text** and **text-to-speech** for voice flows (`apps/api/src/routes/chat.ts` uses transcribe/TTS from the RAG service layer).
+- **Chat** for RAG answers (`apps/api/src/services/rag.ts`); **agentic retrieval** (`agentic-retrieval.ts`); optional **LLM judge**; optional **code execution** for math.
+- **Speech-to-text** (multimodal `generateContent` on audio) and **native TTS** (`apps/api/src/routes/chat.ts`).
 
-**Configuration:** `SARVAM_API_KEY`; optional `SARVAM_CHAT_MODEL` (default `sarvam-m`).
+**Configuration:** `GOOGLE_API_KEY` or `GEMINI_API_KEY`; model overrides via `GEMINI_*_MODEL` env vars (defaults target free-tier models such as `gemini-2.5-flash` and `gemini-2.5-flash-lite`).
 
-**Behavior (summary):** Retrieve context from Chroma → build a strict “answer only from context” system prompt → call Sarvam with short history → return answer and source list. FAQ **user overrides** can short-circuit RAG when the saved answer is not considered stale vs. latest indexing (see `getFaqUserAnswerForQuestion` / `rag.ts`).
+**Behavior (summary):** Retrieve context from Pinecone → grounded system prompt → Gemini completion → optional judge → return answer and source list. FAQ **user overrides** can short-circuit RAG when the saved answer is not considered stale vs. latest indexing (see `getFaqUserAnswerForQuestion` / `rag.ts`).
 
 ### Endpoint reference (by layer)
 
@@ -165,18 +162,18 @@ Base URL for the NavBot API is typically `http://localhost:3001` in development.
 
 #### HTTP + SQLite (`navbot.db`) — sites, themes, analytics, FAQs, logging
 
-These routes persist or read **application state** in SQLite (and may trigger work that also touches Chroma—see the next sections).
+These routes persist or read **application state** in SQLite (and may trigger work that also touches Pinecone—see the next sections).
 
 
 | Method   | Path                               | Query / body                              | Purpose                                                                                                                                           | SQLite (primary)                                                                                |
 | -------- | ---------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `GET`    | `/api/sites`                       | `userId` (required)                       | List all sites registered to that user (dashboard navbar, website list).                                                                          | Reads `site`.                                                                                   |
 | `GET`    | `/api/sites/dashboard-stats`       | `userId` (required), `siteId` (optional)  | Aggregated analytics: totals, 7-day volume, top queries, recent turns, context counts. Omit `siteId` to aggregate across all of the user’s sites. | Reads `chat_query`, `site`, `faq` counts. Returns `403` if `siteId` is not owned by user.       |
-| `DELETE` | `/api/sites/:siteId`               | `userId` (required)                       | Removes the user’s row for that site; if no users remain for `siteId`, may purge Chroma collection and derived data.                              | Deletes/updates `site`, `faq`, `chat_query`, `page_lastmod` as implemented in `db.ts` / routes. |
+| `DELETE` | `/api/sites/:siteId`               | `userId` (required)                       | Removes the user’s row for that site; if no users remain for `siteId`, may purge Pinecone namespace and derived data.                             | Deletes/updates `site`, `faq`, `chat_query`, `page_lastmod` as implemented in `db.ts` / routes. |
 | `GET`    | `/api/sites/:siteId/theme`         | `userId` (required)                       | Load saved widget theme for the integration panel.                                                                                                | Reads `site.widget_theme`.                                                                      |
 | `PUT`    | `/api/sites/:siteId/theme`         | `userId` (required), JSON **WidgetTheme** | Save widget colors, fonts, opacity, etc.                                                                                                          | Updates `site.widget_theme`.                                                                    |
 | `GET`    | `/api/sites/:siteId/widget-config` | —                                         | **Public** (no `userId`): returns `siteId` + theme JSON for the embeddable widget on customer pages.                                              | Reads `site.widget_theme` (first matching `site_id`).                                           |
-| `GET`    | `/api/sites/:siteId/faqs`          | `includeAnswers=1` or `true` (optional)   | Returns FAQ list; generates and stores FAQs if empty. With `includeAnswers`, includes generated/admin answers and metadata for dashboard.         | Reads/writes `faq`; may invoke LLM path (see Sarvam table below).                               |
+| `GET`    | `/api/sites/:siteId/faqs`          | `includeAnswers=1` or `true` (optional)   | Returns FAQ list; generates and stores FAQs if empty. With `includeAnswers`, includes generated/admin answers and metadata for dashboard.         | Reads/writes `faq`; may invoke Gemini (see table below).                                        |
 | `POST`   | `/api/sites/:siteId/faqs/refresh`  | —                                         | Regenerates FAQ questions (and answers per current implementation).                                                                               | Replaces `faq` rows for site.                                                                   |
 | `PATCH`  | `/api/sites/:siteId/faqs/:faqId`   | JSON `{ "answer": "..." }`                | Save **user-edited** canonical answer for that FAQ (dashboard feedback).                                                                          | Updates `faq.user_answer`, `user_answer_updated_at`.                                            |
 | `GET`    | `/api/sites/:siteId/ping`          | —                                         | Quick `ok` response; kicks off **background** sitemap sync (fire-and-forget).                                                                     | Minimal direct SQL; sync updates `page_lastmod` and related state indirectly.                   |
@@ -184,37 +181,37 @@ These routes persist or read **application state** in SQLite (and may trigger wo
 
 ---
 
-#### HTTP + ChromaDB — vector index (embeddings and semantic search)
+#### HTTP + Pinecone — vector index (embeddings and semantic search)
 
-Indexing and sync routes **write** chunks and embeddings to the Chroma collection `site_<siteId>`. Chat **reads** that collection during RAG unless an FAQ override applies.
-
-
-| Method  | Path                         | Query / body                                   | Purpose                                                                                                                                                   | Chroma                                                                    |
-| ------- | ---------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `POST`  | `/api/sites`                 | JSON `{ url, userId?, siteId? }`               | First-time or reuse: crawl site (or attach user to existing index), chunk pages, **upsert** vectors.                                                      | **Upsert** into `site_<siteId>`.                                          |
-| `PATCH` | `/api/sites/:siteId/pages`   | JSON `{ urls: string[] }`                      | Recrawl only listed URLs, replace those pages’ chunks in the index.                                                                                       | Delete old chunks for URLs, **upsert** new chunks.                        |
-| `POST`  | `/api/sites/:siteId/reindex` | JSON `{ url, userId? }`                        | Full re-crawl and replace vectors for the site.                                                                                                           | **Replace** collection content for that site (per `vectorstore` options). |
-| `GET`   | `/api/sites/:siteId/sync`    | `userId` (required), `preview=true` (optional) | Without `preview`: SQLite sync **stats** only (tracked URLs, last sync). With `preview`: compute what would change (sitemap or BFS) **without** applying. | Preview does not write Chroma; stats are SQLite-centric.                  |
-| `POST`  | `/api/sites/:siteId/sync`    | `userId` (required), `full=true` (optional)    | Run **smart sync**: update/remove/add chunks for changed pages; may use sitemap lastmod or full crawl if forced.                                          | **Upsert** / **delete** chunks as pages change.                           |
+Indexing and sync routes **write** chunks and embeddings to the Pinecone namespace `site_<siteId>`. Chat **reads** that namespace during RAG unless an FAQ override applies.
 
 
-**Note:** `POST /api/chat` and `POST /api/chat/voice` also **query** Chroma during RAG (see next table).
+| Method  | Path                         | Query / body                                   | Purpose                                                                                                                                                   | Pinecone                                                                 |
+| ------- | ---------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `POST`  | `/api/sites`                 | JSON `{ url, userId?, siteId? }`               | First-time or reuse: crawl site (or attach user to existing index), chunk pages, **upsert** vectors.                                                      | **Upsert** into namespace `site_<siteId>`.                               |
+| `PATCH` | `/api/sites/:siteId/pages`   | JSON `{ urls: string[] }`                      | Recrawl only listed URLs, replace those pages’ chunks in the index.                                                                                       | Delete old chunks for URLs, **upsert** new chunks.                       |
+| `POST`  | `/api/sites/:siteId/reindex` | JSON `{ url, userId? }`                        | Full re-crawl and replace vectors for the site.                                                                                                           | **Replace** namespace content for that site (per `vectorstore` options). |
+| `GET`   | `/api/sites/:siteId/sync`    | `userId` (required), `preview=true` (optional) | Without `preview`: SQLite sync **stats** only (tracked URLs, last sync). With `preview`: compute what would change (sitemap or BFS) **without** applying. | Preview does not write Pinecone; stats are SQLite-centric.               |
+| `POST`  | `/api/sites/:siteId/sync`    | `userId` (required), `full=true` (optional)    | Run **smart sync**: update/remove/add chunks for changed pages; may use sitemap lastmod or full crawl if forced.                                          | **Upsert** / **delete** chunks as pages change.                          |
+
+
+**Note:** `POST /api/chat` and `POST /api/chat/voice` also **query** Pinecone during RAG (see next table).
 
 ---
 
-#### HTTP + Sarvam AI (LLM, STT, TTS) — and optional OpenAI embeddings
+#### HTTP + Google Gemini (LLM, STT, TTS)
 
-Sarvam is invoked from the API for **text generation**, **speech-to-text**, and **text-to-speech**. OpenAI is used **only** for embeddings inside `vectorstore.ts` when configured—not as a separate public HTTP API.
+The API calls **Gemini** for **text generation**, **speech-to-text**, and **text-to-speech**. **Embeddings** for retrieval are generated by **Pinecone Inference**, not Gemini.
 
 
-| Method | Path                   | Query / body                                                               | Purpose                                                                                                                                                          | Model / service                                                                                     |
-| ------ | ---------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| —      | *(internal)*           | —                                                                          | **FAQ generation** (`faq.ts`): produce FAQ JSON from retrieved snippets.                                                                                         | Sarvam chat completion.                                                                             |
-| —      | *(internal)*           | —                                                                          | **FAQ answer preview** when `includeAnswers` and no stored preview: runs same RAG pipeline as chat.                                                              | Sarvam + Chroma.                                                                                    |
-| `POST` | `/api/chat`            | JSON `{ siteId, message, history? }`                                       | **RAG chat:** optional SQLite FAQ match (fresh user answer) → else Chroma retrieval → Sarvam completion → **logs** query, latency, source count, answer preview. | Default chat model `sarvam-m` (override `SARVAM_CHAT_MODEL`). **SQLite:** insert into `chat_query`. |
-| `POST` | `/api/chat/voice`      | `multipart/form-data`: `audio`, `siteId`, optional `history` (JSON string) | Transcribe audio with Sarvam STT, then same RAG path as text chat; **logs** turn when transcript present.                                                        | Sarvam **saaras** STT + chat model. **SQLite:** insert into `chat_query`.                           |
-| `POST` | `/api/chat/tts`        | JSON `{ text }`                                                            | Convert assistant text to **base64 WAV** for the widget “listen” control.                                                                                        | Sarvam **bulbul** TTS. No SQLite write.                                                             |
-| —      | *(during crawl/index)* | —                                                                          | Embedding text chunks when storing in Chroma.                                                                                                                    | **OpenAI** `text-embedding-3-small` if `OPENAI_API_KEY` set; else Chroma default embedder.          |
+| Method | Path                   | Query / body                                                               | Purpose                                                                                                                                                                                                      | Model / service                                                                          |
+| ------ | ---------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| —      | *(internal)*           | —                                                                          | **FAQ generation** (`faq.ts`): produce FAQ JSON from retrieved snippets.                                                                                                                                     | Gemini chat (default `gemini-2.5-flash`).                                                |
+| —      | *(internal)*           | —                                                                          | **FAQ answer preview** when `includeAnswers` and no stored preview: runs same RAG pipeline as chat.                                                                                                          | Gemini + Pinecone.                                                                       |
+| `POST` | `/api/chat`            | JSON `{ siteId, message, history? }`                                       | **RAG chat:** optional SQLite FAQ match (fresh user answer) → else agentic Pinecone retrieval → Gemini completion (optional code execution + judge) → **logs** query, latency, source count, answer preview. | Default `GEMINI_CHAT_MODEL` or `gemini-2.5-flash`. **SQLite:** insert into `chat_query`. |
+| `POST` | `/api/chat/voice`      | `multipart/form-data`: `audio`, `siteId`, optional `history` (JSON string) | Transcribe audio with Gemini multimodal STT, then same RAG path as text chat; **logs** turn when transcript present.                                                                                         | Default `GEMINI_STT_MODEL` or `gemini-2.5-flash`. **SQLite:** insert into `chat_query`.  |
+| `POST` | `/api/chat/tts`        | JSON `{ text }`                                                            | Convert assistant text to **base64 WAV** for the widget “listen” control.                                                                                                                                    | Gemini native TTS (default `gemini-2.5-flash-preview-tts`). No SQLite write.             |
+| —      | *(during crawl/index)* | —                                                                          | Embedding text chunks when storing in Pinecone.                                                                                                                                                              | **Pinecone Inference** (`PINECONE_EMBEDDING_MODEL`, default `llama-text-embed-v2`).      |
 
 
 ---
@@ -222,9 +219,9 @@ Sarvam is invoked from the API for **text generation**, **speech-to-text**, and 
 #### HTTP + external website fetch (no NavBot DB) — theme helper
 
 
-| Method | Path          | Query / body                 | Purpose                                                              | Backend behavior                                                                                       |
-| ------ | ------------- | ---------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `GET`  | `/api/colors` | `url` (required, http/https) | Suggest a color palette for the widget from the customer’s page CSS. | Server **fetches** the URL (and linked stylesheets via `@repo/color-extractor`); no SQLite/Chroma/LLM. |
+| Method | Path          | Query / body                 | Purpose                                                              | Backend behavior                                                                                         |
+| ------ | ------------- | ---------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/colors` | `url` (required, http/https) | Suggest a color palette for the widget from the customer’s page CSS. | Server **fetches** the URL (and linked stylesheets via `@repo/color-extractor`); no SQLite/Pinecone/LLM. |
 
 
 ---
@@ -263,13 +260,14 @@ The auth app does **not** expose the same `/api/sites` or `/api/chat` routes. Al
 ### Other notable libraries
 
 
-| Library                  | Role                                                       |
-| ------------------------ | ---------------------------------------------------------- |
-| **Cheerio / domhandler** | HTML parsing and structured text extraction in the crawler |
-| **node-fetch**           | Fetching pages during crawl                                |
-| **multer**               | Multipart audio for voice endpoint                         |
-| **node-cron**            | Scheduled / background sync hooks (`auto-sync`)            |
-| **swagger-ui-express**   | Serves OpenAPI spec as `/api-docs`                         |
+| Library                         | Role                                                         |
+| ------------------------------- | ------------------------------------------------------------ |
+| **Cheerio / domhandler**        | HTML parsing and structured text extraction in the crawler   |
+| **node-fetch**                  | Fetching pages during crawl                                  |
+| **multer**                      | Multipart audio for voice endpoint                           |
+| **@pinecone-database/pinecone** | Vector index + Pinecone Inference embeddings (`vectorstore`) |
+| **node-cron**                   | Scheduled / background sync hooks (`auto-sync`)              |
+| **swagger-ui-express**          | Serves OpenAPI spec as `/api-docs`                           |
 
 
 ---
@@ -279,7 +277,7 @@ The auth app does **not** expose the same `/api/sites` or `/api/chat` routes. Al
 ```text
 NavBot/
 ├── apps/
-│   ├── api/                 # Express API: crawl, RAG, Chroma, SQLite app data, OpenAPI
+│   ├── api/                 # Express API: crawl, RAG, Pinecone, SQLite app data, OpenAPI
 │   │   └── src/
 │   │       ├── index.ts           # App entry, routers, Swagger
 │   │       ├── routes/            # sites, chat, sync, colors
@@ -321,7 +319,7 @@ NavBot/
 
 ## 5. Security and production notes (brief)
 
-- Treat `SARVAM_API_KEY`, **Chroma**, and **OAuth** secrets as production secrets (env or secret manager).
+- Treat `GOOGLE_API_KEY` / `GEMINI_API_KEY`, `**PINECONE_API_KEY`**, and **OAuth** secrets as production secrets (env or secret manager).
 - Restrict **API CORS** and validate **site ownership** on sensitive routes in production (the dashboard currently passes `userId` query params—harden with session-derived identity on the server).
 - Serve the **widget** over **HTTPS**; set `apiBase` to your public API URL.
 - **SQLite** on a single file suits one VM or container with persistent disk; for horizontal scale or managed ops, plan a move to **Postgres** (and optionally managed vector search).

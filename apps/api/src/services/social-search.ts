@@ -129,7 +129,7 @@ export async function searchSocialMedia(
 ): Promise<SocialSearchResult[]> {
   if (!SERPER_API_KEY) return [];
 
-  const handles = getSocialHandles(siteId);
+  const handles = await getSocialHandles(siteId);
   const configuredPlatforms = Object.entries(handles).filter(([, v]) => v?.trim());
   if (configuredPlatforms.length === 0) return [];
 

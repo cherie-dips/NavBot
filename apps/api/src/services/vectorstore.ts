@@ -1,64 +1,224 @@
-import { ChromaClient, CloudClient, IncludeEnum, OpenAIEmbeddingFunction } from "chromadb";
+import { Pinecone } from "@pinecone-database/pinecone";
 import crypto from "crypto";
 import type { CrawledPage } from "./crawler";
 
 // ---------------------------------------------------------------------------
-// Client setup — Cloud or local ChromaDB
+// Pinecone client + embedding model (Inference API)
 // ---------------------------------------------------------------------------
-const useChromaCloud =
-  process.env.CHROMA_API_KEY &&
-  process.env.CHROMA_TENANT &&
-  process.env.CHROMA_DATABASE;
+const PINECONE_API_KEY = process.env.PINECONE_API_KEY?.trim() ?? "";
+const PINECONE_INDEX = process.env.PINECONE_INDEX?.trim() ?? "";
+const PINECONE_EMBEDDING_MODEL =
+  process.env.PINECONE_EMBEDDING_MODEL?.trim() || "llama-text-embed-v2";
+const PINECONE_EMBEDDING_DIMENSION = (() => {
+  const n = parseInt(process.env.PINECONE_EMBEDDING_DIMENSION ?? "1024", 10);
+  return Number.isFinite(n) && n > 0 ? n : 1024;
+})();
 
-function getCloudHost(): string {
-  const raw = process.env.CHROMA_HOST || "api.trychroma.com";
-  return raw.startsWith("http") ? raw : `https://${raw}`;
+/**
+ * `vectors` | `records` = force upsert style.
+ * `auto` (default) = call describeIndex: if the index has `embed`, use `upsertRecords` (console “with embedding model” indexes).
+ */
+const PINECONE_UPSERT_MODE_ENV = process.env.PINECONE_UPSERT_MODE?.trim().toLowerCase() ?? "";
+
+const ENV_EMBED_TEXT_FIELD =
+  process.env.PINECONE_EMBED_TEXT_FIELD?.trim() || "chunk_text";
+
+/** Mutable: resolved from index `fieldMap` when mode is auto+records. */
+let activeEmbedTextField = ENV_EMBED_TEXT_FIELD;
+
+let _upsertConfigCache: { mode: "vectors" | "records"; textField: string } | null =
+  null;
+
+/**
+ * Pick vector upsert vs integrated upsertRecords and the text field name on records.
+ */
+async function resolveUpsertConfig(): Promise<{
+  mode: "vectors" | "records";
+  textField: string;
+}> {
+  if (_upsertConfigCache) {
+    activeEmbedTextField = _upsertConfigCache.textField;
+    return _upsertConfigCache;
+  }
+
+  if (PINECONE_UPSERT_MODE_ENV === "records") {
+    _upsertConfigCache = { mode: "records", textField: ENV_EMBED_TEXT_FIELD };
+    activeEmbedTextField = ENV_EMBED_TEXT_FIELD;
+    return _upsertConfigCache;
+  }
+  if (PINECONE_UPSERT_MODE_ENV === "vectors") {
+    _upsertConfigCache = { mode: "vectors", textField: ENV_EMBED_TEXT_FIELD };
+    activeEmbedTextField = ENV_EMBED_TEXT_FIELD;
+    return _upsertConfigCache;
+  }
+
+  // auto (default when unset or "auto")
+  const desc = await getPinecone().describeIndex(PINECONE_INDEX);
+  let mode: "vectors" | "records" = desc.embed ? "records" : "vectors";
+  let textField = ENV_EMBED_TEXT_FIELD;
+
+  if (desc.embed?.fieldMap && typeof desc.embed.fieldMap === "object") {
+    const fm = desc.embed.fieldMap as Record<string, unknown>;
+    const vals = Object.values(fm).filter((v): v is string => typeof v === "string");
+    if (vals.length > 0) {
+      textField = vals[0]!;
+    }
+  }
+
+  _upsertConfigCache = { mode, textField };
+  activeEmbedTextField = textField;
+  console.log(
+    `[vectorstore] Index "${PINECONE_INDEX}" describeIndex → upsert mode="${mode}"` +
+      (mode === "records" ? `, embed text field="${textField}"` : "") +
+      (desc.embed?.model ? `, index model=${desc.embed.model}` : "")
+  );
+  return _upsertConfigCache;
 }
 
-const client = useChromaCloud
-  ? new CloudClient({
-      apiKey: process.env.CHROMA_API_KEY!,
-      cloudHost: getCloudHost(),
-      cloudPort: process.env.CHROMA_CLOUD_PORT || "443",
-      tenant: process.env.CHROMA_TENANT!,
-      database: process.env.CHROMA_DATABASE!,
-    })
-  : new ChromaClient({
-      path: process.env.CHROMA_URL || "http://localhost:8000",
-    });
+const UPSERT_RECORDS_BATCH = 64;
 
-// ---------------------------------------------------------------------------
-// Embedding function
-// Use text-embedding-3-small (OpenAI) — far better semantic retrieval than
-// ChromaDB's default. Falls back gracefully if key is absent.
-//
-// Alternative: swap for a local "nomic-embed-text" via Ollama for zero cost.
-// ---------------------------------------------------------------------------
-const embedder = process.env.OPENAI_API_KEY
-  ? new OpenAIEmbeddingFunction({
-      openai_api_key: process.env.OPENAI_API_KEY,
-      openai_model: "text-embedding-3-small", // cheap + accurate
-    })
-  : undefined; // ChromaDB default embedding when no key provided
+function requirePineconeConfig(): void {
+  if (!PINECONE_API_KEY) {
+    throw new Error("PINECONE_API_KEY is required for the vector store.");
+  }
+  if (!PINECONE_INDEX) {
+    throw new Error("PINECONE_INDEX is required for the vector store.");
+  }
+}
+
+let _pinecone: Pinecone | null = null;
+
+function getPinecone(): Pinecone {
+  requirePineconeConfig();
+  if (!_pinecone) {
+    _pinecone = new Pinecone({ apiKey: PINECONE_API_KEY });
+  }
+  return _pinecone;
+}
+
+function index() {
+  return getPinecone().index(PINECONE_INDEX);
+}
+
+function siteNamespace(siteId: string): string {
+  return `site_${siteId}`;
+}
+
+function nsIndex(siteId: string) {
+  return index().namespace(siteNamespace(siteId));
+}
+
+/** Record count in Pinecone for this site’s namespace (0 if missing or on error). */
+export async function pineconeSiteNamespaceRecordCount(
+  siteId: string
+): Promise<number> {
+  try {
+    requirePineconeConfig();
+    const stats = await getPinecone().index(PINECONE_INDEX).describeIndexStats();
+    const ns = siteNamespace(siteId);
+    const raw = stats.namespaces?.[ns]?.recordCount;
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    if (typeof raw === "string") {
+      const n = parseInt(raw, 10);
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+  } catch (err) {
+    console.warn(
+      `[vectorstore] describeIndexStats failed for namespace "${siteNamespace(siteId)}":`,
+      err
+    );
+    return 0;
+  }
+}
+
+/** Stable short hash for vector IDs and list-by-prefix (per URL). */
+function urlHash(url: string): string {
+  return crypto.createHash("sha256").update(url).digest("hex").slice(0, 16);
+}
+
+/** Deterministic ID: avoids prefix collisions between chunk indices. */
+function chunkVectorId(url: string, chunkIndex: number): string {
+  return `${urlHash(url)}_${String(chunkIndex).padStart(6, "0")}`;
+}
+
+async function embedTexts(
+  texts: string[],
+  inputType: "query" | "passage"
+): Promise<number[][]> {
+  if (texts.length === 0) return [];
+
+  const params: Record<string, string> = {
+    inputType,
+    truncate: "END",
+  };
+
+  const res = await getPinecone().inference.embed(
+    PINECONE_EMBEDDING_MODEL,
+    texts,
+    params
+  );
+
+  const data = res.data ?? [];
+  if (data.length !== texts.length) {
+    throw new Error(
+      `Pinecone embed: expected ${texts.length} vectors, got ${data.length}`
+    );
+  }
+
+  const out: number[][] = [];
+  for (let i = 0; i < data.length; i++) {
+    const row = data[i];
+    if (!row || row.vectorType !== "dense" || !("values" in row)) {
+      throw new Error(`Pinecone embed: expected dense vector at index ${i}`);
+    }
+    const values = row.values;
+    if (!values?.length) {
+      throw new Error(`Pinecone embed: empty vector at index ${i}`);
+    }
+    if (values.length !== PINECONE_EMBEDDING_DIMENSION) {
+      console.warn(
+        `[vectorstore] embedding dim ${values.length} !== PINECONE_EMBEDDING_DIMENSION (${PINECONE_EMBEDDING_DIMENSION}); check index + model config`
+      );
+    }
+    out.push([...values]);
+  }
+  return out;
+}
+
+/** Pinecone cosine scores are similarity (higher = closer). Chroma used distance (lower = closer). */
+function scoreToDistance(score: number | undefined): number | undefined {
+  if (typeof score !== "number" || Number.isNaN(score)) return undefined;
+  return 1 - score;
+}
+
+/** Passage text on query/fetch hits (metadata `content` or integrated embed field). */
+function chunkTextFromMetadata(
+  meta: Record<string, unknown> | null | undefined
+): string {
+  if (!meta) return "";
+  if (typeof meta.content === "string" && meta.content.length > 0) {
+    return meta.content;
+  }
+  const fromField = meta[activeEmbedTextField];
+  if (typeof fromField === "string") return fromField;
+  return "";
+}
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 const COLLECTION_PREFIX = "site_";
 
-/**
- * Chunk size tuned for deadline/table-heavy pages:
- * - Small enough that one chunk = one topic
- * - Large enough to include a full table row with context
- */
 const CHUNK_SIZE = 900;
-const CHUNK_OVERLAP = 180; // ~20% overlap preserves cross-boundary context
-const MAX_PAGE_CONTENT_LENGTH = 12000; // allow longer pages (tables are verbose)
+const CHUNK_OVERLAP = 180;
+const MAX_PAGE_CONTENT_LENGTH = 12000;
 const MAX_TITLE_LENGTH = 500;
-const BATCH_SIZE = 10; // upsert in batches for speed
+const EMBED_BATCH_SIZE = 32;
+const UPSERT_BATCH_SIZE = 100;
 
 // ---------------------------------------------------------------------------
-// Chunking — split on paragraph/sentence boundaries where possible
+// Chunking
 // ---------------------------------------------------------------------------
 function chunkText(
   text: string,
@@ -76,17 +236,14 @@ function chunkText(
     let end = start + maxChunkSize;
 
     if (end < trimmed.length) {
-      // Prefer splitting on double newline (paragraph boundary)
       const paraBreak = trimmed.lastIndexOf("\n\n", end);
       if (paraBreak > start + maxChunkSize * 0.5) {
         end = paraBreak + 2;
       } else {
-        // Fall back to single newline
         const lineBreak = trimmed.lastIndexOf("\n", end);
         if (lineBreak > start + maxChunkSize * 0.5) {
           end = lineBreak + 1;
         } else {
-          // Last resort: word boundary
           const wordBreak = trimmed.lastIndexOf(" ", end);
           if (wordBreak > start) end = wordBreak + 1;
         }
@@ -100,17 +257,12 @@ function chunkText(
     if (start >= trimmed.length) break;
   }
 
-  return chunks.filter((c) => c.length > 20); // discard tiny fragments
+  return chunks.filter((c) => c.length > 20);
 }
 
-// ---------------------------------------------------------------------------
-// Build enriched chunks — CRITICAL: every chunk includes page identity
-// so the embedding model has full context even when the chunk is retrieved
-// in isolation.
-// ---------------------------------------------------------------------------
 interface EnrichedChunk {
   id: string;
-  document: string; // prefixed with page title + URL
+  document: string;
   url: string;
   title: string;
   chunkIndex: number;
@@ -118,9 +270,10 @@ interface EnrichedChunk {
 }
 
 function buildEnrichedChunks(page: CrawledPage): EnrichedChunk[] {
-  const content = typeof page.content === "string"
-    ? page.content.slice(0, MAX_PAGE_CONTENT_LENGTH)
-    : "";
+  const content =
+    typeof page.content === "string"
+      ? page.content.slice(0, MAX_PAGE_CONTENT_LENGTH)
+      : "";
   const title = String(page.title ?? "").slice(0, MAX_TITLE_LENGTH);
   const url = String(page.url ?? "");
 
@@ -128,9 +281,6 @@ function buildEnrichedChunks(page: CrawledPage): EnrichedChunk[] {
   if (rawChunks.length === 0) return [];
 
   return rawChunks.map((chunk, i) => {
-    // Prefix EVERY chunk with page identity — this is what makes retrieval work.
-    // When a user asks "what's the MS AI deadline", the chunk containing
-    // "Feb 1, 2026" will also contain "MS in AI Admissions" from the prefix.
     const enrichedDocument = [
       `Page: ${title}`,
       `URL: ${url}`,
@@ -142,7 +292,7 @@ function buildEnrichedChunks(page: CrawledPage): EnrichedChunk[] {
       .join("\n");
 
     return {
-      id: rawChunks.length === 1 ? url : `${url}#chunk_${i}`,
+      id: chunkVectorId(url, i),
       document: enrichedDocument,
       url,
       title,
@@ -152,49 +302,30 @@ function buildEnrichedChunks(page: CrawledPage): EnrichedChunk[] {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Content fingerprint for dedup within a single upsert call
-// (crawler already dedupes pages; this catches any edge cases)
-// ---------------------------------------------------------------------------
 function chunkFingerprint(text: string): string {
   return crypto.createHash("md5").update(text).digest("hex");
 }
 
 // ---------------------------------------------------------------------------
-// Collection accessor
-// ---------------------------------------------------------------------------
-async function getSiteCollection(siteId: string) {
-  const name = `${COLLECTION_PREFIX}${siteId}`;
-  return client.getOrCreateCollection({
-    name,
-    ...(embedder ? { embeddingFunction: embedder } : {}),
-    metadata: {
-      "hnsw:space": "cosine", // cosine similarity works better for semantic search
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Upsert pages into ChromaDB
+// Upsert
 // ---------------------------------------------------------------------------
 export async function upsertSitePages(
   siteId: string,
   pages: CrawledPage[],
   options?: { replaceExisting?: boolean }
 ) {
-  const collection = await getSiteCollection(siteId);
+  const { mode: upsertMode, textField: embedTextField } = await resolveUpsertConfig();
+  const ns = nsIndex(siteId);
 
   if (options?.replaceExisting) {
     try {
-      // Delete all docs for this site
-      await collection.delete({ where: { siteId } });
-      console.log(`Cleared existing docs for site: ${siteId}`);
+      await ns.deleteAll();
+      console.log(`Cleared Pinecone namespace for site: ${siteId}`);
     } catch (err) {
-      console.error("Failed to clear existing docs for site", siteId, err);
+      console.error("Failed to clear existing vectors for site", siteId, err);
     }
   }
 
-  // Build all enriched chunks, deduping on content hash
   const seenHashes = new Set<string>();
   const allChunks: EnrichedChunk[] = [];
 
@@ -208,90 +339,134 @@ export async function upsertSitePages(
     }
   }
 
+  const nsName = siteNamespace(siteId);
   console.log(
-    `Upserting ${allChunks.length} chunks from ${pages.length} pages into site "${siteId}"`
+    `Upserting ${allChunks.length} chunks from ${pages.length} pages into Pinecone namespace "${nsName}" (mode=${upsertMode}). ` +
+      `In the Pinecone console → Browser, choose this namespace (not the default) to inspect vectors.`
   );
 
-  // Upsert in batches
-  const failedIds: string[] = [];
+  let failedCount = 0;
 
-  for (let i = 0; i < allChunks.length; i += BATCH_SIZE) {
-    const batch = allChunks.slice(i, i + BATCH_SIZE);
-
-    try {
-      await collection.upsert({
-        ids: batch.map((c) => c.id),
-        documents: batch.map((c) => c.document),
-        metadatas: batch.map((c) => ({
+  if (upsertMode === "records") {
+    for (let i = 0; i < allChunks.length; i += UPSERT_RECORDS_BATCH) {
+      const batch = allChunks.slice(i, i + UPSERT_RECORDS_BATCH);
+      try {
+        const integrated = batch.map((c) => ({
+          id: c.id,
+          [embedTextField]: c.document,
           siteId: String(siteId),
           url: c.url,
           title: c.title,
           chunkIndex: c.chunkIndex,
           totalChunks: c.totalChunks,
-        })),
-      });
+        }));
+        await ns.upsertRecords(integrated);
 
-      if (i % 100 === 0) {
-        console.log(`  Progress: ${Math.min(i + BATCH_SIZE, allChunks.length)} / ${allChunks.length}`);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-
-      // 422 from Chroma Cloud = chunk too large or bad content; skip gracefully
-      if (msg.includes("422")) {
-        const ids = batch.map((c) => c.id);
-        failedIds.push(...ids);
+        if (i % 200 === 0) {
+          console.log(
+            `  Progress: ${Math.min(i + UPSERT_RECORDS_BATCH, allChunks.length)} / ${allChunks.length}`
+          );
+        }
+      } catch (err) {
+        failedCount += batch.length;
         console.warn(
-          `Chroma 422 — skipping batch of ${batch.length} starting at: ${ids[0]}`
+          `[vectorstore] Pinecone upsertRecords failed for batch starting at ${batch[0]?.id}:`,
+          err
         );
-        continue;
       }
+    }
+  } else {
+    for (let i = 0; i < allChunks.length; i += EMBED_BATCH_SIZE) {
+      const batch = allChunks.slice(i, i + EMBED_BATCH_SIZE);
+      const texts = batch.map((c) => c.document);
 
-      throw err;
+      try {
+        const vectors = await embedTexts(texts, "passage");
+        const records = batch.map((c, j) => ({
+          id: c.id,
+          values: vectors[j]!,
+          metadata: {
+            siteId: String(siteId),
+            url: c.url,
+            title: c.title,
+            chunkIndex: c.chunkIndex,
+            totalChunks: c.totalChunks,
+            content: c.document,
+          },
+        }));
+
+        for (let u = 0; u < records.length; u += UPSERT_BATCH_SIZE) {
+          await ns.upsert(records.slice(u, u + UPSERT_BATCH_SIZE));
+        }
+
+        if (i % 200 === 0) {
+          console.log(
+            `  Progress: ${Math.min(i + EMBED_BATCH_SIZE, allChunks.length)} / ${allChunks.length}`
+          );
+        }
+      } catch (err) {
+        failedCount += batch.length;
+        console.warn(
+          `[vectorstore] Pinecone upsert/embed failed for batch starting at ${batch[0]?.id}:`,
+          err
+        );
+        const msg = err instanceof Error ? err.message : String(err);
+        if (
+          /integrated|upsert records|field_map|embed/i.test(msg) ||
+          /400|403/.test(msg)
+        ) {
+          console.warn(
+            `[vectorstore] This index may require integrated upsert. Set PINECONE_UPSERT_MODE=auto (default) or records, or create a dense-only index for PINECONE_UPSERT_MODE=vectors.`
+          );
+        }
+      }
     }
   }
 
-  if (failedIds.length > 0) {
-    console.warn(
-      `Chroma Cloud: ${failedIds.length} chunk(s) skipped (422):`,
-      failedIds.slice(0, 5).join(", "),
-      failedIds.length > 5 ? `... and ${failedIds.length - 5} more` : ""
-    );
-  }
-
   return {
-    insertedCount: allChunks.length - failedIds.length,
-    failedCount: failedIds.length,
+    insertedCount: allChunks.length - failedCount,
+    failedCount,
     pageCount: pages.length,
     totalChunks: allChunks.length,
   };
 }
 
-export type UpsertResult = ReturnType<typeof upsertSitePages> extends Promise<infer T>
+export type UpsertResult = ReturnType<typeof upsertSitePages> extends Promise<
+  infer T
+>
   ? T
   : never;
 
 // ---------------------------------------------------------------------------
-// Delete chunks for specific page URLs (used for selective page updates)
+// Delete chunks for specific page URLs
 // ---------------------------------------------------------------------------
 export async function deletePagesFromSite(
   siteId: string,
   pageUrls: string[]
 ): Promise<number> {
-  const collection = await getSiteCollection(siteId);
+  if (pageUrls.length === 0) return 0;
+  const ns = nsIndex(siteId);
   let deletedCount = 0;
 
-  for (const url of pageUrls) {
-    try {
-      await collection.delete({ where: { url } });
-      deletedCount++;
-      console.log(`Deleted chunks for: ${url}`);
-    } catch (err) {
-      console.error(`Failed to delete chunks for ${url}:`, err);
+  try {
+    await ns.deleteMany({ url: { $in: pageUrls } });
+    deletedCount = pageUrls.length;
+    console.log(
+      `Deleted chunks for ${pageUrls.length} URL(s) from site "${siteId}" (Pinecone filter delete)`
+    );
+  } catch (err) {
+    console.error(`Failed to delete chunks by URL filter for site ${siteId}:`, err);
+    for (const url of pageUrls) {
+      try {
+        await ns.deleteMany({ url: { $eq: url } });
+        deletedCount++;
+        console.log(`Deleted chunks for: ${url}`);
+      } catch (e) {
+        console.error(`Failed to delete chunks for ${url}:`, e);
+      }
     }
   }
 
-  console.log(`Deleted chunks for ${deletedCount}/${pageUrls.length} URLs from site "${siteId}"`);
   return deletedCount;
 }
 
@@ -300,80 +475,192 @@ export async function deletePagesFromSite(
 // ---------------------------------------------------------------------------
 export interface RetrievedDoc {
   id: string;
-  content: string; // enriched document text
+  content: string;
   url: string;
   title: string;
   distance?: number;
 }
 
 // ---------------------------------------------------------------------------
-// Delete an entire site collection from ChromaDB
+// Delete entire site namespace
 // ---------------------------------------------------------------------------
 export async function deleteSiteCollection(siteId: string): Promise<boolean> {
-  const name = `${COLLECTION_PREFIX}${siteId}`;
+  const name = siteNamespace(siteId);
   try {
-    await client.deleteCollection({ name });
-    console.log(`Deleted ChromaDB collection: ${name}`);
+    await getPinecone().index(PINECONE_INDEX).deleteNamespace(name);
+    console.log(`Deleted Pinecone namespace: ${name}`);
     return true;
   } catch (err) {
-    console.error(`Failed to delete collection ${name}:`, err);
+    console.error(`Failed to delete namespace ${name}:`, err);
     return false;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Query — supports multiple query strings for multi-pass retrieval
+// Query
 // ---------------------------------------------------------------------------
+function selectWithUrlSpread(
+  pool: RetrievedDoc[],
+  maxPerUrl: number,
+  maxTotal: number
+): RetrievedDoc[] {
+  const sorted = [...pool].sort(
+    (a, b) => (a.distance ?? 1) - (b.distance ?? 1)
+  );
+  const perUrl = new Map<string, number>();
+  const picked: RetrievedDoc[] = [];
+
+  for (const d of sorted) {
+    const u = d.url || "_";
+    const n = perUrl.get(u) ?? 0;
+    if (n >= maxPerUrl) continue;
+    perUrl.set(u, n + 1);
+    picked.push(d);
+    if (picked.length >= maxTotal) return picked;
+  }
+  return picked;
+}
+
 export async function querySiteDocs(params: {
   siteId: string;
-  query: string | string[]; // accept array for multi-query retrieval
+  query: string | string[];
   topK?: number;
+  exhaustiveSpread?: boolean;
 }): Promise<RetrievedDoc[]> {
-  const { siteId, topK = 6 } = params;
+  await resolveUpsertConfig();
+  const { siteId } = params;
+  const exhaustive = params.exhaustiveSpread === true;
+  const requestedTopK = params.topK ?? (exhaustive ? 18 : 6);
+  const nResults = exhaustive ? Math.max(requestedTopK, 20) : requestedTopK;
   const queries = Array.isArray(params.query) ? params.query : [params.query];
 
-  const collection = await getSiteCollection(siteId);
-
-  // Run all queries in one ChromaDB call (queryTexts accepts multiple queries)
-  const result = await collection.query({
-    nResults: topK,
-    queryTexts: queries,
-    where: { siteId },
-    include: [
-      IncludeEnum.Metadatas,
-      IncludeEnum.Documents,
-      IncludeEnum.Distances,
-    ],
-  });
-
-  // Flatten results from all query vectors, dedup by chunk id
+  const ns = nsIndex(siteId);
   const seen = new Set<string>();
   const docs: RetrievedDoc[] = [];
 
-  for (let q = 0; q < queries.length; q++) {
-    const ids = result.ids?.[q] || [];
-    const documents = result.documents?.[q] || [];
-    const metadatas = result.metadatas?.[q] || [];
-    const distances = result.distances?.[q] || [];
+  const queryVectors = await embedTexts(queries, "query");
 
-    for (let i = 0; i < ids.length; i++) {
-      const id = ids[i];
+  for (let q = 0; q < queries.length; q++) {
+    const vector = queryVectors[q];
+    if (!vector) continue;
+
+    const result = await ns.query({
+      vector,
+      topK: nResults,
+      includeMetadata: true,
+      includeValues: false,
+    });
+
+    for (const m of result.matches ?? []) {
+      const id = m.id;
       if (seen.has(id)) continue;
       seen.add(id);
 
-      const meta = metadatas[i] as Record<string, unknown>;
+      const meta = m.metadata as Record<string, unknown> | undefined;
+      const content = chunkTextFromMetadata(meta);
       docs.push({
         id,
-        content: (documents[i] as string) ?? "",
-        url: (meta?.url as string) ?? "",
-        title: (meta?.title as string) ?? "",
-        distance:
-          typeof distances[i] === "number" ? (distances[i] as number) : undefined,
+        content,
+        url: typeof meta?.url === "string" ? meta.url : "",
+        title: typeof meta?.title === "string" ? meta.title : "",
+        distance: scoreToDistance(m.score),
       });
     }
   }
 
-  // Sort by distance (closest = most relevant) and return top K overall
   docs.sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
-  return docs.slice(0, topK * queries.length);
+  const rawPoolLimit = exhaustive ? 260 : 150;
+  const pool = docs.slice(0, rawPoolLimit);
+  const maxPerUrl = exhaustive ? 4 : 7;
+  const maxTotal = exhaustive ? 68 : 36;
+  return selectWithUrlSpread(pool, maxPerUrl, maxTotal);
+}
+
+const URL_LIST_BATCH = 8;
+const LIST_PAGE_SIZE = 100;
+
+/**
+ * Load chunks for specific page URLs (metadata `url` match). Uses id-prefix list + fetch
+ * (deterministic chunk IDs per URL).
+ */
+export async function getDocsForUrls(
+  siteId: string,
+  urls: string[],
+  options?: { maxTotal?: number; maxPerUrl?: number; supplementaryDistance?: number }
+): Promise<RetrievedDoc[]> {
+  const maxTotal = options?.maxTotal ?? 72;
+  const maxPerUrl = options?.maxPerUrl ?? 5;
+  const suppD = options?.supplementaryDistance ?? 0.72;
+  if (urls.length === 0) return [];
+
+  await resolveUpsertConfig();
+  const ns = nsIndex(siteId);
+  const byUrlCount = new Map<string, number>();
+  const out: RetrievedDoc[] = [];
+
+  const ingestRecords = (recs: Record<string, { metadata?: Record<string, unknown> }>) => {
+    for (const id of Object.keys(recs)) {
+      const row = recs[id];
+      const meta = row?.metadata;
+      const url = typeof meta?.url === "string" ? meta.url : "";
+      const c = byUrlCount.get(url) ?? 0;
+      if (c >= maxPerUrl) continue;
+      byUrlCount.set(url, c + 1);
+      out.push({
+        id,
+        content: chunkTextFromMetadata(meta),
+        url,
+        title: typeof meta?.title === "string" ? meta.title : "",
+        distance: suppD,
+      });
+      if (out.length >= maxTotal) return true;
+    }
+    return false;
+  };
+
+  for (let i = 0; i < urls.length && out.length < maxTotal; i += URL_LIST_BATCH) {
+    const batch = urls.slice(i, i + URL_LIST_BATCH);
+    for (const url of batch) {
+      if (out.length >= maxTotal) break;
+      const prefix = `${urlHash(url)}_`;
+      const ids: string[] = [];
+      let paginationToken: string | undefined;
+
+      do {
+        try {
+          const listed = await ns.listPaginated({
+            prefix,
+            limit: LIST_PAGE_SIZE,
+            paginationToken,
+          });
+          for (const v of listed.vectors ?? []) {
+            if (v?.id) ids.push(v.id);
+          }
+          paginationToken = listed.pagination?.next;
+          if (ids.length >= maxPerUrl * 4) break;
+        } catch (err) {
+          console.warn("[vectorstore] listPaginated failed for URL:", url, err);
+          break;
+        }
+      } while (paginationToken);
+
+      if (ids.length === 0) continue;
+
+      const uniqueIds = [...new Set(ids)].slice(0, maxPerUrl * 4);
+      const FETCH_BATCH = 200;
+      for (let f = 0; f < uniqueIds.length && out.length < maxTotal; f += FETCH_BATCH) {
+        const slice = uniqueIds.slice(f, f + FETCH_BATCH);
+        try {
+          const fetched = await ns.fetch(slice);
+          if (ingestRecords(fetched.records as Record<string, { metadata?: Record<string, unknown> }>)) {
+            break;
+          }
+        } catch (err) {
+          console.warn("[vectorstore] fetch failed for URL:", url, err);
+        }
+      }
+    }
+  }
+
+  return out;
 }

@@ -88,7 +88,7 @@ const FAQS = [
   { q: "What counts as a conversation?", a: "A single visitor session — from the first message until the chat closes or times out after 30 minutes." },
   { q: "How does the 14-day trial work?", a: "Full access to your plan for 14 days, no card required. Add payment at the end or downgrade to Starter free." },
   { q: "What if I exceed my conversation limit?", a: "You'll get an email at 80%. At 100% new conversations pause until the next billing cycle or you upgrade." },
-  { q: "Do you support Indian languages?", a: "Yes. NavBot uses Sarvam AI which natively supports Hindi, Tamil, Telugu, Bengali, and more." },
+  { q: "Do you support Indian languages?", a: "Yes. NavBot uses Google Gemini, which supports many languages including Hindi, Tamil, Telugu, Bengali, and more." },
 ];
 
 function FaqItem({ q, a }: { q: string; a: string }) {
@@ -247,7 +247,7 @@ export const PricingPage = ({ onGetStarted, onPaymentSuccess }: PricingPageProps
             {[
               { icon: Globe,         color: "#bc6c25", title: "Smart crawling",       desc: "Indexes your entire site — pages, tables, PDFs — and updates via sitemap sync." },
               { icon: MessageSquare, color: "#456a92", title: "RAG-powered answers",  desc: "Every answer is grounded in your actual website content. No hallucinations." },
-              { icon: Mic,           color: "#bc6c25", title: "Voice + Indian langs", desc: "Visitors speak in Hindi, Tamil, Telugu & more. Powered by Sarvam AI." },
+              { icon: Mic,           color: "#bc6c25", title: "Voice + Indian langs", desc: "Visitors speak in Hindi, Tamil, Telugu & more. Powered by Google Gemini." },
               { icon: RefreshCw,     color: "#456a92", title: "Auto sync",            desc: "Detects changes via sitemap and re-indexes only what changed." },
               { icon: BarChart3,     color: "#bc6c25", title: "Visitor analytics",    desc: "See what visitors ask, what goes unanswered, and how to improve content." },
               { icon: Users,         color: "#456a92", title: "Multi-site support",   desc: "One account, unlimited websites. Switch between them instantly." },

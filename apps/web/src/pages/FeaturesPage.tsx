@@ -95,10 +95,10 @@ const featureRows = [
     ),
   },
   {
-    eyebrow: "Voice + Sarvam",
+    eyebrow: "Voice + Gemini",
     title: "Speak in Hindi, Tamil, Telugu, and more",
     description: "Visitors can talk naturally, and NavBot can reply in voice inside the same flow.",
-    bullets: ["Voice input", "Voice playback", "Indian languages via Sarvam"],
+    bullets: ["Voice input", "Voice playback", "Multilingual via Google Gemini"],
     visual: (
       <div className="relative h-[340px] w-full overflow-hidden rounded-[2rem] bg-gradient-to-br from-[#eef3f7]/90 via-[#fbf7f1] to-[#f4dfcd]/90">
         <div className="absolute inset-0 flex items-center justify-center gap-2">

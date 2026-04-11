@@ -1,0 +1,79 @@
+# NavBot on Render — Blueprint (adjust service names / connect your Git repo in the dashboard).
+# Docs: https://render.com/docs/blueprint-spec
+#
+# Post-deploy:
+# - Set CORS_ORIGIN on navbot-auth to your static site origin (comma-separated for multiple).
+# - Set BETTER_AUTH_BASE_URL on navbot-auth to this service’s public URL (e.g. https://navbot-auth.onrender.com).
+# - Set VITE_API_URL, VITE_AUTH_URL, VITE_WIDGET_SCRIPT_URL on the static site (e.g. widget URL = https://<static-host>/chat-widget.iife.js).
+# - Secrets: PINECONE_*, GOOGLE_API_KEY (or GEMINI_API_KEY), optional OAuth vars on navbot-auth.
+# - Native API uses NAVBOT_BROWSER_CRAWL=off by default. For Playwright crawling on Render, deploy the API with
+#   Docker using apps/api/Dockerfile (see file header) instead of the Node native service below.
+
+databases:
+  - name: navbot-db
+    databaseName: navbot
+    user: navbot
+    plan: free
+
+services:
+  - type: web
+    name: navbot-auth
+    runtime: node
+    rootDir: .
+    buildCommand: pnpm install && pnpm --filter server build
+    startCommand: pnpm --filter server start
+    plan: free
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: navbot-db
+          property: connectionString
+      - key: CORS_ORIGIN
+        sync: false
+      - key: BETTER_AUTH_BASE_URL
+        sync: false
+
+  - type: web
+    name: navbot-api
+    runtime: node
+    rootDir: .
+    buildCommand: pnpm install && pnpm --filter api build
+    startCommand: pnpm --filter api start
+    plan: free
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: navbot-db
+          property: connectionString
+      - key: NAVBOT_BROWSER_CRAWL
+        value: "off"
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: PINECONE_INDEX
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+
+  - type: web
+    name: navbot-web
+    runtime: static
+    rootDir: .
+    buildCommand: pnpm install && pnpm --filter @repo/chat-widget build && pnpm --filter web build
+    staticPublishPath: ./apps/web/dist
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_AUTH_URL
+        sync: false
+      - key: VITE_WIDGET_SCRIPT_URL
+        sync: false

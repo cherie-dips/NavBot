@@ -46,7 +46,7 @@ async function syncSite(site: {
     console.log(`${tag} Sitemap has ${sitemapEntries.length} entries`);
 
     // 2. Diff against stored lastmod values
-    const storedLastmods = getPageLastmods(siteId);
+    const storedLastmods = await getPageLastmods(siteId);
     const changedEntries = diffSitemapEntries(sitemapEntries, storedLastmods);
 
     // 3. Detect pages removed from sitemap
@@ -67,7 +67,7 @@ async function syncSite(site: {
     if (removedUrls.length > 0) {
       console.log(`${tag} Removing ${removedUrls.length} pages no longer in sitemap`);
       await deletePagesFromSite(siteId, removedUrls);
-      deletePageHashesForUrls(siteId, removedUrls);
+      await deletePageHashesForUrls(siteId, removedUrls);
     }
 
     if (changedEntries.length === 0) {
@@ -80,7 +80,7 @@ async function syncSite(site: {
     const crawledPages = await crawlPages(urlsToCrawl);
 
     // 6. Compare content hashes — only upsert pages whose content actually changed
-    const storedHashes = getPageHashes(siteId);
+    const storedHashes = await getPageHashes(siteId);
     const actuallyChanged = crawledPages.filter(
       (p) => storedHashes[p.url] !== p.hash
     );
@@ -105,11 +105,11 @@ async function syncSite(site: {
     }
 
     // 7. Persist updated hashes and lastmod values
-    upsertPageHashes(
+    await upsertPageHashes(
       siteId,
       crawledPages.map((p) => ({ url: p.url, hash: p.hash }))
     );
-    upsertPageLastmods(
+    await upsertPageLastmods(
       siteId,
       changedEntries.map((e) => ({ url: e.url, lastmod: e.lastmod }))
     );
@@ -118,7 +118,7 @@ async function syncSite(site: {
     const storedHashCount = Object.keys(storedHashes).length;
     const newTotal =
       storedHashCount + changedEntries.length - removedUrls.length;
-    upsertSite({
+    await upsertSite({
       siteId: site.site_id,
       userId: site.user_id,
       url: site.url,
@@ -135,7 +135,7 @@ async function syncSite(site: {
 
 async function runAutoSync(): Promise<void> {
   console.log("[auto-sync] Starting scheduled sync for all active sites…");
-  const sites = getAllActiveSites();
+  const sites = await getAllActiveSites();
   console.log(`[auto-sync] Found ${sites.length} active site(s)`);
 
   for (const site of sites) {
@@ -186,7 +186,7 @@ export async function trySitemapSync(siteId: string): Promise<void> {
   }
 
   // Look up site info
-  const sites = getAllActiveSites().filter((s) => s.site_id === siteId);
+  const sites = (await getAllActiveSites()).filter((s) => s.site_id === siteId);
   if (sites.length === 0) return;
 
   const site = sites[0];

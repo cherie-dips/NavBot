@@ -61,7 +61,7 @@ function renderBotText(raw: string): React.ReactNode {
           <a
             key={`${keyPrefix}-lnk-${idx}`}
             href={part}
-            target="_blank"
+            target="_self"
             rel="noopener noreferrer"
             style={{
               color: "#2563eb",
@@ -139,7 +139,7 @@ function renderBotText(raw: string): React.ReactNode {
                 {`${i + 1}. `}
                 <a
                   href={url}
-                  target="_blank"
+                  target="_self"
                   rel="noopener noreferrer"
                   style={{
                     color: "#2563eb",
@@ -422,6 +422,22 @@ function clearHistory(siteId: string) {
   try { localStorage.removeItem(getHistoryKey(siteId)); } catch { /* ignore */ }
 }
 
+function getUiStateKey(siteId: string) { return `navbot_ui_${siteId}`; }
+
+function loadUiState(siteId: string): { open: boolean; faqDismissed: boolean } {
+  try {
+    var raw = sessionStorage.getItem(getUiStateKey(siteId));
+    if (!raw) return { open: false, faqDismissed: false };
+    var parsed = JSON.parse(raw);
+    return { open: !!parsed.open, faqDismissed: !!parsed.faqDismissed };
+  } catch { return { open: false, faqDismissed: false }; }
+}
+
+function saveUiState(siteId: string, state: { open: boolean; faqDismissed: boolean }) {
+  try { sessionStorage.setItem(getUiStateKey(siteId), JSON.stringify(state)); }
+  catch { /* quota exceeded */ }
+}
+
 const WELCOME_MESSAGE: Message = {
   id: 1,
   text: "Hi there! 👋 How can I help you today?",
@@ -434,7 +450,8 @@ export const ChatWidget: React.FC = () => {
   const { apiBase, siteId, theme: initialTheme } = getConfig();
   const [theme, setTheme] = useState<ResolvedWidgetTheme>(initialTheme);
 
-  const [isOpen, setIsOpen] = useState(false);
+  const savedUi = typeof window !== "undefined" ? loadUiState(siteId) : { open: false, faqDismissed: false };
+  const [isOpen, _setIsOpen] = useState(savedUi.open);
   const [mounted, setMounted] = useState(false);
   const [messages, setMessages] = useState<Message[]>(() => {
     if (typeof window === "undefined") return [WELCOME_MESSAGE];
@@ -448,7 +465,22 @@ export const ChatWidget: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [faqs, setFaqs] = useState<Array<{ label: string; question: string }>>([]);
   const [faqsLoading, setFaqsLoading] = useState(false);
-  const [faqDismissed, setFaqDismissed] = useState(false);
+  const [faqDismissed, _setFaqDismissed] = useState(savedUi.faqDismissed);
+
+  const faqDismissedRef = useRef(savedUi.faqDismissed);
+  const isOpenRef = useRef(savedUi.open);
+
+  const setIsOpen = (v: boolean) => {
+    _setIsOpen(v);
+    isOpenRef.current = v;
+    saveUiState(siteId, { open: v, faqDismissed: faqDismissedRef.current });
+  };
+
+  const setFaqDismissed = (v: boolean) => {
+    _setFaqDismissed(v);
+    faqDismissedRef.current = v;
+    saveUiState(siteId, { open: isOpenRef.current, faqDismissed: v });
+  };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);

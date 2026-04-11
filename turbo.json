@@ -30,6 +30,10 @@
     "api#dev": {
       "cache": false,
       "persistent": true
+    },
+
+    "web#build": {
+      "dependsOn": ["@repo/chat-widget#build"]
     }
   }
 }

@@ -5,6 +5,7 @@ node_modules
 # Build output
 dist
 dist-ssr
+apps/web/public/chat-widget.iife.js
 
 # Turborepo
 .turbo
@@ -18,9 +19,6 @@ dist-ssr
 *.db
 *.db-wal
 *.db-shm
-
-# Local ChromaDB data
-chroma/
 
 # IDE & OS
 .DS_Store

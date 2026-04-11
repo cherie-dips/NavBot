@@ -32,11 +32,11 @@ router.get("/:siteId/sync", async (req: Request, res: Response) => {
 
   if (!userId) return res.status(400).json({ error: "userId query param is required" });
 
-  const sites = getSitesByUser(userId);
+  const sites = await getSitesByUser(userId);
   const site = sites.find((s) => s.site_id === siteId);
   if (!site) return res.status(404).json({ error: "site not found" });
 
-  const stats = getSyncStats(siteId);
+  const stats = await getSyncStats(siteId);
 
   // Stats only — fast, no crawl
   if (!preview) {
@@ -49,7 +49,7 @@ router.get("/:siteId/sync", async (req: Request, res: Response) => {
 
     if (sitemapEntries.length > 0) {
       console.log(`[sync preview] Sitemap-based preview for ${site.url} (${sitemapEntries.length} entries)`);
-      const storedLastmods = getPageLastmods(siteId);
+      const storedLastmods = await getPageLastmods(siteId);
       const changedEntries = diffSitemapEntries(sitemapEntries, storedLastmods);
 
       const sitemapUrls = new Set(sitemapEntries.map((e) => e.url));
@@ -77,7 +77,7 @@ router.get("/:siteId/sync", async (req: Request, res: Response) => {
     // Fallback: full BFS crawl preview
     console.log(`[sync preview] No sitemap — BFS crawl preview for ${site.url}`);
     const allPages = await crawlSite(site.url);
-    const storedHashes = getPageHashes(siteId);
+    const storedHashes = await getPageHashes(siteId);
 
     const changedPages = allPages.filter((p) => storedHashes[p.url] !== p.hash);
 
@@ -116,7 +116,7 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
 
   if (!userId) return res.status(400).json({ error: "userId query param is required" });
 
-  const sites = getSitesByUser(userId);
+  const sites = await getSitesByUser(userId);
   const site = sites.find((s) => s.site_id === siteId);
   if (!site) return res.status(404).json({ error: "site not found" });
 
@@ -128,7 +128,7 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
       console.log(`[sync] Sitemap-based sync for ${site.url} (${sitemapEntries.length} entries)`);
 
       // 1. Diff sitemap lastmod against stored values
-      const storedLastmods = getPageLastmods(siteId);
+      const storedLastmods = await getPageLastmods(siteId);
       const changedEntries = diffSitemapEntries(sitemapEntries, storedLastmods);
 
       // 2. Detect removed pages
@@ -138,7 +138,7 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
       if (deletedUrls.length > 0) {
         console.log(`[sync] Removing ${deletedUrls.length} pages no longer in sitemap`);
         await deletePagesFromSite(siteId, deletedUrls);
-        deletePageHashesForUrls(siteId, deletedUrls);
+        await deletePageHashesForUrls(siteId, deletedUrls);
       }
 
       if (changedEntries.length === 0) {
@@ -161,7 +161,7 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
       const crawledPages = await crawlPages(urlsToCrawl);
 
       // 4. Compare content hashes — skip pages with identical content
-      const storedHashes = getPageHashes(siteId);
+      const storedHashes = await getPageHashes(siteId);
       const actuallyChanged = crawledPages.filter((p) => storedHashes[p.url] !== p.hash);
       const unchangedCount = crawledPages.length - actuallyChanged.length;
 
@@ -177,15 +177,25 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
         const result = await upsertSitePages(siteId, actuallyChanged);
         insertedCount = result.insertedCount;
         failedCount = result.failedCount;
+        if (result.totalChunks > 0 && result.insertedCount === 0) {
+          return res.status(502).json({
+            error: "pinecone_upsert_failed",
+            message:
+              "Sync crawled changed pages but Pinecone stored no vectors. See API logs and PINECONE_* configuration.",
+          });
+        }
       }
 
       // 5. Persist hashes and lastmod
-      upsertPageHashes(siteId, crawledPages.map((p) => ({ url: p.url, hash: p.hash })));
-      upsertPageLastmods(siteId, changedEntries.map((e) => ({ url: e.url, lastmod: e.lastmod })));
+      await upsertPageHashes(siteId, crawledPages.map((p) => ({ url: p.url, hash: p.hash })));
+      await upsertPageLastmods(
+        siteId,
+        changedEntries.map((e) => ({ url: e.url, lastmod: e.lastmod }))
+      );
 
       // 6. Update site metadata
       const totalPages = sitemapEntries.length - deletedUrls.length;
-      upsertSite({
+      await upsertSite({
         siteId: site.site_id,
         userId: site.user_id,
         url: site.url,
@@ -209,7 +219,7 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
     console.log(`[sync] Full BFS crawl for ${site.url}`);
     const allPages = await crawlSite(site.url);
 
-    const storedHashes = getPageHashes(siteId);
+    const storedHashes = await getPageHashes(siteId);
     const changedPages = allPages.filter((p) => storedHashes[p.url] !== p.hash);
     const unchangedCount = allPages.length - changedPages.length;
 
@@ -225,11 +235,11 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
     if (deletedUrls.length > 0) {
       console.log(`[sync] Removing ${deletedUrls.length} deleted pages from index`);
       await deletePagesFromSite(siteId, deletedUrls);
-      deletePageHashesForUrls(siteId, deletedUrls);
+      await deletePageHashesForUrls(siteId, deletedUrls);
     }
 
     if (changedPages.length === 0) {
-      upsertPageHashes(siteId, allPages.map((p) => ({ url: p.url, hash: p.hash })));
+      await upsertPageHashes(siteId, allPages.map((p) => ({ url: p.url, hash: p.hash })));
 
       return res.json({
         siteId,
@@ -245,11 +255,22 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
     }
 
     await deletePagesFromSite(siteId, changedPages.map((p) => p.url));
-    const { insertedCount, failedCount } = await upsertSitePages(siteId, changedPages);
+    const { insertedCount, failedCount, totalChunks } = await upsertSitePages(
+      siteId,
+      changedPages
+    );
 
-    upsertPageHashes(siteId, allPages.map((p) => ({ url: p.url, hash: p.hash })));
+    if (totalChunks > 0 && insertedCount === 0) {
+      return res.status(502).json({
+        error: "pinecone_upsert_failed",
+        message:
+          "Full sync crawled changed pages but Pinecone stored no vectors. See API logs and PINECONE_* configuration.",
+      });
+    }
 
-    upsertSite({
+    await upsertPageHashes(siteId, allPages.map((p) => ({ url: p.url, hash: p.hash })));
+
+    await upsertSite({
       siteId: site.site_id,
       userId: site.user_id,
       url: site.url,

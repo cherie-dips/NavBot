@@ -1,4 +1,3 @@
-import { SarvamAIClient } from "sarvamai";
 import { querySiteDocs } from "./vectorstore";
 import {
   getFaqsBySite,
@@ -9,12 +8,8 @@ import {
   updateFaqUserAnswer,
 } from "./db";
 import { answerQuestionWithRag } from "./rag";
+import { generateContentText, GEMINI_MODELS, getGeminiApiKey } from "./gemini-client";
 
-const sarvam = new SarvamAIClient({
-  apiSubscriptionKey: process.env.SARVAM_API_KEY ?? "",
-});
-
-const CHAT_MODEL = (process.env.SARVAM_CHAT_MODEL || "sarvam-m") as any;
 const FAQ_ANSWER_PREVIEW_MAX = 800;
 
 const SEED_QUERIES = [
@@ -28,8 +23,9 @@ const SEED_QUERIES = [
   "placement statistics",
 ];
 
-export async function generateFaqsForSite(siteId: string): Promise<Array<{ label: string; question: string }>> {
-  // Retrieve a broad set of content chunks from the vector store
+export async function generateFaqsForSite(
+  siteId: string
+): Promise<Array<{ label: string; question: string }>> {
   const docs = await querySiteDocs({ siteId, query: SEED_QUERIES, topK: 6 });
 
   if (docs.length === 0) {
@@ -41,8 +37,7 @@ export async function generateFaqsForSite(siteId: string): Promise<Array<{ label
     .map((d, i) => `[${i + 1}] ${d.title}\n${d.content.slice(0, 400)}`)
     .join("\n\n");
 
-  // Check if there are popular user queries to incorporate
-  const topQueries = getTopQueries(siteId, 10);
+  const topQueries = await getTopQueries(siteId, 10);
   let popularSection = "";
   if (topQueries.length >= 3) {
     popularSection = `\n\nPOPULAR USER QUESTIONS (incorporate the most relevant ones):\n${topQueries.map((q) => `- "${q.query}" (asked ${q.count} times)`).join("\n")}`;
@@ -63,24 +58,36 @@ RULES:
 Example output:
 [{"label":"Admission deadlines","question":"What are the admission deadlines?"},{"label":"Programs offered","question":"What programs do you offer?"}]`;
 
+  if (!getGeminiApiKey()) {
+    console.warn("generateFaqsForSite: no GOOGLE_API_KEY — using fallback FAQs");
+    return fallbackFaqs();
+  }
+
   try {
-    const completion = await sarvam.chat.completions({
-      model: CHAT_MODEL,
-      messages: [
-        { role: "system", content: "You output only valid JSON arrays. No markdown, no explanation." },
-        { role: "user", content: prompt },
+    const raw = await generateContentText({
+      model: GEMINI_MODELS.chat,
+      contents: [
+        {
+          role: "user",
+          parts: [
+            {
+              text:
+                "You output only valid JSON arrays. No markdown, no explanation.\n\n" + prompt,
+            },
+          ],
+        },
       ],
-      temperature: 0.3,
-      max_tokens: 500,
+      config: {
+        temperature: 0.3,
+        maxOutputTokens: 500,
+      },
     });
 
-    const raw: string = (completion as any).choices?.[0]?.message?.content ?? "[]";
     const cleaned = raw
-      .replace(/<think>[\s\S]*?<\/think>/gi, "")
+      .replace(/<redacted_thinking>[\s\S]*?<\/think>/gi, "")
       .replace(/<\/?think>/gi, "")
       .trim();
 
-    // Extract JSON array from the response (handle markdown code fences)
     const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
     if (!jsonMatch) return fallbackFaqs();
 
@@ -143,7 +150,7 @@ export async function getOrGenerateFaqs(
   }>
 > {
   const includeAnswers = options?.includeAnswers === true;
-  const existing = getFaqsBySite(siteId);
+  const existing = await getFaqsBySite(siteId);
   if (existing.length > 0) {
     if (!includeAnswers) {
       return existing.map((f) => ({ label: f.label, question: f.question }));
@@ -152,7 +159,7 @@ export async function getOrGenerateFaqs(
       existing.map(async (f) => {
         const hasUserAnswer = !!f.user_answer?.trim();
         const userAnswerIsStale = hasUserAnswer
-          ? isFaqUserAnswerStale(siteId, f.user_answer_updated_at)
+          ? await isFaqUserAnswerStale(siteId, f.user_answer_updated_at)
           : false;
         const effectiveUserAnswer = hasUserAnswer && !userAnswerIsStale ? f.user_answer : null;
         const current = f.answer_preview ?? null;
@@ -169,7 +176,7 @@ export async function getOrGenerateFaqs(
           };
         }
         const generated = await generateAnswerForFaq(siteId, f.question);
-        if (generated) updateFaqAnswerPreview(f.id, generated);
+        if (generated) await updateFaqAnswerPreview(f.id, generated);
         const effective = effectiveUserAnswer ?? generated;
         return {
           id: f.id,
@@ -187,7 +194,7 @@ export async function getOrGenerateFaqs(
 
   const generated = await generateFaqsForSite(siteId);
   if (!includeAnswers) {
-    replaceFaqs(siteId, generated);
+    await replaceFaqs(siteId, generated);
     return generated;
   }
   const withAnswers = await Promise.all(
@@ -196,7 +203,7 @@ export async function getOrGenerateFaqs(
       answerPreview: await generateAnswerForFaq(siteId, faq.question),
     }))
   );
-  replaceFaqs(siteId, withAnswers);
+  await replaceFaqs(siteId, withAnswers);
   return withAnswers;
 }
 
@@ -213,12 +220,16 @@ export async function refreshFaqs(
       answerPreview: await generateAnswerForFaq(siteId, faq.question),
     }))
   );
-  replaceFaqs(siteId, withAnswers);
+  await replaceFaqs(siteId, withAnswers);
   return withAnswers;
 }
 
-export function saveFaqUserAnswer(siteId: string, faqId: number, userAnswer: string): boolean {
+export async function saveFaqUserAnswer(
+  siteId: string,
+  faqId: number,
+  userAnswer: string
+): Promise<boolean> {
   const normalized = userAnswer.trim();
   if (!normalized) return false;
-  return updateFaqUserAnswer(siteId, faqId, normalized);
+  return await updateFaqUserAnswer(siteId, faqId, normalized);
 }

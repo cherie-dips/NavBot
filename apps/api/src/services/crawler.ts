@@ -2,6 +2,7 @@ import fetch from "node-fetch";
 import * as cheerio from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 import crypto from "crypto";
+import { fetchRenderedHtml } from "./browser-render";
 
 export interface CrawledPage {
   url: string;
@@ -45,6 +46,106 @@ const SKIP_CONTENT_PATTERNS: RegExp[] = [
   /^(404|page not found|access denied)/i,
   /this page (does not exist|has been removed)/i,
 ];
+
+/** If static HTML yields less than this many chars of structured text, retry with headless Chromium (SPA / React / Vue). */
+const MIN_MEANINGFUL_STATIC_CONTENT = 280;
+
+export type BrowserCrawlMode = "off" | "auto" | "always";
+
+/**
+ * `NAVBOT_BROWSER_CRAWL`:
+ * - `auto` (default): fetch HTML, then use Playwright only when extracted text is thin.
+ * - `always`: every page through Chromium (slowest, best for heavy SPAs).
+ * - `off` / `static`: legacy behavior — HTTP fetch only (fast, no JS).
+ */
+export function parseBrowserCrawlMode(): BrowserCrawlMode {
+  const raw = (process.env.NAVBOT_BROWSER_CRAWL || "auto").toLowerCase().trim();
+  if (["off", "false", "0", "static", "none"].includes(raw)) return "off";
+  if (["always", "true", "1", "browser", "force"].includes(raw)) return "always";
+  return "auto";
+}
+
+let loggedBrowserCrawlMode = false;
+
+function logBrowserCrawlModeOnce(mode: BrowserCrawlMode): void {
+  if (loggedBrowserCrawlMode) return;
+  loggedBrowserCrawlMode = true;
+  console.log(
+    `[crawler] NAVBOT_BROWSER_CRAWL=${mode} — ` +
+      (mode === "off"
+        ? "HTTP-only (no JS execution)."
+        : mode === "always"
+          ? "every page via headless Chromium."
+          : "headless Chromium when static HTML has little extractable text (SPAs / React / Vue).")
+  );
+}
+
+async function fetchStaticHtml(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, {
+      redirect: "follow",
+      headers: {
+        "User-Agent": "NavBot/1.0 (site indexer; respectful crawler)",
+        Accept: "text/html",
+      },
+    });
+
+    if (!res.ok) {
+      console.warn(`Skipping ${url} — HTTP ${res.status}`);
+      return null;
+    }
+
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("text/html")) return null;
+
+    return await res.text();
+  } catch (err) {
+    console.error("Failed to fetch", url, err);
+    return null;
+  }
+}
+
+/**
+ * Returns final HTML string to parse with Cheerio — either static, or browser-rendered when that yields richer content.
+ */
+async function resolvePageHtml(
+  fetchUrl: string,
+  normalizedUrl: string,
+  mode: BrowserCrawlMode
+): Promise<string | null> {
+  if (mode === "always") {
+    const rendered = await fetchRenderedHtml(fetchUrl);
+    if (rendered) return rendered;
+    console.warn(`[crawler] Headless render failed for ${fetchUrl}, falling back to static fetch`);
+    return fetchStaticHtml(fetchUrl);
+  }
+
+  const staticHtml = await fetchStaticHtml(fetchUrl);
+  if (!staticHtml) return null;
+  if (mode === "off") return staticHtml;
+
+  const $static = cheerio.load(staticHtml);
+  const titleStatic = $static("title").first().text().replace(/\s+/g, " ").trim() || fetchUrl;
+  const staticLen = extractStructuredContent($static, normalizedUrl, titleStatic).length;
+
+  if (staticLen >= MIN_MEANINGFUL_STATIC_CONTENT) return staticHtml;
+
+  const rendered = await fetchRenderedHtml(fetchUrl);
+  if (!rendered) return staticHtml;
+
+  const $rend = cheerio.load(rendered);
+  const titleR = $rend("title").first().text().replace(/\s+/g, " ").trim() || fetchUrl;
+  const renderedLen = extractStructuredContent($rend, normalizedUrl, titleR).length;
+
+  if (renderedLen > staticLen) {
+    console.log(
+      `[crawler] JS-rendered page richer for ${normalizedUrl} (${staticLen} → ${renderedLen} chars structured text)`
+    );
+    return rendered;
+  }
+
+  return staticHtml;
+}
 
 function tableToMarkdown($: cheerio.CheerioAPI, table: AnyNode): string {
   const rows: string[][] = [];
@@ -126,26 +227,14 @@ export function contentFingerprint(text: string): string {
 
 export async function crawlPages(urls: string[]): Promise<CrawledPage[]> {
   const pages: CrawledPage[] = [];
+  const mode = parseBrowserCrawlMode();
+  logBrowserCrawlModeOnce(mode);
 
   for (const rawUrl of urls) {
     try {
-      const res = await fetch(rawUrl, {
-        redirect: "follow",
-        headers: {
-          "User-Agent": "NavBot/1.0 (site indexer; respectful crawler)",
-          Accept: "text/html",
-        },
-      });
+      const html = await resolvePageHtml(rawUrl, rawUrl, mode);
+      if (!html) continue;
 
-      if (!res.ok) {
-        console.warn(`Skipping ${rawUrl} — HTTP ${res.status}`);
-        continue;
-      }
-
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("text/html")) continue;
-
-      const html = await res.text();
       const $ = cheerio.load(html);
       const title = $("title").first().text().replace(/\s+/g, " ").trim() || rawUrl;
       const content = extractStructuredContent($, rawUrl, title);
@@ -180,6 +269,8 @@ export async function crawlSite(
     { url: normalizeUrl(rootUrl), depth: 0 },
   ];
   const pages: CrawledPage[] = [];
+  const mode = parseBrowserCrawlMode();
+  logBrowserCrawlModeOnce(mode);
 
   while (queue.length > 0 && pages.length < maxPages) {
     const { url, depth } = queue.shift()!;
@@ -192,23 +283,9 @@ export async function crawlSite(
     visited.add(normalized);
 
     try {
-      const res = await fetch(url, {
-        redirect: "follow",
-        headers: {
-          "User-Agent": "NavBot/1.0 (site indexer; respectful crawler)",
-          Accept: "text/html",
-        },
-      });
+      const html = await resolvePageHtml(url, normalized, mode);
+      if (!html) continue;
 
-      if (!res.ok) {
-        console.warn(`Skipping ${url} — HTTP ${res.status}`);
-        continue;
-      }
-
-      const contentType = res.headers.get("content-type") || "";
-      if (!contentType.includes("text/html")) continue;
-
-      const html = await res.text();
       const $ = cheerio.load(html);
       const title = $("title").first().text().replace(/\s+/g, " ").trim() || url;
       const content = extractStructuredContent($, normalized, title);

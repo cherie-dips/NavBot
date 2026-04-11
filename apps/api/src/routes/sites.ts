@@ -1,6 +1,11 @@
 import { Router, type Request, type Response } from "express";
 import { crawlSite, crawlPages } from "../services/crawler";
-import { upsertSitePages, deletePagesFromSite, deleteSiteCollection } from "../services/vectorstore";
+import {
+  upsertSitePages,
+  deletePagesFromSite,
+  deleteSiteCollection,
+  pineconeSiteNamespaceRecordCount,
+} from "../services/vectorstore";
 import { getSitemapEntries } from "../services/sitemap";
 import { trySitemapSync } from "../services/auto-sync";
 import {
@@ -28,12 +33,12 @@ import { getOrGenerateFaqs, refreshFaqs, saveFaqUserAnswer } from "../services/f
 export const router: Router = Router();
 
 /* ── List all sites for a user ─────────────────────────────────────────── */
-router.get("/", (req: Request, res: Response) => {
+router.get("/", async (req: Request, res: Response) => {
   const userId = req.query.userId as string | undefined;
   if (!userId) {
     return res.status(400).json({ error: "userId query param is required" });
   }
-  const sites = getSitesByUser(userId);
+  const sites = await getSitesByUser(userId);
   res.json(
     sites.map((s) => ({
       id: s.site_id,
@@ -49,14 +54,14 @@ router.get("/", (req: Request, res: Response) => {
 });
 
 /* ── Dashboard analytics (conversations, volume, top queries) ──────────── */
-router.get("/dashboard-stats", (req: Request, res: Response) => {
+router.get("/dashboard-stats", async (req: Request, res: Response) => {
   const userId = req.query.userId as string | undefined;
   const siteIdRaw = req.query.siteId as string | undefined;
   if (!userId) {
     return res.status(400).json({ error: "userId query param is required" });
   }
   const filterSiteId = siteIdRaw?.trim() ? siteIdRaw.trim() : null;
-  const data = getDashboardAnalytics(userId, filterSiteId);
+  const data = await getDashboardAnalytics(userId, filterSiteId);
   if (!data) {
     return res.status(403).json({ error: "site not found or access denied" });
   }
@@ -78,47 +83,69 @@ router.post("/", async (req: Request, res: Response) => {
     const siteId = explicitSiteId || siteUrl.hostname;
     const hostname = siteUrl.hostname;
 
-    // Check if this site has already been crawled (by any user)
-    const existingHashes = getPageHashes(siteId);
+    // Skip crawl only if SQLite has hashes *and* Pinecone already has vectors for this site.
+    const existingHashes = await getPageHashes(siteId);
     const alreadyCrawled = Object.keys(existingHashes).length > 0;
 
     if (alreadyCrawled) {
-      // Site data already exists in ChromaDB — just register this user
-      const pageCount = Object.keys(existingHashes).length;
-      console.log(
-        `[index] Site "${siteId}" already crawled (${pageCount} pages). ` +
-          `Linking to user ${userId} without re-crawling.`
-      );
+      const vecCount = await pineconeSiteNamespaceRecordCount(siteId);
+      if (vecCount > 0) {
+        const pageCount = Object.keys(existingHashes).length;
+        console.log(
+          `[index] Site "${siteId}" already indexed (${pageCount} page hashes, ${vecCount} Pinecone records). ` +
+            `Linking to user ${userId ?? "(no userId)"} without re-crawling.`
+        );
 
-      if (userId) {
-        upsertSite({ siteId, userId, url, hostname, pagesIndexed: pageCount });
+        if (userId) {
+          await upsertSite({ siteId, userId, url, hostname, pagesIndexed: pageCount });
+        }
+
+        return res.json({
+          siteId,
+          pageCount,
+          stored: pageCount,
+          failed: 0,
+          reused: true,
+        });
       }
 
-      return res.json({
-        siteId,
-        pageCount,
-        stored: pageCount,
-        failed: 0,
-        reused: true,
+      console.warn(
+        `[index] Site "${siteId}" has DB page hashes but Pinecone namespace "site_${siteId}" is empty — re-crawling and re-upserting.`
+      );
+    }
+
+    const pages = await crawlSite(siteUrl.toString());
+    const { insertedCount, failedCount, totalChunks } = await upsertSitePages(
+      siteId,
+      pages
+    );
+
+    if (totalChunks > 0 && insertedCount === 0) {
+      console.error(
+        `[index] Pinecone accepted 0 / ${totalChunks} chunks for site "${siteId}". Check PINECONE_* env and server logs.`
+      );
+      return res.status(502).json({
+        error: "pinecone_upsert_failed",
+        message:
+          "Crawl finished but no vectors were stored in Pinecone. Check the API server logs and PINECONE_API_KEY / PINECONE_INDEX.",
       });
     }
 
-    // First time crawling this site
-    const pages = await crawlSite(siteUrl.toString());
-    const { insertedCount, failedCount } = await upsertSitePages(siteId, pages);
-
     if (userId) {
-      upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
+      await upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
     }
 
     // Persist content hashes so future syncs can detect changed pages
-    upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+    await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
 
     // Pre-populate sitemap lastmod values so future syncs can diff correctly
     getSitemapEntries(siteUrl.toString())
       .then((entries) => {
         if (entries.length > 0) {
-          upsertPageLastmods(siteId, entries.map((e) => ({ url: e.url, lastmod: e.lastmod })));
+          void upsertPageLastmods(
+            siteId,
+            entries.map((e) => ({ url: e.url, lastmod: e.lastmod }))
+          ).catch(() => {});
           console.log(`[index] Stored ${entries.length} sitemap lastmod values for "${siteId}"`);
         }
       })
@@ -143,10 +170,21 @@ router.patch("/:siteId/pages", async (req: Request, res: Response) => {
 
     const pages = await crawlPages(urls);
     await deletePagesFromSite(siteId, urls);
-    const { insertedCount, failedCount } = await upsertSitePages(siteId, pages);
+    const { insertedCount, failedCount, totalChunks } = await upsertSitePages(
+      siteId,
+      pages
+    );
+
+    if (totalChunks > 0 && insertedCount === 0) {
+      return res.status(502).json({
+        error: "pinecone_upsert_failed",
+        message:
+          "Pages were crawled but no vectors were stored in Pinecone. See API logs and PINECONE_* configuration.",
+      });
+    }
 
     // Update hashes for re-crawled pages
-    upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+    await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
 
     res.json({
       siteId,
@@ -170,15 +208,27 @@ router.post("/:siteId/reindex", async (req: Request, res: Response) => {
     if (!url) return res.status(400).json({ error: "url is required" });
 
     const pages = await crawlSite(url);
-    const { insertedCount, failedCount } = await upsertSitePages(siteId, pages, { replaceExisting: true });
+    const { insertedCount, failedCount, totalChunks } = await upsertSitePages(
+      siteId,
+      pages,
+      { replaceExisting: true }
+    );
+
+    if (totalChunks > 0 && insertedCount === 0) {
+      return res.status(502).json({
+        error: "pinecone_upsert_failed",
+        message:
+          "Reindex crawl finished but Pinecone stored no vectors. See API logs and PINECONE_* configuration.",
+      });
+    }
 
     if (userId) {
       const hostname = (() => { try { return new URL(url).hostname; } catch { return url; } })();
-      upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
+      await upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
     }
 
     // Full reindex — overwrite all stored hashes
-    upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+    await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
 
     res.json({ siteId, pageCount: pages.length, stored: insertedCount, failed: failedCount, reindexed: true });
   } catch (err) {
@@ -193,23 +243,23 @@ router.delete("/:siteId", async (req: Request, res: Response) => {
   const userId = req.query.userId as string | undefined;
   if (!userId) return res.status(400).json({ error: "userId query param is required" });
 
-  const dbDeleted = deleteSite(siteId, userId);
+  const dbDeleted = await deleteSite(siteId, userId);
 
-  // Only delete ChromaDB collection + hashes if no other user references this site
-  const remainingUsers = getSiteCountBySiteId(siteId);
+  // Only delete Pinecone namespace + hashes if no other user references this site
+  const remainingUsers = await getSiteCountBySiteId(siteId);
   let vectorDeleted = false;
 
   if (remainingUsers === 0) {
     vectorDeleted = await deleteSiteCollection(siteId);
-    deletePageHashes(siteId);
-    purgeSiteDerivedData(siteId);
+    await deletePageHashes(siteId);
+    await purgeSiteDerivedData(siteId);
   }
 
   res.json({ deleted: dbDeleted, vectorStoreCleared: vectorDeleted });
 });
 
 /* ── Save widget theme ─────────────────────────────────────────────────── */
-router.put("/:siteId/theme", (req: Request, res: Response) => {
+router.put("/:siteId/theme", async (req: Request, res: Response) => {
   const { siteId } = req.params;
   const userId = req.query.userId as string | undefined;
   if (!userId) return res.status(400).json({ error: "userId query param is required" });
@@ -217,25 +267,25 @@ router.put("/:siteId/theme", (req: Request, res: Response) => {
   const theme = req.body as WidgetTheme;
   if (!theme?.primary) return res.status(400).json({ error: "theme.primary is required" });
 
-  const saved = upsertSiteTheme(siteId, userId, theme);
+  const saved = await upsertSiteTheme(siteId, userId, theme);
   if (!saved) return res.status(404).json({ error: "site not found" });
   res.json({ ok: true, theme });
 });
 
 /* ── Get widget theme (dashboard) ──────────────────────────────────────── */
-router.get("/:siteId/theme", (req: Request, res: Response) => {
+router.get("/:siteId/theme", async (req: Request, res: Response) => {
   const { siteId } = req.params;
   const userId = req.query.userId as string | undefined;
   if (!userId) return res.status(400).json({ error: "userId query param is required" });
 
-  const theme = getSiteTheme(siteId, userId) ?? DEFAULT_THEME;
+  const theme = (await getSiteTheme(siteId, userId)) ?? DEFAULT_THEME;
   res.json(theme);
 });
 
 /* ── Get widget config (public — called by widget itself) ──────────────── */
-router.get("/:siteId/widget-config", (req: Request, res: Response) => {
+router.get("/:siteId/widget-config", async (req: Request, res: Response) => {
   const { siteId } = req.params;
-  const theme = getSiteThemePublic(siteId) ?? DEFAULT_THEME;
+  const theme = (await getSiteThemePublic(siteId)) ?? DEFAULT_THEME;
   res.json({ siteId, theme });
 });
 
@@ -266,26 +316,26 @@ router.post("/:siteId/faqs/refresh", async (req: Request, res: Response) => {
 });
 
 /* ── Get social handles ───────────────────────────────────────────────── */
-router.get("/:siteId/social", (req: Request, res: Response) => {
+router.get("/:siteId/social", async (req: Request, res: Response) => {
   const { siteId } = req.params;
-  const handles = getSocialHandles(siteId);
+  const handles = await getSocialHandles(siteId);
   res.json(handles);
 });
 
 /* ── Save / update social handles ─────────────────────────────────────── */
-router.patch("/:siteId/social", (req: Request, res: Response) => {
+router.patch("/:siteId/social", async (req: Request, res: Response) => {
   const { siteId } = req.params;
   const userId = req.query.userId as string | undefined;
   if (!userId) return res.status(400).json({ error: "userId query param is required" });
 
   const handles = req.body as SocialHandles;
-  const saved = upsertSocialHandles(siteId, userId, handles);
+  const saved = await upsertSocialHandles(siteId, userId, handles);
   if (!saved) return res.status(404).json({ error: "site not found" });
   res.json({ ok: true, handles });
 });
 
 /* ── Save user-edited FAQ answer (dashboard) ───────────────────────────── */
-router.patch("/:siteId/faqs/:faqId", (req: Request, res: Response) => {
+router.patch("/:siteId/faqs/:faqId", async (req: Request, res: Response) => {
   const { siteId, faqId } = req.params;
   const { answer } = req.body as { answer?: string };
   if (!answer?.trim()) {
@@ -295,7 +345,7 @@ router.patch("/:siteId/faqs/:faqId", (req: Request, res: Response) => {
   if (!Number.isFinite(id) || id <= 0) {
     return res.status(400).json({ error: "invalid faqId" });
   }
-  const ok = saveFaqUserAnswer(siteId, id, answer);
+  const ok = await saveFaqUserAnswer(siteId, id, answer);
   if (!ok) return res.status(404).json({ error: "faq not found" });
   res.json({ ok: true, siteId, faqId: id });
 });

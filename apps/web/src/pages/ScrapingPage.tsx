@@ -6,8 +6,10 @@ interface ScrapingPageProps {
   userId?: string;
   apiBase: string;
   onComplete: (result: {
-    [x: string]: null; siteId: string; pageCount: number; stored: number 
-}) => void;
+    siteId: string;
+    pageCount: number;
+    stored: number;
+  }) => void;
   onError: (message: string) => void;
 }
 
@@ -106,10 +108,18 @@ export const ScrapingPage = ({
         const data = await res.json();
 
         if (!res.ok) {
+          const errCode = data?.error as string | undefined;
+          const errMsg = typeof data?.message === "string" ? data.message : "";
+          if (errCode === "pinecone_upsert_failed") {
+            throw new Error(
+              errMsg ||
+                "Indexing could not save vectors to Pinecone. Check the API server PINECONE_API_KEY and PINECONE_INDEX, then try again."
+            );
+          }
           throw new Error(
-            data?.error === "failed_to_index_site"
+            errCode === "failed_to_index_site"
               ? "Failed to index site. Please check the URL and try again."
-              : data?.error || "Failed to index site."
+              : errMsg || errCode || "Failed to index site."
           );
         }
 

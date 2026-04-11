@@ -27,7 +27,7 @@ router.post("/", async (req: Request, res: Response) => {
       history: history || [],
     });
 
-    logChatTurn({
+    await logChatTurn({
       siteId,
       query: message,
       channel: "text",
@@ -110,7 +110,7 @@ router.post(
       });
 
       if (result.transcript && result.transcript.trim()) {
-        logChatTurn({
+        await logChatTurn({
           siteId,
           query: result.transcript.trim(),
           channel: "voice",

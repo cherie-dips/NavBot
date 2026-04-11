@@ -10,7 +10,9 @@ import { router as chatRouter } from "./routes/chat";
 import { router as colorRouter } from "./routes/colors";
 import { router as syncRouter } from "./routes/sync";
 import { startAutoSync } from "./services/auto-sync";
+import { shutdownBrowser } from "./services/browser-render";
 import { openApiSpec } from "./openapi/openapi-spec";
+import { initAppDatabase } from "./services/db";
 
 const app = express();
 
@@ -40,7 +42,23 @@ app.use("/api/colors", colorRouter);
 
 const port = process.env.PORT || 3001;
 
-app.listen(port, () => {
-  console.log(`API server listening on http://localhost:${port}`);
-  startAutoSync();
-});
+void initAppDatabase()
+  .then(() => {
+    app.listen(port, () => {
+      console.log(`API server listening on http://localhost:${port}`);
+      startAutoSync();
+    });
+  })
+  .catch((err) => {
+    console.error("[api] Database init failed:", err);
+    process.exit(1);
+  });
+
+async function gracefulShutdown(signal: string) {
+  console.log(`[api] ${signal} — closing headless browser pool…`);
+  await shutdownBrowser();
+  process.exit(0);
+}
+
+process.once("SIGTERM", () => void gracefulShutdown("SIGTERM"));
+process.once("SIGINT", () => void gracefulShutdown("SIGINT"));
