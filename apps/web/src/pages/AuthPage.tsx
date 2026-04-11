@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ArrowRight, Eye, EyeOff, Mail } from "lucide-react";
 import { authClient } from "../lib/auth-client";
 
@@ -16,6 +16,14 @@ export const AuthPage = ({ onViewChange, onAuthSuccess }: AuthPageProps) => {
     const [password, setPassword] = useState("");
     const [name, setName] = useState("");
     const [error, setError] = useState("");
+
+    useEffect(() => {
+        const stored = sessionStorage.getItem("navbot_oauth_error");
+        if (stored) {
+            sessionStorage.removeItem("navbot_oauth_error");
+            setError(stored);
+        }
+    }, []);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

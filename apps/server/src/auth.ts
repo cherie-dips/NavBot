@@ -82,6 +82,28 @@ export const authOptions: BetterAuthOptions = {
   },
   ...(Object.keys(socialProviders).length > 0 && { socialProviders }),
   trustedOrigins: getTrustedOrigins(),
+  ...(isProd
+    ? {
+        /**
+         * Web app (e.g. navbot-web.onrender.com) and auth (navbot-auth.onrender.com) are different sites.
+         * Default SameSite=Lax cookies are not stored/sent reliably on credentialed cross-origin requests,
+         * which breaks OAuth "state" linkage and session cookies. None + Secure is required on HTTPS.
+         */
+        advanced: {
+          defaultCookieAttributes: {
+            sameSite: "none",
+            secure: true,
+          },
+        },
+        /**
+         * OAuth state is still verified via the DB verification row; the extra signed `state` cookie
+         * often never persists when sign-in starts from a cross-origin fetch (browser third-party rules).
+         */
+        account: {
+          skipStateCookieCheck: true,
+        },
+      }
+    : {}),
 };
 
 export const auth: ReturnType<typeof betterAuth> = betterAuth(authOptions);

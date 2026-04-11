@@ -6,6 +6,16 @@ import { getMigrations } from "better-auth/db/migration";
 import { auth, authOptions } from "./auth.js";
 import { getTrustedOrigins } from "./cors-origins.js";
 
+/** First entry of CORS_ORIGIN or WEB_APP_ORIGIN — used to send users back to the SPA on OAuth errors. */
+function getWebAppOriginForRedirect(): string | undefined {
+  const explicit = process.env.WEB_APP_ORIGIN?.trim();
+  if (explicit) return explicit.replace(/\/+$/, "");
+  const raw = process.env.CORS_ORIGIN?.trim();
+  if (!raw) return undefined;
+  const first = raw.split(",")[0]?.trim();
+  return first ? first.replace(/\/+$/, "") : undefined;
+}
+
 async function main(): Promise<void> {
   const { runMigrations } = await getMigrations(authOptions);
   await runMigrations();
@@ -30,6 +40,38 @@ async function main(): Promise<void> {
   );
 
   app.all("/api/auth/*", toNodeHandler(auth));
+
+  const redirectOAuthErrorToWeb = (
+    req: express.Request,
+    res: express.Response
+  ): void => {
+    const web = getWebAppOriginForRedirect();
+    const err =
+      typeof req.query.error === "string" ? req.query.error : undefined;
+    if (web && err) {
+      const dest = new URL("/", web);
+      dest.searchParams.set("auth_error", err);
+      res.redirect(302, dest.toString());
+      return;
+    }
+    if (err && !web) {
+      res
+        .status(400)
+        .type("text/plain")
+        .send(
+          `OAuth error: ${err}. Set CORS_ORIGIN (or WEB_APP_ORIGIN) on this service to your static site URL (e.g. https://navbot-web.onrender.com) so users are redirected back with this message.`
+        );
+      return;
+    }
+    res
+      .type("text/plain")
+      .send(
+        "NavBot auth API is running. Sign in from the web app.\nGET /health for status.\n"
+      );
+  };
+
+  app.get("/", redirectOAuthErrorToWeb);
+  app.get("/error", redirectOAuthErrorToWeb);
 
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });

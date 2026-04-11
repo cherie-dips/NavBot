@@ -34,6 +34,24 @@ const App = () => {
       window.history.replaceState({}, "", window.location.pathname);
       setIsAuthed(true);
       setCurrentView("dashboard");
+      return;
+    }
+    const authErr = params.get("auth_error");
+    if (authErr) {
+      params.delete("auth_error");
+      const rest = params.toString();
+      window.history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}${rest ? `?${rest}` : ""}`
+      );
+      const message =
+        authErr === "state_mismatch"
+          ? "Google sign-in could not verify the browser session (cookies between the app and auth service). Try again, or use email sign-in. If it keeps failing, clear site data for this site."
+          : `Sign-in failed (${authErr}). Try again or use email.`;
+      sessionStorage.setItem("navbot_oauth_error", message);
+      setPostAuthView("dashboard");
+      setCurrentView("auth");
     }
   }, []);
 

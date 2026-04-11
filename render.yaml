@@ -43,6 +43,9 @@ services:
           property: connectionString
       - key: CORS_ORIGIN
         sync: false
+      # Optional: explicit static site URL for OAuth error redirects (defaults to first CORS_ORIGIN).
+      - key: WEB_APP_ORIGIN
+        sync: false
       - key: BETTER_AUTH_URL
         sync: false
       - key: BETTER_AUTH_SECRET
