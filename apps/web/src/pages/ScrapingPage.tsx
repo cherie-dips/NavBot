@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Globe, Cpu, Database, CheckCircle2 } from "lucide-react";
+import type { WidgetTheme } from "../components/ColorThemePicker";
 
 interface ScrapingPageProps {
   websiteUrl: string;
@@ -9,6 +10,7 @@ interface ScrapingPageProps {
     siteId: string;
     pageCount: number;
     stored: number;
+    widgetTheme?: WidgetTheme | null;
   }) => void;
   onError: (message: string) => void;
 }
@@ -109,16 +111,34 @@ export const ScrapingPage = ({
 
         if (!res.ok) {
           const errCode = data?.error as string | undefined;
-          const errMsg = typeof data?.message === "string" ? data.message : "";
+          const errMsg =
+            typeof data?.message === "string" && data.message.trim()
+              ? data.message.trim()
+              : "";
           if (errCode === "pinecone_upsert_failed") {
             throw new Error(
               errMsg ||
-                "Indexing could not save vectors to Pinecone. Check the API server PINECONE_API_KEY and PINECONE_INDEX, then try again."
+                "Indexing could not save vectors to Pinecone. Check PINECONE_API_KEY and PINECONE_INDEX on the API service."
+            );
+          }
+          if (
+            errCode === "invalid_url" ||
+            errCode === "no_pages_crawled" ||
+            errCode === "pinecone_not_configured"
+          ) {
+            throw new Error(
+              errMsg ||
+                (errCode === "invalid_url"
+                  ? "That URL is not valid. Use https://yoursite.com (or enter the domain only)."
+                  : errCode === "no_pages_crawled"
+                    ? "No pages could be crawled from that URL."
+                    : "The API search index (Pinecone) is not configured.")
             );
           }
           throw new Error(
             errCode === "failed_to_index_site"
-              ? "Failed to index site. Please check the URL and try again."
+              ? errMsg ||
+                  "Failed to index site. Check the URL, API logs, and that VITE_API_URL points to your deployed API."
               : errMsg || errCode || "Failed to index site."
           );
         }

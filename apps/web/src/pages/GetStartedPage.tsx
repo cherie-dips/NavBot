@@ -3,9 +3,9 @@ import { ArrowRight, Sparkles, Globe, CheckCircle2, AlertCircle } from "lucide-r
 import { ScrapingPage } from "./ScrapingPage";
 import { IntegrationPanel } from "../components/IntegrationPanel";
 import { authClient } from "../lib/auth-client";
+import { normalizeApiBase } from "../lib/api-base";
 
-const API_BASE =
-  (import.meta as any).env?.VITE_API_URL ?? "http://localhost:3001";
+const API_BASE = normalizeApiBase((import.meta as any).env?.VITE_API_URL);
 const WIDGET_SCRIPT_URL =
   (import.meta as any).env?.VITE_WIDGET_SCRIPT_URL ??
   (typeof window !== "undefined"
@@ -33,10 +33,17 @@ export const GetStartedPage = () => {
     }).catch(() => {});
   }, []);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!websiteUrl.trim()) return;
     setError(null);
+    const { data } = await authClient.getSession();
+    const uid = data?.user?.id;
+    if (!uid) {
+      setError("Please sign in to index your website.");
+      return;
+    }
+    setUserId(uid);
     setIsScraping(true);
     setScrapingDone(false);
     setResult(null);

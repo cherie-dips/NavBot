@@ -32,6 +32,58 @@ import { getOrGenerateFaqs, refreshFaqs, saveFaqUserAnswer } from "../services/f
 
 export const router: Router = Router();
 
+/** Accepts "example.com" and "https://example.com" — bare hosts get https:// */
+function parsePublicSiteUrl(raw: string): URL {
+  const trimmed = raw.trim();
+  if (!trimmed) throw new TypeError("URL is empty");
+  const withScheme = /^[a-zA-Z][a-zA-Z\d+\-.]*:\/\//.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+  return new URL(withScheme);
+}
+
+function indexErrorResponse(err: unknown): { status: number; body: Record<string, string> } {
+  const msg = err instanceof Error ? err.message : String(err);
+
+  if (
+    err instanceof TypeError ||
+    /invalid url/i.test(msg) ||
+    /^(Failed to parse URL|Invalid URL)/i.test(msg)
+  ) {
+    return {
+      status: 400,
+      body: {
+        error: "invalid_url",
+        message:
+          "That does not look like a valid web address. Use a full URL with https, e.g. https://www.example.com",
+      },
+    };
+  }
+
+  if (
+    msg.includes("PINECONE_API_KEY is required") ||
+    msg.includes("PINECONE_INDEX is required")
+  ) {
+    return {
+      status: 503,
+      body: {
+        error: "pinecone_not_configured",
+        message:
+          "The API is not configured for search indexing. Set PINECONE_API_KEY and PINECONE_INDEX on the API service (Render → navbot-api → Environment).",
+      },
+    };
+  }
+
+  return {
+    status: 500,
+    body: {
+      error: "failed_to_index_site",
+      message:
+        "Something went wrong while indexing. Check the API service logs on Render for details.",
+    },
+  };
+}
+
 /* ── List all sites for a user ─────────────────────────────────────────── */
 router.get("/", async (req: Request, res: Response) => {
   const userId = req.query.userId as string | undefined;
@@ -79,7 +131,16 @@ router.post("/", async (req: Request, res: Response) => {
 
     if (!url) return res.status(400).json({ error: "url is required" });
 
-    const siteUrl = new URL(url);
+    let siteUrl: URL;
+    try {
+      siteUrl = parsePublicSiteUrl(url);
+    } catch {
+      return res.status(400).json({
+        error: "invalid_url",
+        message:
+          "Enter a valid site URL (you can use example.com — https:// will be added automatically).",
+      });
+    }
     const siteId = explicitSiteId || siteUrl.hostname;
     const hostname = siteUrl.hostname;
 
@@ -115,6 +176,15 @@ router.post("/", async (req: Request, res: Response) => {
     }
 
     const pages = await crawlSite(siteUrl.toString());
+
+    if (pages.length === 0) {
+      return res.status(422).json({
+        error: "no_pages_crawled",
+        message:
+          "No pages could be fetched or parsed from that URL. Check that the site is public, the URL is correct, and (on Render) NAVBOT_BROWSER_CRAWL is auto or always for JavaScript-heavy sites.",
+      });
+    }
+
     const { insertedCount, failedCount, totalChunks } = await upsertSitePages(
       siteId,
       pages
@@ -153,8 +223,9 @@ router.post("/", async (req: Request, res: Response) => {
 
     res.json({ siteId, pageCount: pages.length, stored: insertedCount, failed: failedCount });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "failed_to_index_site" });
+    console.error("[index]", err);
+    const { status, body } = indexErrorResponse(err);
+    res.status(status).json(body);
   }
 });
 

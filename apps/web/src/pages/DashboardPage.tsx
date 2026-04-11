@@ -13,6 +13,7 @@ import { WidgetTheme } from "../components/ColorThemePicker";
 import { SitemapSyncPanel } from "../components/SitemapSyncPanel";
 import { SiteOption } from "../components/SiteSelector";
 import { BillingTab } from "./BillingTab";
+import { normalizeApiBase, siteHostnameFromInput } from "../lib/api-base";
 
 function formatLocalDate(raw: string | null | undefined): string {
   if (!raw || raw === "Just now") return raw || "Never";
@@ -45,7 +46,7 @@ interface DashboardPageProps {
 
 type Tab = "overview" | "websites" | "analytics" | "social" | "visitors" | "settings" | "billing";
 
-const API_BASE = (import.meta as any).env?.VITE_API_URL ?? "http://localhost:3001";
+const API_BASE = normalizeApiBase((import.meta as any).env?.VITE_API_URL);
 /** Background refresh of chat analytics while the dashboard is open */
 const DASHBOARD_ANALYTICS_POLL_MS = 30_000;
 const WIDGET_SCRIPT_URL =
@@ -240,6 +241,12 @@ export const DashboardPage = ({
   const handleAddWebsite = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newSiteUrl.trim()) return;
+    if (!user?.id) {
+      setIndexError(
+        "Your account session is still loading. Wait a moment, then try adding the site again."
+      );
+      return;
+    }
     setScrapingUrl(newSiteUrl.trim());
     setIsScraping(true);
     setShowAddSite(false);
@@ -279,7 +286,7 @@ export const DashboardPage = ({
         userId={user?.id}
         apiBase={API_BASE}
         onComplete={(result) => {
-          const hostname = (() => { try { return new URL(scrapingUrl).hostname; } catch { return scrapingUrl; } })();
+          const hostname = siteHostnameFromInput(scrapingUrl);
           const newSite: Website = {
             id: result.siteId, url: scrapingUrl, hostname, status: "active",
             pagesIndexed: result.stored, lastCrawled: "Just now",
