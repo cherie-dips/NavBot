@@ -11,7 +11,7 @@ COPY packages ./packages
 COPY apps/api ./apps/api
 
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter api build
+RUN pnpm --filter @repo/color-extractor build && pnpm --filter api build
 
 ENV NODE_ENV=production
 WORKDIR /app/apps/api

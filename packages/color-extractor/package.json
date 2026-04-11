@@ -2,17 +2,22 @@
   "name": "@repo/color-extractor",
   "version": "0.0.1",
   "private": true,
-  "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "cheerio": "^1.0.0-rc.12",
-    "node-fetch": "^3.3.2"
+    "cheerio": "^1.0.0-rc.12"
   },
   "devDependencies": {
-    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^22.10.0",
     "typescript": "5.5.4"
   }
 }

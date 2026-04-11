@@ -58,7 +58,7 @@ services:
     name: navbot-api
     runtime: node
     rootDir: .
-    buildCommand: NODE_ENV=development pnpm install && pnpm --filter api build
+    buildCommand: NODE_ENV=development pnpm install && pnpm --filter @repo/color-extractor build && pnpm --filter api build
     startCommand: NODE_ENV=production pnpm --filter api start
     plan: free
     envVars:
