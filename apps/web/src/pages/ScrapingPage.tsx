@@ -124,7 +124,9 @@ export const ScrapingPage = ({
           if (
             errCode === "invalid_url" ||
             errCode === "no_pages_crawled" ||
-            errCode === "pinecone_not_configured"
+            errCode === "pinecone_not_configured" ||
+            errCode === "pinecone_auth_failed" ||
+            errCode === "pinecone_index_not_found"
           ) {
             throw new Error(
               errMsg ||
@@ -132,7 +134,11 @@ export const ScrapingPage = ({
                   ? "That URL is not valid. Use https://yoursite.com (or enter the domain only)."
                   : errCode === "no_pages_crawled"
                     ? "No pages could be crawled from that URL."
-                    : "The API search index (Pinecone) is not configured.")
+                    : errCode === "pinecone_auth_failed"
+                      ? "Pinecone rejected the API key. Update PINECONE_API_KEY on your API host (Render) with a key from app.pinecone.io for the same project as your index."
+                      : errCode === "pinecone_index_not_found"
+                        ? "That Pinecone index name does not exist for this API key. Fix PINECONE_INDEX or create the index in Pinecone."
+                        : "The API search index (Pinecone) is not configured.")
             );
           }
           throw new Error(

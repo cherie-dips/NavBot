@@ -42,6 +42,64 @@ function parsePublicSiteUrl(raw: string): URL {
   return new URL(withScheme);
 }
 
+function pineconeFailureResponse(
+  err: unknown,
+  msg: string
+): { status: number; body: Record<string, string> } | null {
+  const name =
+    err && typeof err === "object" && "name" in err && typeof (err as Error).name === "string"
+      ? (err as Error).name
+      : "";
+
+  const authLike =
+    name === "PineconeAuthorizationError" ||
+    name === "PineconeForbiddenError" ||
+    /API key you provided was rejected/i.test(msg) ||
+    (/pinecone/i.test(msg) && /401|403|rejected|unauthorized|forbidden|not authorized/i.test(msg));
+
+  if (authLike) {
+    return {
+      status: 502,
+      body: {
+        error: "pinecone_auth_failed",
+        message:
+          "Pinecone rejected your API key. In https://app.pinecone.io copy a current API key for the project that owns index \"" +
+          (process.env.PINECONE_INDEX?.trim() || "your-index") +
+          "\", set it as PINECONE_API_KEY on Render (navbot-api → Environment), save, and redeploy. Keys are often wrong if pasted with a typo, extra space, or from a different Pinecone project.",
+      },
+    };
+  }
+
+  if (
+    msg.includes("PINECONE_API_KEY is required") ||
+    msg.includes("PINECONE_INDEX is required")
+  ) {
+    return {
+      status: 503,
+      body: {
+        error: "pinecone_not_configured",
+        message:
+          "The API is not configured for search indexing. Set PINECONE_API_KEY and PINECONE_INDEX on the API service (Render → navbot-api → Environment).",
+      },
+    };
+  }
+
+  if (/pinecone/i.test(msg) && /not found|does not exist|404/i.test(msg)) {
+    return {
+      status: 502,
+      body: {
+        error: "pinecone_index_not_found",
+        message:
+          "Pinecone index \"" +
+          (process.env.PINECONE_INDEX?.trim() || "") +
+          "\" was not found for this API key. Create that index in the Pinecone console or set PINECONE_INDEX to an existing index name.",
+      },
+    };
+  }
+
+  return null;
+}
+
 function indexErrorResponse(err: unknown): { status: number; body: Record<string, string> } {
   const msg = err instanceof Error ? err.message : String(err);
 
@@ -60,19 +118,8 @@ function indexErrorResponse(err: unknown): { status: number; body: Record<string
     };
   }
 
-  if (
-    msg.includes("PINECONE_API_KEY is required") ||
-    msg.includes("PINECONE_INDEX is required")
-  ) {
-    return {
-      status: 503,
-      body: {
-        error: "pinecone_not_configured",
-        message:
-          "The API is not configured for search indexing. Set PINECONE_API_KEY and PINECONE_INDEX on the API service (Render → navbot-api → Environment).",
-      },
-    };
-  }
+  const pc = pineconeFailureResponse(err, msg);
+  if (pc) return pc;
 
   return {
     status: 500,
