@@ -41,11 +41,11 @@ function buildSnippets(
   const consoleCode =
     `(function(){if(document.getElementById("chat-widget-root")){console.log("NavBot already loaded.");return;}` +
     `window.NAVBOT_CONFIG={apiBase:"${apiBase}",siteId:"${siteId}",theme:${themeJsonMinified}};` +
-    `var s=document.createElement("script");s.src="${widgetScriptUrl}";s.crossOrigin="anonymous";document.body.appendChild(s);})();`;
+    `var s=document.createElement("script");s.src="${widgetScriptUrl}";document.body.appendChild(s);})();`;
 
   const scriptTag =
     `<script>\n  window.NAVBOT_CONFIG = {\n    apiBase: "${apiBase}",\n    siteId: "${siteId}",\n    theme: ${themeJson.split("\n").map((l, i) => (i === 0 ? l : "    " + l)).join("\n")}\n  };\n</script>\n` +
-    `<script src="${widgetScriptUrl}" crossorigin="anonymous"></script>`;
+    `<script src="${widgetScriptUrl}"></script>`;
 
   return { consoleCode, scriptTag };
 }

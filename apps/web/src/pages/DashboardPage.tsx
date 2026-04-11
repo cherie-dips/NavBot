@@ -163,8 +163,8 @@ export const DashboardPage = ({
   };
 
   const buildIntegration = (site: Website): IntegrationInfo => {
-    const consoleCode = `(function(){if(document.getElementById("chat-widget-root")){return;}window.NAVBOT_CONFIG={apiBase:"${API_BASE}",siteId:"${site.id}"};var s=document.createElement("script");s.src="${WIDGET_SCRIPT_URL}";s.crossOrigin="anonymous";document.body.appendChild(s);})();`;
-    const scriptTag = `<script>\n  window.NAVBOT_CONFIG = { apiBase: "${API_BASE}", siteId: "${site.id}" };\n</script>\n<script src="${WIDGET_SCRIPT_URL}" crossorigin="anonymous"></script>`;
+    const consoleCode = `(function(){if(document.getElementById("chat-widget-root")){return;}window.NAVBOT_CONFIG={apiBase:"${API_BASE}",siteId:"${site.id}"};var s=document.createElement("script");s.src="${WIDGET_SCRIPT_URL}";document.body.appendChild(s);})();`;
+    const scriptTag = `<script>\n  window.NAVBOT_CONFIG = { apiBase: "${API_BASE}", siteId: "${site.id}" };\n</script>\n<script src="${WIDGET_SCRIPT_URL}"></script>`;
     return { siteId: site.id, url: site.url, consoleCode, scriptTag };
   };
 

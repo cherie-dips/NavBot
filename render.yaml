@@ -6,6 +6,7 @@
 # - Set BETTER_AUTH_URL (or BETTER_AUTH_BASE_URL) on navbot-auth to this service’s public URL (e.g. https://navbot-auth.onrender.com).
 # - Set BETTER_AUTH_SECRET on navbot-auth (long random string; used to sign sessions — required in production).
 # - Set VITE_API_URL, VITE_AUTH_URL, VITE_WIDGET_SCRIPT_URL on the static site (e.g. widget URL = https://<static-host>/chat-widget.iife.js).
+# - Widget script is served with Access-Control-Allow-Origin: * so it can load from GitHub Pages etc. (avoid crossorigin="anonymous" on <script> unless you need SRI).
 # - Secrets: PINECONE_* on navbot-api; GOOGLE_API_KEY (Gemini) on navbot-api only.
 # - Google *login* (OAuth): set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET on navbot-auth (not on the API).
 #   Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID (type: Web application).
@@ -90,6 +91,10 @@ services:
     rootDir: .
     buildCommand: NODE_ENV=development pnpm install && pnpm --filter @repo/chat-widget build && pnpm --filter web build
     staticPublishPath: ./apps/web/dist
+    headers:
+      - path: /chat-widget.iife.js
+        name: Access-Control-Allow-Origin
+        value: "*"
     envVars:
       - key: NODE_VERSION
         value: "20"
