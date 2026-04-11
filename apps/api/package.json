@@ -24,11 +24,11 @@
     "node-cron": "^4.2.1",
     "node-fetch": "^3.3.2",
     "playwright": "^1.49.1",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "@repo/color-extractor": "workspace:*"
   },
   "devDependencies": {
-    "@repo/color-extractor": "workspace:*",
-    "@repo/typescript-config": "workspace:*",
+    "@types/node": "^22.10.0",
     "@types/pg": "^8.11.10",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",

@@ -108,8 +108,10 @@ async function serperSearch(
       return [];
     }
 
-    const data = await res.json();
-    return (data.organic ?? []).map((r: any) => ({
+    const data = (await res.json()) as {
+      organic?: Array<{ title?: string; link?: string; snippet?: string }>;
+    };
+    return (data.organic ?? []).map((r) => ({
       title: r.title ?? "",
       link: r.link ?? "",
       snippet: r.snippet ?? "",

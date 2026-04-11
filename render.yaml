@@ -12,6 +12,8 @@
 # - Optional: GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET on navbot-auth for GitHub login.
 # - Native API uses NAVBOT_BROWSER_CRAWL=off by default. For Playwright crawling on Render, deploy the API with
 #   Docker using apps/api/Dockerfile (see file header) instead of the Node native service below.
+# - Do NOT set NODE_ENV=production as a service env var: Render injects it during *build*, and pnpm then skips
+#   devDependencies (TypeScript, @types/node). Production mode is set only in startCommand below.
 
 databases:
   - name: navbot-db
@@ -24,14 +26,12 @@ services:
     name: navbot-auth
     runtime: node
     rootDir: .
-    buildCommand: pnpm install && pnpm --filter server build
-    startCommand: pnpm --filter server start
+    buildCommand: NODE_ENV=development pnpm install && pnpm --filter server build
+    startCommand: NODE_ENV=production pnpm --filter server start
     plan: free
     envVars:
       - key: NODE_VERSION
         value: "20"
-      - key: NODE_ENV
-        value: production
       - key: DATABASE_URL
         fromDatabase:
           name: navbot-db
@@ -53,14 +53,12 @@ services:
     name: navbot-api
     runtime: node
     rootDir: .
-    buildCommand: pnpm install && pnpm --filter api build
-    startCommand: pnpm --filter api start
+    buildCommand: NODE_ENV=development pnpm install && pnpm --filter api build
+    startCommand: NODE_ENV=production pnpm --filter api start
     plan: free
     envVars:
       - key: NODE_VERSION
         value: "20"
-      - key: NODE_ENV
-        value: production
       - key: DATABASE_URL
         fromDatabase:
           name: navbot-db
@@ -78,7 +76,7 @@ services:
     name: navbot-web
     runtime: static
     rootDir: .
-    buildCommand: pnpm install && pnpm --filter @repo/chat-widget build && pnpm --filter web build
+    buildCommand: NODE_ENV=development pnpm install && pnpm --filter @repo/chat-widget build && pnpm --filter web build
     staticPublishPath: ./apps/web/dist
     envVars:
       - key: NODE_VERSION

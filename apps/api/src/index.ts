@@ -31,7 +31,7 @@ app.use(
   }) as unknown as express.RequestHandler
 );
 
-app.get("/health", (_req, res) => {
+app.get("/health", (_req: express.Request, res: express.Response) => {
   res.json({ status: "ok" });
 });
 
@@ -49,7 +49,7 @@ void initAppDatabase()
       startAutoSync();
     });
   })
-  .catch((err) => {
+  .catch((err: unknown) => {
     console.error("[api] Database init failed:", err);
     process.exit(1);
   });

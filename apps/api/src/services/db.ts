@@ -176,7 +176,7 @@ export async function getSitesByUser(userId: string): Promise<SiteRow[]> {
     `SELECT * FROM site WHERE user_id = $1 ORDER BY added_at DESC`,
     [userId]
   );
-  return rows.map((r) => {
+  return rows.map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
       id: numId(row.id),
@@ -332,7 +332,7 @@ export async function getSiteCountBySiteId(siteId: string): Promise<number> {
 
 export async function getAllActiveSites(): Promise<SiteRow[]> {
   const { rows } = await pool.query(`SELECT * FROM site WHERE status = 'active'`);
-  return rows.map((r) => {
+  return rows.map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
       id: numId(row.id),
@@ -405,7 +405,7 @@ export async function getFaqsBySite(siteId: string): Promise<FaqRow[]> {
     `SELECT * FROM faq WHERE site_id = $1 ORDER BY sort_order ASC, id ASC`,
     [siteId]
   );
-  return rows.map((r) => {
+  return rows.map((r: unknown) => {
     const row = r as Record<string, unknown>;
     return {
       id: numId(row.id),
