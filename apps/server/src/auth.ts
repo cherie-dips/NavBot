@@ -12,6 +12,11 @@ if (!connectionString) {
 
 const isProd = process.env.NODE_ENV === "production";
 
+/** Public URL of this auth service only — no path, no trailing slash (Google OAuth is sensitive to mismatches). */
+function normalizeAuthBaseUrl(raw: string): string {
+  return raw.trim().replace(/\/+$/, "");
+}
+
 const authSecret =
   process.env.BETTER_AUTH_SECRET?.trim() ||
   (isProd
@@ -23,15 +28,16 @@ if (!authSecret) {
   );
 }
 
-const authBaseUrl =
+const authBaseUrlRaw =
   process.env.BETTER_AUTH_URL?.trim() ||
   process.env.BETTER_AUTH_BASE_URL?.trim() ||
   (isProd ? "" : "http://localhost:3000");
-if (!authBaseUrl) {
+if (!authBaseUrlRaw) {
   throw new Error(
     "Set BETTER_AUTH_URL (or BETTER_AUTH_BASE_URL) to your auth service’s public URL, e.g. https://navbot-auth.onrender.com"
   );
 }
+const authBaseUrl = normalizeAuthBaseUrl(authBaseUrlRaw);
 
 export const authPool = new Pool({
   connectionString,
@@ -50,6 +56,10 @@ if (hasGoogle) {
     clientId: process.env.GOOGLE_CLIENT_ID!,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
   };
+  console.log(
+    `[auth] Google OAuth — add this exact Authorized redirect URI in Google Cloud Console → Credentials → your Web client:\n` +
+      `     ${authBaseUrl}/api/auth/callback/google`
+  );
 }
 if (hasGitHub) {
   socialProviders.github = {

@@ -8,8 +8,12 @@
 # - Set VITE_API_URL, VITE_AUTH_URL, VITE_WIDGET_SCRIPT_URL on the static site (e.g. widget URL = https://<static-host>/chat-widget.iife.js).
 # - Secrets: PINECONE_* on navbot-api; GOOGLE_API_KEY (Gemini) on navbot-api only.
 # - Google *login* (OAuth): set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET on navbot-auth (not on the API).
-#   Create them in Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID (Web).
-#   Authorized redirect URI: https://<BETTER_AUTH_URL>/api/auth/callback/google
+#   Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID (type: Web application).
+#   Authorized redirect URIs — must match exactly (https, no trailing slash on the host):
+#     https://<your-navbot-auth-host>/api/auth/callback/google
+#   Example: https://navbot-auth.onrender.com/api/auth/callback/google
+#   Use the auth service URL (same value as BETTER_AUTH_URL), NOT the static web site URL.
+#   Authorized JavaScript origins: your static site origin only, e.g. https://navbot-web.onrender.com
 # - Optional: GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET on navbot-auth for GitHub login.
 # - Native API uses NAVBOT_BROWSER_CRAWL=off by default. For Playwright crawling on Render, deploy the API with
 #   Docker using apps/api/Dockerfile (see file header) instead of the Node native service below.
