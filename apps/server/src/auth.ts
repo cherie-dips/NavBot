@@ -10,6 +10,29 @@ if (!connectionString) {
   );
 }
 
+const isProd = process.env.NODE_ENV === "production";
+
+const authSecret =
+  process.env.BETTER_AUTH_SECRET?.trim() ||
+  (isProd
+    ? ""
+    : "navbot-local-dev-only-min-32-chars-secret-key!");
+if (!authSecret) {
+  throw new Error(
+    "BETTER_AUTH_SECRET is not set. Generate a long random string (e.g. openssl rand -base64 32) and set it on navbot-auth in Render."
+  );
+}
+
+const authBaseUrl =
+  process.env.BETTER_AUTH_URL?.trim() ||
+  process.env.BETTER_AUTH_BASE_URL?.trim() ||
+  (isProd ? "" : "http://localhost:3000");
+if (!authBaseUrl) {
+  throw new Error(
+    "Set BETTER_AUTH_URL (or BETTER_AUTH_BASE_URL) to your auth service’s public URL, e.g. https://navbot-auth.onrender.com"
+  );
+}
+
 export const authPool = new Pool({
   connectionString,
   max: 10,
@@ -42,14 +65,13 @@ if (!hasGoogle && !hasGitHub) {
 
 export const authOptions: BetterAuthOptions = {
   database: authPool,
+  secret: authSecret,
+  baseURL: authBaseUrl,
   emailAndPassword: {
     enabled: true,
   },
   ...(Object.keys(socialProviders).length > 0 && { socialProviders }),
   trustedOrigins: getTrustedOrigins(),
-  ...(process.env.BETTER_AUTH_BASE_URL?.trim()
-    ? { baseURL: process.env.BETTER_AUTH_BASE_URL.trim() }
-    : {}),
 };
 
 export const auth: ReturnType<typeof betterAuth> = betterAuth(authOptions);
