@@ -2,7 +2,7 @@
 
 NavBot is a **website-grounded AI assistant** for organizations that want visitors to get accurate answers from their own pages—not from the open web. Owners connect a site, NavBot crawls and indexes the content, and a small **embeddable chat widget** answers questions using **retrieval-augmented generation (RAG)** with support for **text and voice**.
 
-This repository is a **pnpm + Turborepo monorepo**: a marketing and dashboard web app, a dedicated auth service, a Node API for crawling and chat, and a standalone widget bundle customers paste into their HTML.
+This repository is a **pnpm + Turborepo 2** monorepo: a marketing and dashboard web app, a dedicated auth service, a Node API for crawling and chat, and a standalone widget bundle customers paste into their HTML. Application data and identities live in **PostgreSQL** (`DATABASE_URL`); vectors live in **Pinecone**.
 
 ---
 
@@ -23,20 +23,44 @@ Visitors often struggle to find concrete information (deadlines, fees, program d
 ### Who it is for
 
 - **Site owners** (universities, programs, product sites) who want a low-friction Q&A layer on top of existing content.
-- **Developers** embedding the widget without changing their main backend.
+- **Customer teams** (web, marketing, or operations) who configure sites, themes, and FAQs in the dashboard and paste the embed snippet into their HTML.
+- **Engineers** self-hosting the stack or wiring the widget next to an existing site without changing their primary backend.
 
 ---
 
-## 2. How to onboard
+## 2. Customer onboarding
 
-### Prerequisites
+NavBot is built so **your team** can go from account creation to a live assistant **without cloning this repository**. If you use a **hosted** NavBot product, you only need the web dashboard and the integration snippet your administrator provides.
 
-- **Node.js** (LTS recommended)
-- **pnpm** (`pnpm@8.x` matches the repo; see root `package.json`)
+### Steps in the dashboard
+
+1. **Sign up or sign in** — Use email and password, or **Google** / **GitHub** when your deployment has OAuth configured.
+2. **Add your website** — Enter the **root URL** of the property you want indexed (same hostname; the crawler expands from that entry point). Wait until crawling and indexing finish; the UI shows progress.
+3. **Optional: polish the experience** — Adjust the **widget theme** (colors, fonts, opacity), review **generated FAQs**, and optionally **edit FAQ answers** so approved text is preferred when it is still fresh relative to your latest index.
+4. **Install the snippet** — Open **Integration** for your site, copy the embed code (`window.NAVBOT_CONFIG` plus the widget script URL), and paste it into your site’s HTML (commonly just before `</body>`). Serve your site over **HTTPS** in production.
+5. **Smoke-test** — Visit a page where the snippet is present, open the chat control, and ask questions that should be answered from **your** pages. Try **voice** if you plan to offer it; answers should include **source links** to the URLs that grounded the reply.
+
+### What visitors get
+
+- **Grounded answers** — Replies use **retrieval-augmented generation** from your indexed pages, with **citations**, not generic web knowledge.
+- **Text and voice** — Type a question or use the microphone where voice is enabled; both paths share the same RAG pipeline.
+- **Freshness** — When the widget loads, it calls a lightweight **ping** endpoint so NavBot can kick off **background** sitemap sync work without blocking the UI.
+
+---
+
+### Self-hosting and local development
+
+Use this subsection if you **run your own** NavBot stack or contribute to the monorepo. For a cloud blueprint, see `**render.yaml`** at the repo root (PostgreSQL + three services: auth, API, static web) and its inline post-deploy checklist.
+
+#### Prerequisites
+
+- **Node.js** 20 (matches `render.yaml` and typical production images)
+- **pnpm** — pinned to `**pnpm@8.15.6`** via `packageManager` in the root `package.json`
+- **PostgreSQL** — one database **shared** by `apps/server` (Better Auth) and `apps/api` (application tables), both using `**DATABASE_URL`**
 - A **Pinecone** account and **serverless dense index** (cosine metric; dimension must match the embedding model, default **1024** for `llama-text-embed-v2`)
-- **Google API key** (`GOOGLE_API_KEY` or `GEMINI_API_KEY`) for Gemini LLM, STT, and TTS (vectors use Pinecone Inference, not Gemini)
+- **Google API key** (`GOOGLE_API_KEY` or `GEMINI_API_KEY`) for Gemini LLM, STT, and TTS (vectors use **Pinecone Inference**, not Gemini)
 
-### Clone and install
+#### Clone and install
 
 ```bash
 git clone <your-fork-or-remote-url>
@@ -44,19 +68,19 @@ cd NavBot
 pnpm install
 ```
 
-### Environment variables
+#### Environment variables
 
-Configure each app that you run. Typical local development:
-
-
-| App                             | File                  | Variables (summary)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Auth server** (`apps/server`) | `.env`                | `CORS_ORIGIN` (e.g. `http://localhost:5173`); optional `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` for OAuth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| **API** (`apps/api`)            | `.env`                | `**PINECONE_API_KEY`**, `**PINECONE_INDEX**`. Optional: `PINECONE_EMBEDDING_MODEL` (default `llama-text-embed-v2`), `PINECONE_EMBEDDING_DIMENSION` (default `1024`, must match index for vector upserts). `**PINECONE_UPSERT_MODE**`: omit or `auto` (**default**) — NavBot calls Pinecone `describeIndex` and picks `records` (integrated embedding indexes) vs `vectors` (plain dense). Set `records` or `vectors` to override. `**PINECONE_EMBED_TEXT_FIELD`**: optional override; with `auto`, taken from index `fieldMap` when present (fallback `chunk_text`). `**GOOGLE_API_KEY**` (or `GEMINI_API_KEY`). Optional: `GEMINI_CHAT_MODEL`, `GEMINI_PLANNER_MODEL`, `GEMINI_JUDGE_MODEL`, `GEMINI_STT_MODEL`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE`, `AGENTIC_RAG_MAX_ROUNDS`, `ENABLE_LLM_JUDGE`, `ENABLE_CODE_EXECUTION`. **SPAs / React:** `NAVBOT_BROWSER_CRAWL`=`auto` (default) | `always` | `off`; run once `pnpm --filter api playwright:install`. Optional `NAVBOT_BROWSER_TIMEOUT_MS`, `NAVBOT_BROWSER_SETTLE_MS`. |
-| **Web** (`apps/web`)            | `.env` / `.env.local` | `VITE_AUTH_URL` `VITE_API_URL` `VITE_WIDGET_SCRIPT_URL` (URL where `chat-widget.iife.js` is served in dev/prod)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+Configure each app you run. Typical local development:
 
 
-### Run the stack (development)
+| App                             | File                  | Variables (summary)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Auth server** (`apps/server`) | `.env`                | `**DATABASE_URL`** (Postgres). `**BETTER_AUTH_URL**` or `**BETTER_AUTH_BASE_URL**` (public origin of this service only, e.g. `http://localhost:3000`). `**BETTER_AUTH_SECRET**` (required in production; dev can use a long placeholder). `**CORS_ORIGIN**` (comma-separated dashboard origins, e.g. `http://localhost:5173`). Optional `**WEB_APP_ORIGIN**` for OAuth error redirects. Optional `**GOOGLE_CLIENT_***`, `**GITHUB_CLIENT_***` for social login.                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **API** (`apps/api`)            | `.env`                | `**DATABASE_URL`** (same Postgres as auth). `**PINECONE_API_KEY**`, `**PINECONE_INDEX**`. Optional: `PINECONE_EMBEDDING_MODEL` (default `llama-text-embed-v2`), `PINECONE_EMBEDDING_DIMENSION` (default `1024`, must match index for vector upserts). `**PINECONE_UPSERT_MODE**`: omit or `auto` (default) — NavBot calls Pinecone `describeIndex` and picks `records` (integrated embedding indexes) vs `vectors` (plain dense). Set `records` or `vectors` to override. `**PINECONE_EMBED_TEXT_FIELD**`: optional override; with `auto`, taken from index `fieldMap` when present (fallback `chunk_text`). `**GOOGLE_API_KEY**` (or `GEMINI_API_KEY`). Optional: `GEMINI_CHAT_MODEL`, `GEMINI_PLANNER_MODEL`, `GEMINI_JUDGE_MODEL`, `GEMINI_STT_MODEL`, `GEMINI_TTS_MODEL`, `GEMINI_TTS_VOICE`, `AGENTIC_RAG_MAX_ROUNDS`, `ENABLE_LLM_JUDGE`, `ENABLE_CODE_EXECUTION`. **SPAs / React:** `NAVBOT_BROWSER_CRAWL`=`auto` (default). |
+| **Web** (`apps/web`)            | `.env` / `.env.local` | `VITE_AUTH_URL`, `VITE_API_URL`, `VITE_WIDGET_SCRIPT_URL` (URL where `chat-widget.iife.js` is served in dev/prod)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+
+
+#### Run the stack (development)
 
 From the repository root:
 
@@ -64,26 +88,19 @@ From the repository root:
 pnpm dev
 ```
 
-This runs **Turborepo** `dev` for **web** (Vite), **server** (auth), and **api** (Express) in parallel.
+This runs **Turborepo** `dev` for **web** (Vite), **server** (auth), and **api** (Express) in parallel. The web task depends on a **chat-widget** build so the widget assets exist before Vite serves the app.
 
 - **Web dashboard & marketing:** `http://localhost:5173` (typical Vite port)
 - **Auth (better-auth):** `http://localhost:3000`
 - **API:** `http://localhost:3001`
 - **API docs (Swagger UI):** `http://localhost:3001/api-docs`
 
-Build and serve the **chat widget** separately when you need the real embed script URL (or point `VITE_WIDGET_SCRIPT_URL` at your deployed widget):
+Build the **chat widget** alone when you need a fresh `dist` or a static URL for `VITE_WIDGET_SCRIPT_URL`:
 
 ```bash
 pnpm --filter @repo/chat-widget build
-# Serve `packages/chat-widget/dist/chat-widget.iife.js` with your static host or dev server
+# Serve packages/chat-widget/dist/chat-widget.iife.js from your static host or CDN
 ```
-
-### End-user onboarding (product flow)
-
-1. **Sign up / sign in** via the web app (email/password; Google/GitHub if OAuth env vars are set).
-2. **Add a website** from the dashboard (paste root URL). The app triggers crawling and indexing; progress is shown in the UI.
-3. Open **Integration** for a site, copy the **script snippet** (`window.NAVBOT_CONFIG` + widget script URL), and paste it into the customer site’s HTML.
-4. Visitors use the floating chat: **text** via `POST /api/chat`, **voice** via `POST /api/chat/voice` (multipart audio + `siteId`).
 
 ---
 
@@ -93,24 +110,24 @@ pnpm --filter @repo/chat-widget build
 
 **Clients:** The **web app** (dashboard and marketing) runs in the browser and talks to two backends: the **auth server** for sign-in and sessions, and the **NavBot API** for everything related to sites, crawling, chat, and analytics. The **chat widget** is a separate JavaScript bundle embedded on customer websites; it only talks to the **NavBot API** using `apiBase` and `siteId` from `window.NAVBOT_CONFIG`.
 
-**Auth server (`apps/server`):** Implements **better-auth** on top of the same **SQLite** file as the API (`navbot.db` at the repo root). It issues and validates sessions for the web app. User identifiers from auth are passed to the API (today often as `userId` query parameters from the dashboard) to scope site lists, themes, sync, and analytics.
+**Auth server (`apps/server`):** Implements **better-auth** on the **same PostgreSQL database** as the API (`DATABASE_URL`). It issues and validates sessions for the web app and runs Better Auth **migrations** on startup. User identifiers from auth are passed to the API (often as `userId` query parameters from the dashboard) to scope site lists, themes, sync, and analytics.
 
-**NavBot API (**`apps/api`**):** Single Express application that orchestrates **crawling**, **writes and reads application tables** in SQLite, **queries and updates** vectors in **Pinecone** (namespace `site_<siteId>` per site) using **Pinecone Inference** embeddings (default `**llama-text-embed-v2`**), and calls **Google Gemini** for LLM chat, speech-to-text, and text-to-speech. The browser never calls these APIs directly.
+**NavBot API (**`apps/api`**):** Single Express application that orchestrates **crawling**, **reads and writes application tables** in PostgreSQL, **queries and updates** vectors in **Pinecone** (namespace `site_<siteId>` per site) using **Pinecone Inference** embeddings (default `**llama-text-embed-v2`**), and calls **Google Gemini** for LLM chat, speech-to-text, and text-to-speech. The browser never calls these APIs directly.
 
-**Data flow for a typical chat:** Widget sends `POST /api/chat` with `siteId` and `message`. The API may return an admin-approved FAQ answer from SQLite if it matches the question and is not stale; otherwise it runs **agentic retrieval** (planner + optional refiner), **retrieves chunks** from the site’s Pinecone namespace, builds context, calls **Gemini** for a completion (with optional **code execution** for math), runs an optional **LLM judge** pass, formats the answer (including sources), and **logs** a row to `chat_query` in SQLite.
+**Data flow for a typical chat:** Widget sends `POST /api/chat` with `siteId` and `message`. The API may return an admin-approved FAQ answer from Postgres if it matches the question and is not stale; otherwise it runs **agentic retrieval** (planner + optional refiner), **retrieves chunks** from the site’s Pinecone namespace, builds context, calls **Gemini** for a completion (with optional **code execution** for math), runs an optional **LLM judge** pass, formats the answer (including sources), and **logs** a row to `chat_query` in PostgreSQL.
 
 **Background freshness:** `GET /api/sites/:siteId/ping` (used when the widget loads) triggers **non-blocking** sitemap sync work so indexed content can stay aligned with the live site without blocking the UI.
 
 ---
 
-### SQLite (`navbot.db`)
+### PostgreSQL (`DATABASE_URL`)
 
-**Single shared file** at the **repository root** (`navbot.db`), opened by:
+**One shared database** (connection string in `**DATABASE_URL`**) used by:
 
-- `**apps/server`** — **better-auth** tables (`user`, `session`, `account`, `verification`) and bootstraps related app tables.
-- `**apps/api`** — **application** tables via `better-sqlite3` (`apps/api/src/services/db.ts`).
+- `**apps/server**` — Better Auth **identity** tables (`user`, `session`, `account`, `verification`, …) via the Better Auth **PostgreSQL** adapter; migrations run on server startup.
+- `**apps/api`** — **Application** tables via `pg` (`apps/api/src/services/db.ts`); `initAppDatabase()` creates core tables if they do not exist.
 
-**Important:** Both processes expect the same path (`../../navbot.db` from `apps/server` or `apps/api` working directory). Run API and auth from the monorepo layout so the file stays consistent.
+**Important:** Point **both** services at the **same** Postgres instance (or at least the same logical database) so user IDs from auth line up with `site.user_id` and related rows.
 
 **Main application tables (API side)** include:
 
@@ -123,24 +140,24 @@ pnpm --filter @repo/chat-widget build
 | Analytics    | `chat_query`        | Logged turns: query, channel, answer preview, latency, source count                                      |
 
 
-**How it is used:** The API reads/writes sites and analytics; the auth server authenticates users; user IDs from auth tie dashboard requests (e.g. `?userId=`) to rows in `site`.
+**How it is used:** The API reads and writes sites and analytics; the auth server authenticates users; user IDs from auth tie dashboard requests (for example `?userId=`) to rows in `site`.
 
 ### Pinecone (vector store)
 
 **Purpose:** Semantic retrieval for RAG.
 
 - **Client:** `@pinecone-database/pinecone` (`apps/api/src/services/vectorstore.ts`).
-- **Index:** One **dense** serverless index (name from `**PINECONE_INDEX`**), **cosine** metric, dimension matching `**PINECONE_EMBEDDING_DIMENSION`** (default **1024** for `**llama-text-embed-v2`**).
+- **Index:** One **dense** serverless index (name from `**PINECONE_INDEX`**), cosine metric, dimension matching `**PINECONE_EMBEDDING_DIMENSION`** (default **1024** for `**llama-text-embed-v2`**).
 
 **Namespaces:** One per site, named `site_` + `siteId` (same isolation idea as the old per-site Chroma collections).
 
-**Embeddings:** Default (**`PINECONE_UPSERT_MODE` unset or `auto`**) uses **`describeIndex`**: integrated indexes (with `embed` in the API response) use **`upsertRecords`**; others use **Inference + vector upsert**. **Reindex** all sites after changing model or index settings.
+**Embeddings:** Default (`**PINECONE_UPSERT_MODE` unset or `auto`**) uses `**describeIndex`**: integrated indexes (with `embed` in the API response) use `**upsertRecords**`; others use **Inference + vector upsert**. **Reindex** all sites after changing model or index settings.
 
 **Console “no records”:** Vectors are stored under namespace `**site_<siteId>`** (usually `site_` + hostname, e.g. `site_www.example.com`). In the index **Browser**, open the **namespace** selector and choose that name—not the empty/default namespace.
 
 **Pipeline:**
 
-1. **Upsert:** Crawled pages → chunking (~900 characters, overlap) → either Pinecone **`upsertRecords`** (integrated index) or Inference embed + **`upsert`** with metadata (`siteId`, `url`, `title`, chunk indices, and passage text for RAG).
+1. **Upsert:** Crawled pages → chunking (~900 characters, overlap) → either Pinecone `**upsertRecords`** (integrated index) or Inference embed + `**upsert`** with metadata (`siteId`, `url`, `title`, chunk indices, and passage text for RAG).
 2. **Query:** User message → **agentic retrieval** (rule expansion + Gemini planner / refiner) → embed queries → vector search → top-K chunks → dedupe by URL → context string for the LLM.
 
 ### Google Gemini (LLM + voice)
@@ -160,12 +177,12 @@ Base URL for the NavBot API is typically `http://localhost:3001` in development.
 
 ---
 
-#### HTTP + SQLite (`navbot.db`) — sites, themes, analytics, FAQs, logging
+#### HTTP + PostgreSQL — sites, themes, analytics, FAQs, logging
 
-These routes persist or read **application state** in SQLite (and may trigger work that also touches Pinecone—see the next sections).
+These routes persist or read **application state** in PostgreSQL (and may trigger work that also touches Pinecone—see the next sections).
 
 
-| Method   | Path                               | Query / body                              | Purpose                                                                                                                                           | SQLite (primary)                                                                                |
+| Method   | Path                               | Query / body                              | Purpose                                                                                                                                           | Postgres (primary)                                                                              |
 | -------- | ---------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `GET`    | `/api/sites`                       | `userId` (required)                       | List all sites registered to that user (dashboard navbar, website list).                                                                          | Reads `site`.                                                                                   |
 | `GET`    | `/api/sites/dashboard-stats`       | `userId` (required), `siteId` (optional)  | Aggregated analytics: totals, 7-day volume, top queries, recent turns, context counts. Omit `siteId` to aggregate across all of the user’s sites. | Reads `chat_query`, `site`, `faq` counts. Returns `403` if `siteId` is not owned by user.       |
@@ -186,13 +203,13 @@ These routes persist or read **application state** in SQLite (and may trigger wo
 Indexing and sync routes **write** chunks and embeddings to the Pinecone namespace `site_<siteId>`. Chat **reads** that namespace during RAG unless an FAQ override applies.
 
 
-| Method  | Path                         | Query / body                                   | Purpose                                                                                                                                                   | Pinecone                                                                 |
-| ------- | ---------------------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| `POST`  | `/api/sites`                 | JSON `{ url, userId?, siteId? }`               | First-time or reuse: crawl site (or attach user to existing index), chunk pages, **upsert** vectors.                                                      | **Upsert** into namespace `site_<siteId>`.                               |
-| `PATCH` | `/api/sites/:siteId/pages`   | JSON `{ urls: string[] }`                      | Recrawl only listed URLs, replace those pages’ chunks in the index.                                                                                       | Delete old chunks for URLs, **upsert** new chunks.                       |
-| `POST`  | `/api/sites/:siteId/reindex` | JSON `{ url, userId? }`                        | Full re-crawl and replace vectors for the site.                                                                                                           | **Replace** namespace content for that site (per `vectorstore` options). |
-| `GET`   | `/api/sites/:siteId/sync`    | `userId` (required), `preview=true` (optional) | Without `preview`: SQLite sync **stats** only (tracked URLs, last sync). With `preview`: compute what would change (sitemap or BFS) **without** applying. | Preview does not write Pinecone; stats are SQLite-centric.               |
-| `POST`  | `/api/sites/:siteId/sync`    | `userId` (required), `full=true` (optional)    | Run **smart sync**: update/remove/add chunks for changed pages; may use sitemap lastmod or full crawl if forced.                                          | **Upsert** / **delete** chunks as pages change.                          |
+| Method  | Path                         | Query / body                                   | Purpose                                                                                                                                            | Pinecone                                                                 |
+| ------- | ---------------------------- | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `POST`  | `/api/sites`                 | JSON `{ url, userId?, siteId? }`               | First-time or reuse: crawl site (or attach user to existing index), chunk pages, **upsert** vectors.                                               | **Upsert** into namespace `site_<siteId>`.                               |
+| `PATCH` | `/api/sites/:siteId/pages`   | JSON `{ urls: string[] }`                      | Recrawl only listed URLs, replace those pages’ chunks in the index.                                                                                | Delete old chunks for URLs, **upsert** new chunks.                       |
+| `POST`  | `/api/sites/:siteId/reindex` | JSON `{ url, userId? }`                        | Full re-crawl and replace vectors for the site.                                                                                                    | **Replace** namespace content for that site (per `vectorstore` options). |
+| `GET`   | `/api/sites/:siteId/sync`    | `userId` (required), `preview=true` (optional) | Without `preview`: sync **stats** only (tracked URLs, last sync). With `preview`: compute what would change (sitemap or BFS) **without** applying. | Preview does not write Pinecone; stats read from Postgres.               |
+| `POST`  | `/api/sites/:siteId/sync`    | `userId` (required), `full=true` (optional)    | Run **smart sync**: update/remove/add chunks for changed pages; may use sitemap lastmod or full crawl if forced.                                   | **Upsert** / **delete** chunks as pages change.                          |
 
 
 **Note:** `POST /api/chat` and `POST /api/chat/voice` also **query** Pinecone during RAG (see next table).
@@ -204,14 +221,14 @@ Indexing and sync routes **write** chunks and embeddings to the Pinecone namespa
 The API calls **Gemini** for **text generation**, **speech-to-text**, and **text-to-speech**. **Embeddings** for retrieval are generated by **Pinecone Inference**, not Gemini.
 
 
-| Method | Path                   | Query / body                                                               | Purpose                                                                                                                                                                                                      | Model / service                                                                          |
-| ------ | ---------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
-| —      | *(internal)*           | —                                                                          | **FAQ generation** (`faq.ts`): produce FAQ JSON from retrieved snippets.                                                                                                                                     | Gemini chat (default `gemini-2.5-flash`).                                                |
-| —      | *(internal)*           | —                                                                          | **FAQ answer preview** when `includeAnswers` and no stored preview: runs same RAG pipeline as chat.                                                                                                          | Gemini + Pinecone.                                                                       |
-| `POST` | `/api/chat`            | JSON `{ siteId, message, history? }`                                       | **RAG chat:** optional SQLite FAQ match (fresh user answer) → else agentic Pinecone retrieval → Gemini completion (optional code execution + judge) → **logs** query, latency, source count, answer preview. | Default `GEMINI_CHAT_MODEL` or `gemini-2.5-flash`. **SQLite:** insert into `chat_query`. |
-| `POST` | `/api/chat/voice`      | `multipart/form-data`: `audio`, `siteId`, optional `history` (JSON string) | Transcribe audio with Gemini multimodal STT, then same RAG path as text chat; **logs** turn when transcript present.                                                                                         | Default `GEMINI_STT_MODEL` or `gemini-2.5-flash`. **SQLite:** insert into `chat_query`.  |
-| `POST` | `/api/chat/tts`        | JSON `{ text }`                                                            | Convert assistant text to **base64 WAV** for the widget “listen” control.                                                                                                                                    | Gemini native TTS (default `gemini-2.5-flash-preview-tts`). No SQLite write.             |
-| —      | *(during crawl/index)* | —                                                                          | Embedding text chunks when storing in Pinecone.                                                                                                                                                              | **Pinecone Inference** (`PINECONE_EMBEDDING_MODEL`, default `llama-text-embed-v2`).      |
+| Method | Path                   | Query / body                                                               | Purpose                                                                                                                                                                                                        | Model / service                                                                            |
+| ------ | ---------------------- | -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| —      | *(internal)*           | —                                                                          | **FAQ generation** (`faq.ts`): produce FAQ JSON from retrieved snippets.                                                                                                                                       | Gemini chat (default `gemini-2.5-flash`).                                                  |
+| —      | *(internal)*           | —                                                                          | **FAQ answer preview** when `includeAnswers` and no stored preview: runs same RAG pipeline as chat.                                                                                                            | Gemini + Pinecone.                                                                         |
+| `POST` | `/api/chat`            | JSON `{ siteId, message, history? }`                                       | **RAG chat:** optional Postgres FAQ match (fresh user answer) → else agentic Pinecone retrieval → Gemini completion (optional code execution + judge) → **logs** query, latency, source count, answer preview. | Default `GEMINI_CHAT_MODEL` or `gemini-2.5-flash`. **Postgres:** insert into `chat_query`. |
+| `POST` | `/api/chat/voice`      | `multipart/form-data`: `audio`, `siteId`, optional `history` (JSON string) | Transcribe audio with Gemini multimodal STT, then same RAG path as text chat; **logs** turn when transcript present.                                                                                           | Default `GEMINI_STT_MODEL` or `gemini-2.5-flash`. **Postgres:** insert into `chat_query`.  |
+| `POST` | `/api/chat/tts`        | JSON `{ text }`                                                            | Convert assistant text to **base64 WAV** for the widget “listen” control.                                                                                                                                      | Gemini native TTS (default `gemini-2.5-flash-preview-tts`). No database write.             |
+| —      | *(during crawl/index)* | —                                                                          | Embedding text chunks when storing in Pinecone.                                                                                                                                                                | **Pinecone Inference** (`PINECONE_EMBEDDING_MODEL`, default `llama-text-embed-v2`).        |
 
 
 ---
@@ -219,14 +236,14 @@ The API calls **Gemini** for **text generation**, **speech-to-text**, and **text
 #### HTTP + external website fetch (no NavBot DB) — theme helper
 
 
-| Method | Path          | Query / body                 | Purpose                                                              | Backend behavior                                                                                         |
-| ------ | ------------- | ---------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `GET`  | `/api/colors` | `url` (required, http/https) | Suggest a color palette for the widget from the customer’s page CSS. | Server **fetches** the URL (and linked stylesheets via `@repo/color-extractor`); no SQLite/Pinecone/LLM. |
+| Method | Path          | Query / body                 | Purpose                                                              | Backend behavior                                                                                           |
+| ------ | ------------- | ---------------------------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `GET`  | `/api/colors` | `url` (required, http/https) | Suggest a color palette for the widget from the customer’s page CSS. | Server **fetches** the URL (and linked stylesheets via `@repo/color-extractor`); no Postgres/Pinecone/LLM. |
 
 
 ---
 
-#### Auth server — HTTP (SQLite for identities only)
+#### Auth server — HTTP (PostgreSQL for identities)
 
 The auth app does **not** expose the same `/api/sites` or `/api/chat` routes. All routes are handled by **better-auth** under the mount `/api/auth/`*.
 
@@ -243,7 +260,7 @@ The auth app does **not** expose the same `/api/sites` or `/api/chat` routes. Al
 
 **CORS:** NavBot API uses wide CORS (`*`) today for embedded widgets—**tighten in production** (allowlist your dashboard origin and, if needed, known embed origins). Auth server uses `CORS_ORIGIN` (default `http://localhost:5173`) with credentials.
 
-**Auth implementation:** `apps/server/src/auth.ts` configures better-auth (SQLite, email/password, optional Google/GitHub). `apps/server/src/index.ts` mounts `toNodeHandler(auth)` on `/api/auth/`*. The web app uses `apps/web/src/lib/auth-client.ts` with `VITE_AUTH_URL`.
+**Auth implementation:** `apps/server/src/auth.ts` configures better-auth (**PostgreSQL**, email/password, optional Google/GitHub). `apps/server/src/index.ts` mounts `toNodeHandler(auth)` on `/api/auth/`*. The web app uses `apps/web/src/lib/auth-client.ts` with `VITE_AUTH_URL`.
 
 ### Web application (Vite + React)
 
@@ -277,7 +294,7 @@ The auth app does **not** expose the same `/api/sites` or `/api/chat` routes. Al
 ```text
 NavBot/
 ├── apps/
-│   ├── api/                 # Express API: crawl, RAG, Pinecone, SQLite app data, OpenAPI
+│   ├── api/                 # Express API: crawl, RAG, Pinecone, Postgres app data, OpenAPI
 │   │   └── src/
 │   │       ├── index.ts           # App entry, routers, Swagger
 │   │       ├── routes/            # sites, chat, sync, colors
@@ -297,8 +314,8 @@ NavBot/
 │   ├── color-extractor/     # Shared helper used by API for theme/color features
 │   ├── eslint-config/       # Shared ESLint config
 │   └── typescript-config/   # Shared TS config
-├── navbot.db                # Created at runtime: shared SQLite (gitignored in many setups)
-├── package.json             # Root scripts: dev, build, lint, format
+├── render.yaml              # Render Blueprint: Postgres + auth, API, static web (see file for env checklist)
+├── package.json             # Root scripts: dev, build, lint, format; pins pnpm@8.15.6
 ├── pnpm-workspace.yaml      # workspaces: apps/*, packages/*
 └── turbo.json               # Turborepo pipeline
 ```
@@ -319,10 +336,10 @@ NavBot/
 
 ## 5. Security and production notes (brief)
 
-- Treat `GOOGLE_API_KEY` / `GEMINI_API_KEY`, `**PINECONE_API_KEY`**, and **OAuth** secrets as production secrets (env or secret manager).
+- Treat `GOOGLE_API_KEY` / `GEMINI_API_KEY`, `PINECONE_API_KEY`, and OAuth client secrets as production secrets (environment variables or a secret manager).
 - Restrict **API CORS** and validate **site ownership** on sensitive routes in production (the dashboard currently passes `userId` query params—harden with session-derived identity on the server).
 - Serve the **widget** over **HTTPS**; set `apiBase` to your public API URL.
-- **SQLite** on a single file suits one VM or container with persistent disk; for horizontal scale or managed ops, plan a move to **Postgres** (and optionally managed vector search).
+- **PostgreSQL:** use managed Postgres for production (backups, upgrades, connection limits). The API and auth services both open pools against `DATABASE_URL`; size instances and `max` pool settings for your traffic.
 
 ---
 

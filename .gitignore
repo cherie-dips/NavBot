@@ -15,6 +15,9 @@ apps/web/public/chat-widget.iife.js
 .env.local
 .env.*.local
 
+# Legacy local vector DB / SQLite (not used; app uses Postgres + Pinecone)
+/chroma/
+
 # SQLite databases
 *.db
 *.db-wal

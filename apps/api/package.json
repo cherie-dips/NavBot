@@ -17,7 +17,6 @@
     "domhandler": "^5.0.3",
     "dotenv": "^16.4.5",
     "express": "^4.21.2",
-    "groq-sdk": "^0.6.0",
     "morgan": "^1.10.0",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.2.1",
