@@ -46,8 +46,6 @@ const SKIP_CONTENT_PATTERNS: RegExp[] = [
   /this page (does not exist|has been removed)/i,
 ];
 
-/** If static HTML yields less than this many chars of structured text, retry with headless Chromium (SPA / React / Vue). */
-const MIN_MEANINGFUL_STATIC_CONTENT = 200;
 
 export type BrowserCrawlMode = "off" | "auto" | "always";
 
@@ -114,7 +112,7 @@ async function fetchStaticHtml(url: string): Promise<StaticFetchResult | null> {
 
 /**
  * Returns final HTML string to parse with Cheerio — either static, or browser-rendered when that yields richer content.
- * Uses framework detection to skip wasted Cheerio parsing for known SPAs.
+ * If the site is detected as a SPA (React, Vue, Angular, Next.js, etc.), always use Playwright/Jina directly.
  */
 async function resolvePageHtml(
   fetchUrl: string,
@@ -135,39 +133,14 @@ async function resolvePageHtml(
 
   const detection = detectFramework(result.html, result.headers);
 
-  if (detection.isSPA && detection.confidence === "high") {
+  if (detection.isSPA) {
     console.log(
-      `[crawler] SPA detected (${detection.framework}) for ${normalizedUrl} — using browser rendering`
+      `[crawler] SPA detected (${detection.framework}, confidence=${detection.confidence}) for ${normalizedUrl} — using browser rendering directly`
     );
     const rendered = await fetchRenderedHtml(fetchUrl);
     if (rendered) return rendered;
     console.warn(`[crawler] Browser render failed for SPA ${normalizedUrl}, using static HTML`);
     return result.html;
-  }
-
-  const $static = cheerio.load(result.html);
-  const titleStatic = $static("title").first().text().replace(/\s+/g, " ").trim() || fetchUrl;
-  const staticLen = extractStructuredContent($static, normalizedUrl, titleStatic).length;
-
-  if (staticLen >= MIN_MEANINGFUL_STATIC_CONTENT) return result.html;
-
-  if (detection.isSPA || staticLen < MIN_MEANINGFUL_STATIC_CONTENT) {
-    console.log(
-      `[crawler] Thin static content (${staticLen} chars${detection.isSPA ? `, framework=${detection.framework}` : ""}) for ${normalizedUrl} — trying browser render`
-    );
-    const rendered = await fetchRenderedHtml(fetchUrl);
-    if (!rendered) return result.html;
-
-    const $rend = cheerio.load(rendered);
-    const titleR = $rend("title").first().text().replace(/\s+/g, " ").trim() || fetchUrl;
-    const renderedLen = extractStructuredContent($rend, normalizedUrl, titleR).length;
-
-    if (renderedLen > staticLen) {
-      console.log(
-        `[crawler] JS-rendered page richer for ${normalizedUrl} (${staticLen} → ${renderedLen} chars structured text)`
-      );
-      return rendered;
-    }
   }
 
   return result.html;
