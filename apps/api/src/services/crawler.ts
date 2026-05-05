@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 import crypto from "crypto";
-import { fetchRenderedHtml } from "./browser-render";
+import { fetchRenderedHtml, detectFramework } from "./browser-render";
 
 export interface CrawledPage {
   url: string;
@@ -47,7 +47,7 @@ const SKIP_CONTENT_PATTERNS: RegExp[] = [
 ];
 
 /** If static HTML yields less than this many chars of structured text, retry with headless Chromium (SPA / React / Vue). */
-const MIN_MEANINGFUL_STATIC_CONTENT = 280;
+const MIN_MEANINGFUL_STATIC_CONTENT = 200;
 
 export type BrowserCrawlMode = "off" | "auto" | "always";
 
@@ -79,7 +79,12 @@ function logBrowserCrawlModeOnce(mode: BrowserCrawlMode): void {
   );
 }
 
-async function fetchStaticHtml(url: string): Promise<string | null> {
+interface StaticFetchResult {
+  html: string;
+  headers: Record<string, string>;
+}
+
+async function fetchStaticHtml(url: string): Promise<StaticFetchResult | null> {
   try {
     const res = await fetch(url, {
       redirect: "follow",
@@ -97,7 +102,10 @@ async function fetchStaticHtml(url: string): Promise<string | null> {
     const contentType = res.headers.get("content-type") || "";
     if (!contentType.includes("text/html")) return null;
 
-    return await res.text();
+    const headers: Record<string, string> = {};
+    res.headers.forEach((value, key) => { headers[key] = value; });
+
+    return { html: await res.text(), headers };
   } catch (err) {
     console.error("Failed to fetch", url, err);
     return null;
@@ -106,6 +114,7 @@ async function fetchStaticHtml(url: string): Promise<string | null> {
 
 /**
  * Returns final HTML string to parse with Cheerio — either static, or browser-rendered when that yields richer content.
+ * Uses framework detection to skip wasted Cheerio parsing for known SPAs.
  */
 async function resolvePageHtml(
   fetchUrl: string,
@@ -116,34 +125,52 @@ async function resolvePageHtml(
     const rendered = await fetchRenderedHtml(fetchUrl);
     if (rendered) return rendered;
     console.warn(`[crawler] Headless render failed for ${fetchUrl}, falling back to static fetch`);
-    return fetchStaticHtml(fetchUrl);
+    const result = await fetchStaticHtml(fetchUrl);
+    return result?.html ?? null;
   }
 
-  const staticHtml = await fetchStaticHtml(fetchUrl);
-  if (!staticHtml) return null;
-  if (mode === "off") return staticHtml;
+  const result = await fetchStaticHtml(fetchUrl);
+  if (!result) return null;
+  if (mode === "off") return result.html;
 
-  const $static = cheerio.load(staticHtml);
+  const detection = detectFramework(result.html, result.headers);
+
+  if (detection.isSPA && detection.confidence === "high") {
+    console.log(
+      `[crawler] SPA detected (${detection.framework}) for ${normalizedUrl} — using browser rendering`
+    );
+    const rendered = await fetchRenderedHtml(fetchUrl);
+    if (rendered) return rendered;
+    console.warn(`[crawler] Browser render failed for SPA ${normalizedUrl}, using static HTML`);
+    return result.html;
+  }
+
+  const $static = cheerio.load(result.html);
   const titleStatic = $static("title").first().text().replace(/\s+/g, " ").trim() || fetchUrl;
   const staticLen = extractStructuredContent($static, normalizedUrl, titleStatic).length;
 
-  if (staticLen >= MIN_MEANINGFUL_STATIC_CONTENT) return staticHtml;
+  if (staticLen >= MIN_MEANINGFUL_STATIC_CONTENT) return result.html;
 
-  const rendered = await fetchRenderedHtml(fetchUrl);
-  if (!rendered) return staticHtml;
-
-  const $rend = cheerio.load(rendered);
-  const titleR = $rend("title").first().text().replace(/\s+/g, " ").trim() || fetchUrl;
-  const renderedLen = extractStructuredContent($rend, normalizedUrl, titleR).length;
-
-  if (renderedLen > staticLen) {
+  if (detection.isSPA || staticLen < MIN_MEANINGFUL_STATIC_CONTENT) {
     console.log(
-      `[crawler] JS-rendered page richer for ${normalizedUrl} (${staticLen} → ${renderedLen} chars structured text)`
+      `[crawler] Thin static content (${staticLen} chars${detection.isSPA ? `, framework=${detection.framework}` : ""}) for ${normalizedUrl} — trying browser render`
     );
-    return rendered;
+    const rendered = await fetchRenderedHtml(fetchUrl);
+    if (!rendered) return result.html;
+
+    const $rend = cheerio.load(rendered);
+    const titleR = $rend("title").first().text().replace(/\s+/g, " ").trim() || fetchUrl;
+    const renderedLen = extractStructuredContent($rend, normalizedUrl, titleR).length;
+
+    if (renderedLen > staticLen) {
+      console.log(
+        `[crawler] JS-rendered page richer for ${normalizedUrl} (${staticLen} → ${renderedLen} chars structured text)`
+      );
+      return rendered;
+    }
   }
 
-  return staticHtml;
+  return result.html;
 }
 
 function tableToMarkdown($: cheerio.CheerioAPI, table: AnyNode): string {

@@ -1,0 +1,185 @@
+{
+  "metadata": {
+    "description": "Evaluation dataset for NavBot POST /api/chat RAG endpoint",
+    "siteId": "eval-site",
+    "version": "1.0",
+    "notes": "Ground truth answers are based on indexed website content. Replace siteId with your actual site for live evaluation."
+  },
+  "examples": [
+    {
+      "id": "q01",
+      "question": "What are the admission deadlines?",
+      "ground_truth": "Applications for the Fall 2025 cohort open on January 15, 2025. Round 1 deadline is March 1, 2025. Round 2 deadline is May 15, 2025. Final round closes July 1, 2025.",
+      "expected_sources": ["/admissions", "/admissions/deadlines"],
+      "category": "factual"
+    },
+    {
+      "id": "q02",
+      "question": "How much is the tuition fee?",
+      "ground_truth": "The annual tuition fee is ₹8,00,000 (approximately $10,000 USD). This covers all coursework, lab access, and library resources. Scholarships covering up to 50% of tuition are available based on merit and financial need.",
+      "expected_sources": ["/fees", "/scholarships"],
+      "category": "factual"
+    },
+    {
+      "id": "q03",
+      "question": "What programs do you offer?",
+      "ground_truth": "We offer a 4-year B.Tech in Computer Science, a 4-year B.Tech in Electrical Engineering, a 2-year M.Tech in AI and Data Science, and a 1-year Post Graduate Diploma in Technology Leadership.",
+      "expected_sources": ["/programs", "/academics"],
+      "category": "list"
+    },
+    {
+      "id": "q04",
+      "question": "Who is the Dean of Academics?",
+      "ground_truth": "Dr. Ramesh Kumar is the Dean of Academics. He joined in 2022 and previously served as a professor at IIT Delhi for 15 years.",
+      "expected_sources": ["/about/leadership", "/faculty"],
+      "category": "factual"
+    },
+    {
+      "id": "q05",
+      "question": "What is the eligibility criteria for B.Tech?",
+      "ground_truth": "Candidates must have completed 10+2 with a minimum of 75% aggregate in Physics, Chemistry, and Mathematics. A valid JEE Main or SAT score is required. International students can apply with equivalent qualifications and standardized test scores.",
+      "expected_sources": ["/admissions/eligibility", "/admissions/btech"],
+      "category": "factual"
+    },
+    {
+      "id": "q06",
+      "question": "What workshops have been conducted?",
+      "ground_truth": "Workshops conducted include: Machine Learning Fundamentals (Jan 2025), Deep Learning with PyTorch (Feb 2025), Natural Language Processing Bootcamp (Mar 2025), Computer Vision Workshop (Apr 2025), and Reinforcement Learning Seminar (May 2025).",
+      "expected_sources": ["/events", "/events/workshops"],
+      "category": "list"
+    },
+    {
+      "id": "q07",
+      "question": "How do I contact the admissions office?",
+      "ground_truth": "The admissions office can be reached at admissions@university.edu or by phone at +91-1234-567890. Office hours are Monday to Friday, 9 AM to 5 PM IST. The office is located in Block A, Ground Floor.",
+      "expected_sources": ["/contact", "/admissions/contact"],
+      "category": "factual"
+    },
+    {
+      "id": "q08",
+      "question": "Is there a hostel facility available?",
+      "ground_truth": "Yes, on-campus hostel accommodation is available for all students. Single and shared rooms are offered. The annual hostel fee is ₹1,50,000 which includes meals, laundry, and WiFi. AC rooms are available at an additional ₹30,000 per year.",
+      "expected_sources": ["/campus/hostel", "/student-life"],
+      "category": "factual"
+    },
+    {
+      "id": "q09",
+      "question": "What is the placement record?",
+      "ground_truth": "The 2024 graduating batch achieved 95% placement rate. The average package was ₹18 LPA and the highest package was ₹45 LPA. Top recruiters include Google, Microsoft, Amazon, Goldman Sachs, and McKinsey.",
+      "expected_sources": ["/placements", "/placements/statistics"],
+      "category": "factual"
+    },
+    {
+      "id": "q10",
+      "question": "What are the campus facilities?",
+      "ground_truth": "Campus facilities include: a 24/7 library with 50,000+ books, state-of-the-art computer labs, sports complex with swimming pool and gymnasium, auditorium seating 500, cafeteria serving 3 meals daily, medical center, and a dedicated incubation center for startups.",
+      "expected_sources": ["/campus", "/campus/facilities"],
+      "category": "list"
+    },
+    {
+      "id": "q11",
+      "question": "Do you offer scholarships?",
+      "ground_truth": "Yes, merit-based scholarships covering 25% to 100% of tuition are available. Need-based financial aid is also offered. The Dean's List scholarship covers full tuition for students maintaining a GPA above 9.0. Sports scholarships are available for national-level athletes.",
+      "expected_sources": ["/scholarships", "/financial-aid"],
+      "category": "factual"
+    },
+    {
+      "id": "q12",
+      "question": "What is the curriculum for the AI program?",
+      "ground_truth": "The M.Tech in AI and Data Science curriculum includes: Semester 1 - Machine Learning, Statistics, Python Programming; Semester 2 - Deep Learning, NLP, Computer Vision; Semester 3 - Reinforcement Learning, MLOps, Capstone Project Part 1; Semester 4 - Industry Project and Thesis.",
+      "expected_sources": ["/programs/mtech-ai", "/academics/curriculum"],
+      "category": "list"
+    },
+    {
+      "id": "q13",
+      "question": "When was the university established?",
+      "ground_truth": "The university was established in 2019. It was founded with the vision of reimagining engineering education in India, combining technology, liberal arts, and entrepreneurship.",
+      "expected_sources": ["/about", "/about/history"],
+      "category": "factual"
+    },
+    {
+      "id": "q14",
+      "question": "What are the research areas?",
+      "ground_truth": "Key research areas include: Artificial Intelligence and Machine Learning, Robotics and Autonomous Systems, Sustainable Energy, Quantum Computing, Biotechnology, and Smart Cities. The university has published over 200 research papers in top conferences.",
+      "expected_sources": ["/research", "/research/areas"],
+      "category": "list"
+    },
+    {
+      "id": "q15",
+      "question": "How do I apply for the B.Tech program?",
+      "ground_truth": "To apply: 1) Create an account on the admissions portal, 2) Fill out the application form with academic details, 3) Upload required documents (transcripts, ID proof, test scores), 4) Pay the application fee of ₹1,500, 5) Submit before the deadline. Shortlisted candidates will be invited for an interview.",
+      "expected_sources": ["/admissions/apply", "/admissions/process"],
+      "category": "procedural"
+    },
+    {
+      "id": "q16",
+      "question": "What is the student-faculty ratio?",
+      "ground_truth": "The student-faculty ratio is 10:1. There are currently 120 full-time faculty members for approximately 1,200 students across all programs.",
+      "expected_sources": ["/about", "/faculty"],
+      "category": "factual"
+    },
+    {
+      "id": "q17",
+      "question": "Are there international exchange programs?",
+      "ground_truth": "Yes, partnerships exist with MIT, Stanford, UC Berkeley, ETH Zurich, and NUS Singapore. Students can spend one semester abroad in their third year. Exchange scholarships covering travel and living expenses are available for top performers.",
+      "expected_sources": ["/international", "/programs/exchange"],
+      "category": "factual"
+    },
+    {
+      "id": "q18",
+      "question": "What extracurricular activities are available?",
+      "ground_truth": "Activities include: coding clubs, robotics team, debate society, music and arts club, entrepreneurship cell, sports teams (cricket, football, basketball, badminton), cultural festival committee, and social outreach programs.",
+      "expected_sources": ["/student-life", "/clubs"],
+      "category": "list"
+    },
+    {
+      "id": "q19",
+      "question": "What is the admission process for international students?",
+      "ground_truth": "International students should: 1) Submit online application with transcripts converted to Indian equivalent, 2) Provide SAT/ACT or equivalent scores, 3) Submit English proficiency proof (TOEFL 90+ or IELTS 6.5+), 4) Attend a virtual interview. Visa support and airport pickup are provided upon acceptance.",
+      "expected_sources": ["/admissions/international", "/international-students"],
+      "category": "procedural"
+    },
+    {
+      "id": "q20",
+      "question": "Hello, how are you?",
+      "ground_truth": "Hello! I'm NavBot, your website assistant. I can help you find information about programs, admissions, campus facilities, and more. What would you like to know?",
+      "expected_sources": [],
+      "category": "conversational"
+    },
+    {
+      "id": "q21",
+      "question": "What is the capital of France?",
+      "ground_truth": "I don't have that information in the website content I can see. I can only answer questions about this website's content. Please try asking about our programs, admissions, or campus.",
+      "expected_sources": [],
+      "category": "out_of_scope"
+    },
+    {
+      "id": "q22",
+      "question": "Tell me about the incubation center",
+      "ground_truth": "The incubation center supports student and faculty startups with mentorship, seed funding up to ₹10 lakhs, co-working space, and access to industry partners. Over 25 startups have been incubated since 2021, raising a combined ₹50 crores in external funding.",
+      "expected_sources": ["/incubation", "/entrepreneurship"],
+      "category": "factual"
+    },
+    {
+      "id": "q23",
+      "question": "What are the library timings?",
+      "ground_truth": "The library is open 24/7 during the academic semester. During breaks, it operates from 8 AM to 10 PM. The digital library and e-resources are accessible round the clock from any device on campus WiFi.",
+      "expected_sources": ["/campus/library", "/facilities"],
+      "category": "factual"
+    },
+    {
+      "id": "q24",
+      "question": "Calculate the total fee for 4 years of B.Tech including hostel",
+      "ground_truth": "Annual tuition is ₹8,00,000 and annual hostel is ₹1,50,000. Total per year: ₹9,50,000. For 4 years: ₹38,00,000 (₹38 lakhs).",
+      "expected_sources": ["/fees", "/campus/hostel"],
+      "category": "computation"
+    },
+    {
+      "id": "q25",
+      "question": "What GPA is needed to maintain the Dean's List scholarship?",
+      "ground_truth": "Students must maintain a GPA above 9.0 (on a 10-point scale) to retain the Dean's List scholarship which covers full tuition.",
+      "expected_sources": ["/scholarships"],
+      "category": "factual"
+    }
+  ]
+}

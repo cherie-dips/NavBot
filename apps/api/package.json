@@ -6,7 +6,9 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "pnpm --filter @repo/color-extractor build && tsc -p tsconfig.json",
-    "playwright:install": "playwright install chromium"
+    "playwright:install": "playwright install chromium",
+    "eval:baselines": "tsx eval/baselines.ts",
+    "eval:judge": "tsx eval/evaluate.ts"
   },
   "dependencies": {
     "@google/genai": "^1.21.0",
