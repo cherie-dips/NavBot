@@ -1,6 +1,6 @@
 # Optional Render deploy: Web Service with Docker + Playwright browser deps.
 # Base image matches Playwright major used in apps/api (see package.json).
-FROM mcr.microsoft.com/playwright:v1.49.1-jammy
+FROM mcr.microsoft.com/playwright:v1.59.1-jammy
 
 WORKDIR /app
 
