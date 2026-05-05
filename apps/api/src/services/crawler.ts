@@ -129,7 +129,6 @@ async function resolvePageHtml(
 
   const result = await fetchStaticHtml(fetchUrl);
   if (!result) return null;
-  if (mode === "off") return result.html;
 
   const detection = detectFramework(result.html, result.headers);
 
