@@ -16,10 +16,8 @@
 #   Use the auth service URL (same value as BETTER_AUTH_URL), NOT the static web site URL.
 #   Authorized JavaScript origins: your static site origin only, e.g. https://navbot-web.onrender.com
 # - Optional: GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET on navbot-auth for GitHub login.
-# - Native API uses NAVBOT_BROWSER_CRAWL=off by default. For Playwright crawling on Render, deploy the API with
-#   Docker using apps/api/Dockerfile (see file header) instead of the Node native service below.
-# - Do NOT set NODE_ENV=production as a service env var: Render injects it during *build*, and pnpm then skips
-#   devDependencies (TypeScript, @types/node). Production mode is set only in startCommand below.
+# - API uses Docker (apps/api/Dockerfile) with Playwright + Chromium for SPA crawling.
+# - NAVBOT_BROWSER_CRAWL=auto by default — uses Playwright for detected SPAs (React, Vue, Angular, etc.).
 
 databases:
   - name: navbot-db
@@ -64,20 +62,17 @@ services:
 
   - type: web
     name: navbot-api
-    runtime: node
+    runtime: docker
     rootDir: .
-    buildCommand: NODE_ENV=development pnpm install && pnpm --filter @repo/color-extractor build && pnpm --filter api build
-    startCommand: NODE_ENV=production pnpm --filter api start
+    dockerfilePath: ./apps/api/Dockerfile
     plan: free
     envVars:
-      - key: NODE_VERSION
-        value: "20"
       - key: DATABASE_URL
         fromDatabase:
           name: navbot-db
           property: connectionString
       - key: NAVBOT_BROWSER_CRAWL
-        value: "off"
+        value: "auto"
       - key: PINECONE_API_KEY
         sync: false
       - key: PINECONE_INDEX
