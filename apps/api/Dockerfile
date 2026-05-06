@@ -17,4 +17,4 @@ ENV NODE_ENV=production
 WORKDIR /app/apps/api
 
 EXPOSE 3001
-CMD ["node", "dist/index.js"]
+CMD ["node", "--max-old-space-size=384", "dist/index.js"]
