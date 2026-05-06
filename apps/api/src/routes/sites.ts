@@ -222,7 +222,22 @@ router.post("/", async (req: Request, res: Response) => {
       );
     }
 
-    const pages = await crawlSite(siteUrl.toString());
+    // Prefer sitemap-based crawl (covers all pages) over BFS (misses unlinked pages, capped at 500)
+    let pages: Awaited<ReturnType<typeof crawlSite>>;
+    let sitemapEntries: Awaited<ReturnType<typeof getSitemapEntries>> = [];
+
+    try {
+      sitemapEntries = await getSitemapEntries(siteUrl.toString());
+    } catch { /* ignore — fall through to BFS */ }
+
+    if (sitemapEntries.length > 0) {
+      const sitemapUrls = sitemapEntries.map((e) => e.url);
+      console.log(`[index] Sitemap found with ${sitemapUrls.length} URLs — crawling all of them`);
+      pages = await crawlPages(sitemapUrls);
+    } else {
+      console.log(`[index] No sitemap — falling back to BFS crawl`);
+      pages = await crawlSite(siteUrl.toString());
+    }
 
     if (pages.length === 0) {
       return res.status(422).json({
@@ -255,18 +270,23 @@ router.post("/", async (req: Request, res: Response) => {
     // Persist content hashes so future syncs can detect changed pages
     await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
 
-    // Pre-populate sitemap lastmod values so future syncs can diff correctly
-    getSitemapEntries(siteUrl.toString())
-      .then((entries) => {
-        if (entries.length > 0) {
-          void upsertPageLastmods(
-            siteId,
-            entries.map((e) => ({ url: e.url, lastmod: e.lastmod }))
-          ).catch(() => {});
-          console.log(`[index] Stored ${entries.length} sitemap lastmod values for "${siteId}"`);
-        }
-      })
-      .catch(() => {}); // non-critical
+    // Store lastmod values ONLY for pages that were actually crawled
+    if (sitemapEntries.length > 0) {
+      const crawledUrls = new Set(pages.map((p) => p.url));
+      const crawledEntries = sitemapEntries.filter((e) => crawledUrls.has(e.url));
+      if (crawledEntries.length > 0) {
+        await upsertPageLastmods(
+          siteId,
+          crawledEntries.map((e) => ({ url: e.url, lastmod: e.lastmod }))
+        );
+        console.log(
+          `[index] Stored ${crawledEntries.length} sitemap lastmod values for "${siteId}"` +
+            (crawledEntries.length < sitemapEntries.length
+              ? ` (${sitemapEntries.length - crawledEntries.length} sitemap URLs failed to crawl — will retry on next sync)`
+              : "")
+        );
+      }
+    }
 
     res.json({ siteId, pageCount: pages.length, stored: insertedCount, failed: failedCount });
   } catch (err) {

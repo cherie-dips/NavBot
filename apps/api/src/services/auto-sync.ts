@@ -49,6 +49,22 @@ async function syncSite(site: {
     const storedLastmods = await getPageLastmods(siteId);
     const changedEntries = diffSitemapEntries(sitemapEntries, storedLastmods);
 
+    // 2b. Safety net: detect sitemap pages that have a stored lastmod but were
+    // never actually crawled (no content hash). This catches pages that were
+    // marked as "seen" by a previous bug but never indexed.
+    const existingHashes = await getPageHashes(siteId);
+    const neverIndexed = sitemapEntries.filter(
+      (e) => storedLastmods[e.url] !== undefined && existingHashes[e.url] === undefined
+    );
+    if (neverIndexed.length > 0) {
+      console.log(`${tag} Found ${neverIndexed.length} sitemap pages with lastmod but no content hash — adding to crawl list`);
+      for (const entry of neverIndexed) {
+        if (!changedEntries.some((c) => c.url === entry.url)) {
+          changedEntries.push(entry);
+        }
+      }
+    }
+
     // 3. Detect pages removed from sitemap
     const sitemapUrls = new Set(sitemapEntries.map((e) => e.url));
     const storedUrls = Object.keys(storedLastmods);
