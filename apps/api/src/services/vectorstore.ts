@@ -540,17 +540,15 @@ export async function querySiteDocs(params: {
 
   const queryVectors = await embedTexts(queries, "query");
 
-  for (let q = 0; q < queries.length; q++) {
-    const vector = queryVectors[q];
-    if (!vector) continue;
+  const queryResults = await Promise.all(
+    queryVectors.map((vector) =>
+      vector
+        ? ns.query({ vector, topK: nResults, includeMetadata: true, includeValues: false })
+        : Promise.resolve({ matches: [] })
+    )
+  );
 
-    const result = await ns.query({
-      vector,
-      topK: nResults,
-      includeMetadata: true,
-      includeValues: false,
-    });
-
+  for (const result of queryResults) {
     for (const m of result.matches ?? []) {
       const id = m.id;
       if (seen.has(id)) continue;

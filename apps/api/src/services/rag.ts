@@ -64,11 +64,22 @@ const QUERY_EXPANSION_RULES: ExpansionRule[] = [
   },
 ];
 
+function stripQuestionPhrasing(text: string): string {
+  return text
+    .replace(/^(who is|what is|what are|where is|where are|when is|when are|how is|how are|how do|how does|tell me about|can you tell me|explain|describe|give me info on|i want to know about|do you know)\s+/i, "")
+    .replace(/\?+$/, "")
+    .trim();
+}
+
 export function buildRetrievalQueries(message: string): string[] {
   const queries = new Set<string>([message]);
+  const cleaned = stripQuestionPhrasing(message);
+  if (cleaned.length > 2 && cleaned.toLowerCase() !== message.toLowerCase()) {
+    queries.add(cleaned);
+  }
   for (const rule of QUERY_EXPANSION_RULES) {
     if (rule.pattern.test(message)) {
-      queries.add(rule.expansion(message));
+      queries.add(rule.expansion(cleaned));
     }
   }
   return Array.from(queries);

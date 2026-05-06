@@ -310,6 +310,18 @@ export type AgenticRetrievalResult = {
  * Planner (always when API key + ENABLE_AGENTIC_PLANNER) + rule queries;
  * refiner loop controlled by AGENTIC_RAG_MAX_ROUNDS only.
  */
+function mergeDocsById(primary: RetrievedDoc[], extra: RetrievedDoc[]): RetrievedDoc[] {
+  const seen = new Set(primary.map((d) => d.id));
+  const merged = [...primary];
+  for (const d of extra) {
+    if (!seen.has(d.id)) {
+      seen.add(d.id);
+      merged.push(d);
+    }
+  }
+  return merged;
+}
+
 export async function runAgenticRetrieval(
   params: AgenticRetrievalParams
 ): Promise<AgenticRetrievalResult> {
@@ -317,47 +329,59 @@ export async function runAgenticRetrieval(
   const { siteId, userMessage, history, baseQueries } = params;
   const exhaustiveList = isExhaustiveListQuestion(userMessage);
   const queryCap = exhaustiveList ? MAX_QUERIES_EXHAUSTIVE : MAX_QUERIES_TOTAL;
+  const topK = exhaustiveList ? RETRIEVAL_TOP_K + 6 : RETRIEVAL_TOP_K;
 
-  let allQueries: string[] = [...baseQueries];
-  let plannerRan = false;
+  // --- Phase 1: Run planner + initial vector search IN PARALLEL ---
+  const immediateQueries = uniqueQueries(
+    [...baseQueries, ...lexicalFallbackQueries(userMessage),
+     ...eventSectionRetrievalBoosters(userMessage)],
+    queryCap
+  );
 
-  if (agenticPlannerEnabled() && getGeminiApiKeyForAgentic()) {
-    try {
-      const planned = await runPlanner(userMessage, history, exhaustiveList);
-      plannerRan = true;
-      const fromPlanner = [
-        ...planned.search_queries,
-        ...(planned.hyde_paragraph ? [planned.hyde_paragraph] : []),
-      ];
-      allQueries = uniqueQueries([...baseQueries, ...fromPlanner], queryCap);
-    } catch (e) {
-      console.warn("[agentic-retrieval] planner failed, using rule + lexical fallback:", e);
-      allQueries = uniqueQueries(
-        [...baseQueries, ...lexicalFallbackQueries(userMessage)],
-        queryCap
-      );
+  const usePlanner = agenticPlannerEnabled() && getGeminiApiKeyForAgentic();
+
+  const [initialDocs, plannerResult] = await Promise.all([
+    querySiteDocs({
+      siteId,
+      query: immediateQueries.length ? immediateQueries : [userMessage],
+      topK,
+      exhaustiveSpread: exhaustiveList,
+    }),
+    usePlanner
+      ? runPlanner(userMessage, history, exhaustiveList).catch((e) => {
+          console.warn("[agentic-retrieval] planner failed:", e);
+          return null;
+        })
+      : Promise.resolve(null),
+  ]);
+
+  let plannerRan = !!plannerResult;
+  let allQueries = [...immediateQueries];
+  let docs = initialDocs;
+
+  // --- Phase 2: If planner returned NEW queries, do a fast follow-up search ---
+  if (plannerResult) {
+    const plannerQueries = [
+      ...plannerResult.search_queries,
+      ...(plannerResult.hyde_paragraph ? [plannerResult.hyde_paragraph] : []),
+    ];
+    const newOnly = plannerQueries.filter(
+      (q) => !immediateQueries.some((iq) => iq.toLowerCase() === q.trim().toLowerCase())
+    );
+    allQueries = uniqueQueries([...immediateQueries, ...plannerQueries], queryCap);
+
+    if (newOnly.length > 0) {
+      const plannerDocs = await querySiteDocs({
+        siteId,
+        query: newOnly,
+        topK,
+        exhaustiveSpread: exhaustiveList,
+      });
+      docs = mergeDocsById(initialDocs, plannerDocs);
     }
-  } else {
-    allQueries = uniqueQueries(
-      [...baseQueries, ...lexicalFallbackQueries(userMessage)],
-      queryCap
-    );
   }
 
-  if (exhaustiveList) {
-    allQueries = uniqueQueries(
-      [...allQueries, ...eventSectionRetrievalBoosters(userMessage)],
-      queryCap
-    );
-  }
-
-  let docs = await querySiteDocs({
-    siteId,
-    query: allQueries.length ? allQueries : [userMessage],
-    topK: exhaustiveList ? RETRIEVAL_TOP_K + 6 : RETRIEVAL_TOP_K,
-    exhaustiveSpread: exhaustiveList,
-  });
-
+  // --- Phase 3: Refiner (only if retrieval looks weak) ---
   let refinerIterations = 0;
   let round = 0;
   while (
@@ -379,7 +403,7 @@ export async function runAgenticRetrieval(
       const nextDocs = await querySiteDocs({
         siteId,
         query: combined,
-        topK: exhaustiveList ? RETRIEVAL_TOP_K + 6 : RETRIEVAL_TOP_K,
+        topK,
         exhaustiveSpread: exhaustiveList,
       });
       if (nextDocs.length === 0) break;
@@ -394,40 +418,30 @@ export async function runAgenticRetrieval(
     }
   }
 
-  // --- Cross-page sufficiency check: find pages we missed ---
-  // Skip for simple questions with good initial retrieval to save latency.
+  // --- Phase 4: Cross-page sufficiency (exhaustive list questions ONLY) ---
   let sufficiencyRounds = 0;
-  const initialDistGood = bestDistance(docs) < 0.45;
-  const skipSufficiency = !exhaustiveList && initialDistGood && docs.length >= 3;
-  const maxSufficiencyRounds = 1;
-  if (!skipSufficiency && docs.length > 0 && getGeminiApiKeyForAgentic()) {
-    for (let sr = 0; sr < maxSufficiencyRounds; sr++) {
-      try {
-        const gapQueries = await runSufficiencyCheck(userMessage, docs);
-        if (gapQueries.length === 0) break;
-        sufficiencyRounds++;
+  if (exhaustiveList && docs.length > 0 && getGeminiApiKeyForAgentic()) {
+    try {
+      const gapQueries = await runSufficiencyCheck(userMessage, docs);
+      if (gapQueries.length > 0) {
+        sufficiencyRounds = 1;
         console.log(
-          `[sufficiency] Round ${sr + 1}: filling gaps with ${gapQueries.length} queries: ${gapQueries.join(", ")}`
+          `[sufficiency] Filling gaps with ${gapQueries.length} queries: ${gapQueries.join(", ")}`
         );
         const gapDocs = await querySiteDocs({
           siteId,
           query: gapQueries,
           topK: RETRIEVAL_TOP_K,
-          exhaustiveSpread: exhaustiveList,
+          exhaustiveSpread: true,
         });
-        if (gapDocs.length === 0) break;
-        const existingIds = new Set(docs.map((d) => d.id));
-        const newDocs = gapDocs.filter((d) => !existingIds.has(d.id));
-        if (newDocs.length === 0) break;
-        docs = [...docs, ...newDocs];
+        docs = mergeDocsById(docs, gapDocs);
         allQueries = uniqueQueries([...allQueries, ...gapQueries], queryCap + 8);
         console.log(
-          `[sufficiency] Added ${newDocs.length} new chunks from gap retrieval (total: ${docs.length})`
+          `[sufficiency] Added chunks from gap retrieval (total: ${docs.length})`
         );
-      } catch (e) {
-        console.warn("[sufficiency] check failed:", e);
-        break;
       }
+    } catch (e) {
+      console.warn("[sufficiency] check failed:", e);
     }
   }
 

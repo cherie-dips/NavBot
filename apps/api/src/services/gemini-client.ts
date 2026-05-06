@@ -42,7 +42,7 @@ export function agenticPlannerEnabled(): boolean {
 }
 
 export function llmJudgeEnabled(): boolean {
-  const v = (process.env.ENABLE_LLM_JUDGE ?? "true").toLowerCase();
+  const v = (process.env.ENABLE_LLM_JUDGE ?? "false").toLowerCase();
   return v !== "false" && v !== "0";
 }
 
