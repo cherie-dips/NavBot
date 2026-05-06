@@ -251,6 +251,8 @@ export async function crawlPages(urls: string[]): Promise<CrawledPage[]> {
   return pages;
 }
 
+export { shutdownBrowser } from "./browser-render";
+
 // ---------------------------------------------------------------------------
 // Full BFS crawl — used for initial indexing and sync
 // ---------------------------------------------------------------------------

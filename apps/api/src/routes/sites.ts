@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { crawlSite, crawlPages } from "../services/crawler";
+import { crawlSite, crawlPages, shutdownBrowser } from "../services/crawler";
 import {
   upsertSitePages,
   deletePagesFromSite,
@@ -236,7 +236,7 @@ router.post("/", async (req: Request, res: Response) => {
     } catch { /* ignore — fall through to BFS */ }
 
     if (sitemapEntries.length > 0) {
-      const BATCH_SIZE = 30;
+      const BATCH_SIZE = 10;
       const sitemapUrls = sitemapEntries.map((e) => e.url);
       console.log(`[index] Sitemap found with ${sitemapUrls.length} URLs — crawling in batches of ${BATCH_SIZE}`);
 
@@ -258,6 +258,8 @@ router.post("/", async (req: Request, res: Response) => {
           await upsertPageHashes(siteId, batchPages.map((p) => ({ url: p.url, hash: p.hash })));
           for (const p of batchPages) crawledUrls.add(p.url);
         }
+
+        await shutdownBrowser();
       }
 
       if (totalPages === 0) {

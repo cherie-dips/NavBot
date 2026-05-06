@@ -9,7 +9,7 @@
  */
 
 import { Router, type Request, type Response } from "express";
-import { crawlSite, crawlPages } from "../services/crawler";
+import { crawlSite, crawlPages, shutdownBrowser } from "../services/crawler";
 import { upsertSitePages, deletePagesFromSite } from "../services/vectorstore";
 import { getSitemapEntries, diffSitemapEntries } from "../services/sitemap";
 import {
@@ -181,7 +181,7 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
       }
 
       // 3. Crawl in batches to avoid OOM on large sites
-      const BATCH_SIZE = 30;
+      const BATCH_SIZE = 10;
       const urlsToCrawl = changedEntries.map((e) => e.url);
       console.log(`[sync] Crawling ${urlsToCrawl.length} changed/new URLs in batches of ${BATCH_SIZE}`);
 
@@ -210,6 +210,8 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
         await upsertPageHashes(siteId, batchPages.map((p) => ({ url: p.url, hash: p.hash })));
         const batchEntries = changedEntries.filter((e) => batchUrls.includes(e.url));
         await upsertPageLastmods(siteId, batchEntries.map((e) => ({ url: e.url, lastmod: e.lastmod })));
+
+        await shutdownBrowser();
       }
 
       const unchangedCount = totalCrawled - totalChanged;

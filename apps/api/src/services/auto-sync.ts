@@ -13,7 +13,7 @@
 
 import cron from "node-cron";
 import { getSitemapEntries, diffSitemapEntries } from "./sitemap";
-import { crawlPages } from "./crawler";
+import { crawlPages, shutdownBrowser } from "./crawler";
 import { upsertSitePages, deletePagesFromSite } from "./vectorstore";
 import {
   getAllActiveSites,
@@ -91,7 +91,7 @@ async function syncSite(site: {
     }
 
     // 5. Crawl in batches to avoid OOM on large sites
-    const BATCH_SIZE = 30;
+    const BATCH_SIZE = 10;
     const urlsToCrawl = changedEntries.map((e) => e.url);
     console.log(`${tag} Crawling ${urlsToCrawl.length} URLs in batches of ${BATCH_SIZE}`);
 
@@ -117,6 +117,8 @@ async function syncSite(site: {
       await upsertPageHashes(siteId, batchPages.map((p) => ({ url: p.url, hash: p.hash })));
       const batchEntries = changedEntries.filter((e) => batchUrls.includes(e.url));
       await upsertPageLastmods(siteId, batchEntries.map((e) => ({ url: e.url, lastmod: e.lastmod })));
+
+      await shutdownBrowser();
     }
 
     console.log(`${tag} ${totalCrawled} pages crawled, ${totalInserted} chunks upserted (${totalFailed} failed)`);
