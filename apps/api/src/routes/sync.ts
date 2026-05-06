@@ -180,42 +180,41 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
         });
       }
 
-      // 3. Crawl only changed/new URLs
+      // 3. Crawl in batches to avoid OOM on large sites
+      const BATCH_SIZE = 30;
       const urlsToCrawl = changedEntries.map((e) => e.url);
-      console.log(`[sync] Crawling ${urlsToCrawl.length} changed/new URLs`);
-      const crawledPages = await crawlPages(urlsToCrawl);
+      console.log(`[sync] Crawling ${urlsToCrawl.length} changed/new URLs in batches of ${BATCH_SIZE}`);
 
-      // 4. Compare content hashes — skip pages with identical content
       const storedHashes = await getPageHashes(siteId);
-      const actuallyChanged = crawledPages.filter((p) => storedHashes[p.url] !== p.hash);
-      const unchangedCount = crawledPages.length - actuallyChanged.length;
-
-      console.log(
-        `[sync] ${crawledPages.length} crawled, ${actuallyChanged.length} have new content, ${unchangedCount} unchanged`
-      );
-
+      let totalCrawled = 0;
+      let totalChanged = 0;
       let insertedCount = 0;
       let failedCount = 0;
 
-      if (actuallyChanged.length > 0) {
-        await deletePagesFromSite(siteId, actuallyChanged.map((p) => p.url));
-        const result = await upsertSitePages(siteId, actuallyChanged);
-        insertedCount = result.insertedCount;
-        failedCount = result.failedCount;
-        if (result.totalChunks > 0 && result.insertedCount === 0) {
-          return res.status(502).json({
-            error: "pinecone_upsert_failed",
-            message:
-              "Sync crawled changed pages but Pinecone stored no vectors. See API logs and PINECONE_* configuration.",
-          });
+      for (let i = 0; i < urlsToCrawl.length; i += BATCH_SIZE) {
+        const batchUrls = urlsToCrawl.slice(i, i + BATCH_SIZE);
+        console.log(`[sync] Batch ${Math.floor(i / BATCH_SIZE) + 1}: crawling ${batchUrls.length} URLs`);
+        const batchPages = await crawlPages(batchUrls);
+        totalCrawled += batchPages.length;
+
+        const batchChanged = batchPages.filter((p) => storedHashes[p.url] !== p.hash);
+        totalChanged += batchChanged.length;
+
+        if (batchChanged.length > 0) {
+          await deletePagesFromSite(siteId, batchChanged.map((p) => p.url));
+          const result = await upsertSitePages(siteId, batchChanged);
+          insertedCount += result.insertedCount;
+          failedCount += result.failedCount;
         }
+
+        await upsertPageHashes(siteId, batchPages.map((p) => ({ url: p.url, hash: p.hash })));
+        const batchEntries = changedEntries.filter((e) => batchUrls.includes(e.url));
+        await upsertPageLastmods(siteId, batchEntries.map((e) => ({ url: e.url, lastmod: e.lastmod })));
       }
 
-      // 5. Persist hashes and lastmod
-      await upsertPageHashes(siteId, crawledPages.map((p) => ({ url: p.url, hash: p.hash })));
-      await upsertPageLastmods(
-        siteId,
-        changedEntries.map((e) => ({ url: e.url, lastmod: e.lastmod }))
+      const unchangedCount = totalCrawled - totalChanged;
+      console.log(
+        `[sync] ${totalCrawled} crawled, ${totalChanged} have new content, ${unchangedCount} unchanged`
       );
 
       // 6. Update site metadata
@@ -232,7 +231,7 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
         siteId,
         method: "sitemap",
         checked: sitemapEntries.length,
-        changed: actuallyChanged.length,
+        changed: totalChanged,
         unchanged: sitemapEntries.length - changedEntries.length + unchangedCount,
         deleted: deletedUrls.length,
         stored: insertedCount,

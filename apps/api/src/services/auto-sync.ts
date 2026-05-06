@@ -90,45 +90,36 @@ async function syncSite(site: {
       return;
     }
 
-    // 5. Crawl only the changed/new URLs
+    // 5. Crawl in batches to avoid OOM on large sites
+    const BATCH_SIZE = 30;
     const urlsToCrawl = changedEntries.map((e) => e.url);
-    console.log(`${tag} Crawling ${urlsToCrawl.length} URLs`);
-    const crawledPages = await crawlPages(urlsToCrawl);
+    console.log(`${tag} Crawling ${urlsToCrawl.length} URLs in batches of ${BATCH_SIZE}`);
 
-    // 6. Compare content hashes — only upsert pages whose content actually changed
     const storedHashes = await getPageHashes(siteId);
-    const actuallyChanged = crawledPages.filter(
-      (p) => storedHashes[p.url] !== p.hash
-    );
+    let totalCrawled = 0;
+    let totalInserted = 0;
+    let totalFailed = 0;
 
-    console.log(
-      `${tag} ${crawledPages.length} pages crawled, ${actuallyChanged.length} have new content`
-    );
+    for (let i = 0; i < urlsToCrawl.length; i += BATCH_SIZE) {
+      const batchUrls = urlsToCrawl.slice(i, i + BATCH_SIZE);
+      const batchPages = await crawlPages(batchUrls);
+      totalCrawled += batchPages.length;
 
-    if (actuallyChanged.length > 0) {
-      // Delete old chunks for changed pages, then upsert new ones
-      await deletePagesFromSite(
-        siteId,
-        actuallyChanged.map((p) => p.url)
-      );
-      const { insertedCount, failedCount } = await upsertSitePages(
-        siteId,
-        actuallyChanged
-      );
-      console.log(
-        `${tag} Upserted ${insertedCount} chunks (${failedCount} failed)`
-      );
+      const batchChanged = batchPages.filter((p) => storedHashes[p.url] !== p.hash);
+
+      if (batchChanged.length > 0) {
+        await deletePagesFromSite(siteId, batchChanged.map((p) => p.url));
+        const { insertedCount, failedCount } = await upsertSitePages(siteId, batchChanged);
+        totalInserted += insertedCount;
+        totalFailed += failedCount;
+      }
+
+      await upsertPageHashes(siteId, batchPages.map((p) => ({ url: p.url, hash: p.hash })));
+      const batchEntries = changedEntries.filter((e) => batchUrls.includes(e.url));
+      await upsertPageLastmods(siteId, batchEntries.map((e) => ({ url: e.url, lastmod: e.lastmod })));
     }
 
-    // 7. Persist updated hashes and lastmod values
-    await upsertPageHashes(
-      siteId,
-      crawledPages.map((p) => ({ url: p.url, hash: p.hash }))
-    );
-    await upsertPageLastmods(
-      siteId,
-      changedEntries.map((e) => ({ url: e.url, lastmod: e.lastmod }))
-    );
+    console.log(`${tag} ${totalCrawled} pages crawled, ${totalInserted} chunks upserted (${totalFailed} failed)`);
 
     // 8. Update site metadata
     const storedHashCount = Object.keys(storedHashes).length;

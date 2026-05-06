@@ -236,54 +236,45 @@ router.post("/", async (req: Request, res: Response) => {
     } catch { /* ignore — fall through to BFS */ }
 
     if (sitemapEntries.length > 0) {
+      const BATCH_SIZE = 30;
       const sitemapUrls = sitemapEntries.map((e) => e.url);
-      console.log(`[index] Sitemap found with ${sitemapUrls.length} URLs — crawling all of them`);
-      pages = await crawlPages(sitemapUrls);
-    } else {
-      console.log(`[index] No sitemap — falling back to BFS crawl`);
-      pages = await crawlSite(siteUrl.toString());
-    }
+      console.log(`[index] Sitemap found with ${sitemapUrls.length} URLs — crawling in batches of ${BATCH_SIZE}`);
 
-    if (pages.length === 0) {
-      return res.status(422).json({
-        error: "no_pages_crawled",
-        message:
-          "No pages could be fetched or parsed from that URL. Check that the site is public, the URL is correct, and (on Render) NAVBOT_BROWSER_CRAWL is auto or always for JavaScript-heavy sites.",
-      });
-    }
+      let totalPages = 0;
+      let insertedCount = 0;
+      let failedCount = 0;
+      const crawledUrls = new Set<string>();
 
-    const { insertedCount, failedCount, totalChunks } = await upsertSitePages(
-      siteId,
-      pages
-    );
+      for (let i = 0; i < sitemapUrls.length; i += BATCH_SIZE) {
+        const batchUrls = sitemapUrls.slice(i, i + BATCH_SIZE);
+        console.log(`[index] Batch ${Math.floor(i / BATCH_SIZE) + 1}: crawling ${batchUrls.length} URLs`);
+        const batchPages = await crawlPages(batchUrls);
+        totalPages += batchPages.length;
 
-    if (totalChunks > 0 && insertedCount === 0) {
-      console.error(
-        `[index] Pinecone accepted 0 / ${totalChunks} chunks for site "${siteId}". Check PINECONE_* env and server logs.`
-      );
-      return res.status(502).json({
-        error: "pinecone_upsert_failed",
-        message:
-          "Crawl finished but no vectors were stored in Pinecone. Check the API server logs and PINECONE_API_KEY / PINECONE_INDEX.",
-      });
-    }
+        if (batchPages.length > 0) {
+          const result = await upsertSitePages(siteId, batchPages);
+          insertedCount += result.insertedCount;
+          failedCount += result.failedCount;
+          await upsertPageHashes(siteId, batchPages.map((p) => ({ url: p.url, hash: p.hash })));
+          for (const p of batchPages) crawledUrls.add(p.url);
+        }
+      }
 
-    if (userId) {
-      await upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
-    }
+      if (totalPages === 0) {
+        return res.status(422).json({
+          error: "no_pages_crawled",
+          message:
+            "No pages could be fetched or parsed from that URL. Check that the site is public, the URL is correct, and (on Render) NAVBOT_BROWSER_CRAWL is auto or always for JavaScript-heavy sites.",
+        });
+      }
 
-    // Persist content hashes so future syncs can detect changed pages
-    await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+      if (userId) {
+        await upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
+      }
 
-    // Store lastmod values ONLY for pages that were actually crawled
-    if (sitemapEntries.length > 0) {
-      const crawledUrls = new Set(pages.map((p) => p.url));
       const crawledEntries = sitemapEntries.filter((e) => crawledUrls.has(e.url));
       if (crawledEntries.length > 0) {
-        await upsertPageLastmods(
-          siteId,
-          crawledEntries.map((e) => ({ url: e.url, lastmod: e.lastmod }))
-        );
+        await upsertPageLastmods(siteId, crawledEntries.map((e) => ({ url: e.url, lastmod: e.lastmod })));
         console.log(
           `[index] Stored ${crawledEntries.length} sitemap lastmod values for "${siteId}"` +
             (crawledEntries.length < sitemapEntries.length
@@ -291,9 +282,37 @@ router.post("/", async (req: Request, res: Response) => {
               : "")
         );
       }
-    }
 
-    res.json({ siteId, pageCount: pages.length, stored: insertedCount, failed: failedCount });
+      res.json({ siteId, pageCount: totalPages, stored: insertedCount, failed: failedCount });
+    } else {
+      console.log(`[index] No sitemap — falling back to BFS crawl`);
+      pages = await crawlSite(siteUrl.toString());
+
+      if (pages.length === 0) {
+        return res.status(422).json({
+          error: "no_pages_crawled",
+          message:
+            "No pages could be fetched or parsed from that URL. Check that the site is public, the URL is correct, and (on Render) NAVBOT_BROWSER_CRAWL is auto or always for JavaScript-heavy sites.",
+        });
+      }
+
+      const { insertedCount, failedCount, totalChunks } = await upsertSitePages(siteId, pages);
+
+      if (totalChunks > 0 && insertedCount === 0) {
+        return res.status(502).json({
+          error: "pinecone_upsert_failed",
+          message:
+            "Crawl finished but no vectors were stored in Pinecone. Check the API server logs and PINECONE_API_KEY / PINECONE_INDEX.",
+        });
+      }
+
+      if (userId) {
+        await upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
+      }
+
+      await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+      res.json({ siteId, pageCount: pages.length, stored: insertedCount, failed: failedCount });
+    }
   } catch (err) {
     console.error("[index]", err);
     const { status, body } = indexErrorResponse(err);
