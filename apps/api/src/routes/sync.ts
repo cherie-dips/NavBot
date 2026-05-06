@@ -52,6 +52,17 @@ router.get("/:siteId/sync", async (req: Request, res: Response) => {
       const storedLastmods = await getPageLastmods(siteId);
       const changedEntries = diffSitemapEntries(sitemapEntries, storedLastmods);
 
+      // Safety net: pages with stored lastmod but never actually indexed (no content hash)
+      const existingHashes = await getPageHashes(siteId);
+      const neverIndexed = sitemapEntries.filter(
+        (e) => storedLastmods[e.url] !== undefined && existingHashes[e.url] === undefined
+      );
+      for (const entry of neverIndexed) {
+        if (!changedEntries.some((c) => c.url === entry.url)) {
+          changedEntries.push(entry);
+        }
+      }
+
       const sitemapUrls = new Set(sitemapEntries.map((e) => e.url));
       const deletedUrls = Object.keys(storedLastmods).filter((u) => !sitemapUrls.has(u));
 
@@ -130,6 +141,20 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
       // 1. Diff sitemap lastmod against stored values
       const storedLastmods = await getPageLastmods(siteId);
       const changedEntries = diffSitemapEntries(sitemapEntries, storedLastmods);
+
+      // 1b. Safety net: pages with stored lastmod but never actually indexed (no content hash)
+      const existingHashes = await getPageHashes(siteId);
+      const neverIndexed = sitemapEntries.filter(
+        (e) => storedLastmods[e.url] !== undefined && existingHashes[e.url] === undefined
+      );
+      if (neverIndexed.length > 0) {
+        console.log(`[sync] Found ${neverIndexed.length} pages with lastmod but no content hash — adding to crawl list`);
+        for (const entry of neverIndexed) {
+          if (!changedEntries.some((c) => c.url === entry.url)) {
+            changedEntries.push(entry);
+          }
+        }
+      }
 
       // 2. Detect removed pages
       const sitemapUrls = new Set(sitemapEntries.map((e) => e.url));
