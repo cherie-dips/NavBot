@@ -98,6 +98,24 @@ async function discoverSitemapUrl(siteUrl: string): Promise<string | null> {
   return null;
 }
 
+function rewriteOriginIfNeeded(entries: SitemapEntry[], siteUrl: string): SitemapEntry[] {
+  if (entries.length === 0) return entries;
+  const siteOrigin = new URL(siteUrl).origin;
+  const first = entries[0]!;
+  let entryOrigin: string;
+  try { entryOrigin = new URL(first.url).origin; } catch { return entries; }
+  if (entryOrigin === siteOrigin) return entries;
+
+  console.log(`[sitemap] Rewriting sitemap URLs from ${entryOrigin} → ${siteOrigin}`);
+  return entries.map((e) => {
+    try {
+      const u = new URL(e.url);
+      const corrected = new URL(u.pathname + u.search + u.hash, siteOrigin);
+      return { url: normalizeUrl(corrected.toString()), lastmod: e.lastmod };
+    } catch { return e; }
+  });
+}
+
 export async function getSitemapEntries(siteUrl: string): Promise<SitemapEntry[]> {
   const sitemapUrl = await discoverSitemapUrl(siteUrl);
   if (!sitemapUrl) {
@@ -111,7 +129,6 @@ export async function getSitemapEntries(siteUrl: string): Promise<SitemapEntry[]
   const childUrls = await parseSitemapIndex(sitemapUrl);
 
   if (childUrls.length > 0) {
-    // It's a sitemap index — fetch each child (limit to 10 to avoid abuse)
     const all: SitemapEntry[] = [];
     for (const childUrl of childUrls.slice(0, 10)) {
       try {
@@ -122,13 +139,12 @@ export async function getSitemapEntries(siteUrl: string): Promise<SitemapEntry[]
       }
     }
     console.log(`[sitemap] Index sitemap: ${all.length} entries across ${childUrls.length} child sitemaps`);
-    return all;
+    return rewriteOriginIfNeeded(all, siteUrl);
   }
 
-  // It's a regular sitemap
   const entries = await parseSitemapXml(sitemapUrl);
   console.log(`[sitemap] Regular sitemap: ${entries.length} entries`);
-  return entries;
+  return rewriteOriginIfNeeded(entries, siteUrl);
 }
 
 

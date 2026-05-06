@@ -85,12 +85,29 @@ export function buildRetrievalQueries(message: string): string[] {
   return Array.from(queries);
 }
 
-const CONTEXT_BUDGET_CHARS = 40_000;
+const CONTEXT_BUDGET_CHARS = 50_000;
+
+function removeChunkOverlap(chunks: string[]): string[] {
+  if (chunks.length <= 1) return chunks;
+  const out = [chunks[0]!];
+  for (let i = 1; i < chunks.length; i++) {
+    const prev = chunks[i - 1]!;
+    const cur = chunks[i]!;
+    const tail = prev.slice(-200);
+    const overlapIdx = cur.indexOf(tail.slice(-80));
+    if (overlapIdx >= 0 && overlapIdx < 200) {
+      out.push(cur.slice(overlapIdx + tail.slice(-80).length).trim());
+    } else {
+      out.push(cur);
+    }
+  }
+  return out.filter((c) => c.length > 20);
+}
 
 function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
   const exhaustive = isExhaustiveListQuestion(userMessage);
-  const maxCharsPerChunk = exhaustive ? 1800 : 2400;
-  const maxSources = exhaustive ? 20 : 12;
+  const maxCharsPerChunk = exhaustive ? 1400 : 1800;
+  const maxSources = exhaustive ? 30 : 20;
   const ordered = exhaustive
     ? sortDocsForExhaustiveAnswer(docs, userMessage)
     : [...docs].sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
@@ -107,14 +124,18 @@ function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
 
   const pages = [...byUrl.entries()].sort((a, b) => a[1].bestDistance - b[1].bestDistance);
 
+  const directory = pages.map(([url, { title }], i) => `${i + 1}. ${title} — ${url}`).join("\n");
+  const directoryBlock = `PAGE DIRECTORY (${pages.length} pages retrieved):\n${directory}`;
+
   let sourceIdx = 0;
-  let totalChars = 0;
-  const blocks: string[] = [];
+  let totalChars = directoryBlock.length + 20;
+  const blocks: string[] = [directoryBlock];
   for (const [url, { title, chunks }] of pages) {
     sourceIdx++;
-    const body = chunks.join("\n\n");
+    const deduped = removeChunkOverlap(chunks);
+    const body = deduped.join("\n\n");
     const block = `[Source ${sourceIdx}]\nTitle: ${title}\nURL: ${url}\n\n${body}`;
-    if (totalChars + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 0) break;
+    if (totalChars + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 1) break;
     blocks.push(block);
     totalChars += block.length;
   }

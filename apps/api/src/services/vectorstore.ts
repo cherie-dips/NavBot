@@ -569,8 +569,8 @@ export async function querySiteDocs(params: {
   docs.sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
   const rawPoolLimit = exhaustive ? 260 : 150;
   const pool = docs.slice(0, rawPoolLimit);
-  const maxPerUrl = exhaustive ? 4 : 7;
-  const maxTotal = exhaustive ? 68 : 36;
+  const maxPerUrl = exhaustive ? 4 : 4;
+  const maxTotal = exhaustive ? 68 : 44;
   return selectWithUrlSpread(pool, maxPerUrl, maxTotal);
 }
 
