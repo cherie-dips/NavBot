@@ -154,17 +154,22 @@ router.get("/", async (req: Request, res: Response) => {
 
 /* ── Dashboard analytics (conversations, volume, top queries) ──────────── */
 router.get("/dashboard-stats", async (req: Request, res: Response) => {
-  const userId = req.query.userId as string | undefined;
-  const siteIdRaw = req.query.siteId as string | undefined;
-  if (!userId) {
-    return res.status(400).json({ error: "userId query param is required" });
+  try {
+    const userId = req.query.userId as string | undefined;
+    const siteIdRaw = req.query.siteId as string | undefined;
+    if (!userId) {
+      return res.status(400).json({ error: "userId query param is required" });
+    }
+    const filterSiteId = siteIdRaw?.trim() ? siteIdRaw.trim() : null;
+    const data = await getDashboardAnalytics(userId, filterSiteId);
+    if (!data) {
+      return res.status(403).json({ error: "site not found or access denied" });
+    }
+    res.json(data);
+  } catch (err) {
+    console.error("[dashboard-stats]", err);
+    res.status(500).json({ error: "failed_to_load_stats" });
   }
-  const filterSiteId = siteIdRaw?.trim() ? siteIdRaw.trim() : null;
-  const data = await getDashboardAnalytics(userId, filterSiteId);
-  if (!data) {
-    return res.status(403).json({ error: "site not found or access denied" });
-  }
-  res.json(data);
 });
 
 /* ── Index a new site ──────────────────────────────────────────────────── */

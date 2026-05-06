@@ -9,7 +9,7 @@ if (!connectionString) {
 
 export const pool = new pg.Pool({
   connectionString,
-  max: 20,
+  max: 5,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
 });
