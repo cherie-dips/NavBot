@@ -23,9 +23,9 @@ export function getGoogleGenAI(): GoogleGenAI {
 // Model IDs (free-tier defaults per plan)
 // ---------------------------------------------------------------------------
 export const GEMINI_MODELS = {
-  chat: process.env.GEMINI_CHAT_MODEL?.trim() || "gemini-2.5-flash",
-  planner: process.env.GEMINI_PLANNER_MODEL?.trim() || "gemini-2.5-flash-lite",
-  judge: process.env.GEMINI_JUDGE_MODEL?.trim() || "gemini-2.5-flash-lite",
+  chat: process.env.GEMINI_CHAT_MODEL?.trim() || "gemma-4-31b-it",
+  planner: process.env.GEMINI_PLANNER_MODEL?.trim() || "gemma-4-26b-a4b-it",
+  judge: process.env.GEMINI_JUDGE_MODEL?.trim() || "gemma-4-26b-a4b-it",
   stt: process.env.GEMINI_STT_MODEL?.trim() || "gemini-2.5-flash",
   tts: process.env.GEMINI_TTS_MODEL?.trim() || "gemini-2.5-flash-preview-tts",
 } as const;
@@ -43,11 +43,6 @@ export function agenticPlannerEnabled(): boolean {
 
 export function llmJudgeEnabled(): boolean {
   const v = (process.env.ENABLE_LLM_JUDGE ?? "true").toLowerCase();
-  return v !== "false" && v !== "0";
-}
-
-export function codeExecutionEnabled(): boolean {
-  const v = (process.env.ENABLE_CODE_EXECUTION ?? "true").toLowerCase();
   return v !== "false" && v !== "0";
 }
 
@@ -215,25 +210,13 @@ export function extractResponseText(response: GenerateContentResponse): string {
   return chunks.join("").trim();
 }
 
-const CODE_EXECUTION_TOOL = { codeExecution: {} };
-
 export async function generateContentText(params: {
   model: string;
   contents: unknown;
   config?: GenerateContentConfig;
-  useCodeExecution?: boolean;
 }): Promise<string> {
   const ai = getGoogleGenAI();
   const config: GenerateContentConfig = { ...(params.config ?? {}) };
-  if (params.useCodeExecution && codeExecutionEnabled()) {
-    const existing = config.tools;
-    const list = existing
-      ? Array.isArray(existing)
-        ? [...existing]
-        : [existing]
-      : [];
-    config.tools = [...list, CODE_EXECUTION_TOOL];
-  }
 
   const response = await geminiWithRetry(
     () =>

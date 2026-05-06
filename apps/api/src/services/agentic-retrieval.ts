@@ -1,3 +1,4 @@
+
 import { querySiteDocs, type RetrievedDoc } from "./vectorstore";
 import {
   expandRetrievalAcrossTrackedPages,
@@ -34,7 +35,6 @@ export interface AgenticRetrievalParams {
 function parsePlannerJson(raw: string): {
   search_queries?: string[];
   hyde_paragraph?: string;
-  needs_computation?: boolean;
 } {
   const cleaned = raw
     .replace(/```json\s*/gi, "")
@@ -45,7 +45,6 @@ function parsePlannerJson(raw: string): {
       return JSON.parse(s) as {
         search_queries?: string[];
         hyde_paragraph?: string;
-        needs_computation?: boolean;
       };
     } catch {
       return null;
@@ -141,36 +140,34 @@ async function runPlanner(
   userMessage: string,
   history: ChatHistoryItem[],
   exhaustiveList: boolean
-): Promise<{ search_queries: string[]; hyde_paragraph?: string; needs_computation?: boolean }> {
+): Promise<{ search_queries: string[]; hyde_paragraph?: string }> {
   const hist = history
     .slice(-4)
     .map((h) => `${h.role}: ${h.content.slice(0, 200)}`)
     .join("\n");
 
-  const eventCatalog =
-    exhaustiveList &&
-    /workshop|events?\b|seminar|talk|session|meetup|webinar|hackathon|bootcamp/i.test(userMessage);
-
   const listHint = exhaustiveList
-    ? `\nThe user wants a broad list or "all" items. Use 6-10 DISTINCT queries that could match many different pages (e.g. events index, workshops, series names, past years, project pages) — avoid repeating one narrow topic.\n`
+    ? `\nThe user wants a broad list or "all" items. Use 8-12 DISTINCT queries targeting DIFFERENT sections/pages of the website.\n`
     : "";
 
-  const eventHint = eventCatalog
-    ? `\nThis question is about events or workshops. Include queries that match INDIVIDUAL activity pages: literal words "events" and "workshop", common tech topics (ML, LLM, CNN, regression, etc.), and years (2023, 2024, 2025) so different /events/... URLs surface — not only /projects or /about.\n`
-    : "";
+  const prompt = `You help retrieve website content from a vector database. Your goal is to find ALL pages that might contain relevant information — not just the single best-matching page.
 
-  const prompt = `You help retrieve website content from a vector database. Given the user message and short chat history, respond with JSON only.
-${listHint}${eventHint}
+CRITICAL: Information about a topic is often spread across MULTIPLE different pages. For example:
+- "deadlines" → admissions page, scholarship page, fees page, financial aid page
+- "vice chancellor" → faculty page, events page, about page, news page
+- "fees" → tuition page, hostel page, scholarship page, admission page
+- "programs" → academics page, individual department pages, placement page
+
+Think about which DIFFERENT sections of a website would mention the topic, and generate queries targeting each section separately.
+${listHint}
 User message: ${JSON.stringify(userMessage)}
 Recent history:
 ${hist || "(none)"}
 
 Return a JSON object:
-- "search_queries": array of 4-10 DISTINCT short search strings (keywords, product names, page topics, synonyms, alternate phrasings, NOT full sentences). Include sub-queries if the user asks for lists or multiple things.
-- "hyde_paragraph": optional 1-2 sentence hypothetical stub (may be wrong) with extra keywords for embedding similarity.
-- "needs_computation": true only if arithmetic, percentages, or date math is clearly required.
-
-Example: {"search_queries":["pricing plans","enterprise tier","API cost per month","free trial limits"],"hyde_paragraph":"Plans include starter and enterprise with usage-based API pricing.","needs_computation":false}`;
+- "search_queries": array of 6-12 DISTINCT short search strings. Each query should target a DIFFERENT page/section where the answer might appear. Do NOT generate semantic variations of the same query (bad: "admission deadline", "application deadline", "deadline for admission"). Instead target different pages (good: "admission deadline", "scholarship last date", "fee payment due date", "hostel application deadline").
+- "hyde_paragraph": optional 1-2 sentence hypothetical stub with keywords for embedding similarity.
+Example for "what are the deadlines?": {"search_queries":["admission application deadline","scholarship deadline","fee payment last date","hostel application deadline","exam registration deadline","financial aid deadline","semester start dates","academic calendar"],"hyde_paragraph":"Application deadlines vary by program. Admission rounds close in January, scholarship applications in February, and fee payment is due by March."}`;
 
   const raw = await generateContentText({
     model: GEMINI_MODELS.planner,
@@ -200,7 +197,6 @@ Example: {"search_queries":["pricing plans","enterprise tier","API cost per mont
     search_queries,
     hyde_paragraph:
       typeof parsed.hyde_paragraph === "string" ? parsed.hyde_paragraph : undefined,
-    needs_computation: parsed.needs_computation === true,
   };
 }
 
@@ -232,15 +228,76 @@ Use broader terms, URL path keywords (e.g. events, /events, workshop), abbreviat
   return Array.isArray(q) ? q.filter((s) => typeof s === "string") : [];
 }
 
+function summarizeRetrievedPages(docs: RetrievedDoc[]): string {
+  const byUrl = new Map<string, { title: string; snippets: string[] }>();
+  for (const d of docs) {
+    const key = d.url || "(unknown)";
+    const entry = byUrl.get(key) ?? { title: d.title, snippets: [] };
+    if (entry.snippets.length < 2) {
+      entry.snippets.push(d.content.slice(0, 150).replace(/\s+/g, " ").trim());
+    }
+    byUrl.set(key, entry);
+  }
+  const lines: string[] = [];
+  for (const [url, { title, snippets }] of byUrl) {
+    lines.push(`- ${title} (${url}): ${snippets[0] ?? ""}`);
+  }
+  return lines.slice(0, 15).join("\n");
+}
+
+async function runSufficiencyCheck(
+  userMessage: string,
+  docs: RetrievedDoc[]
+): Promise<string[]> {
+  if (docs.length === 0) return [];
+
+  const summary = summarizeRetrievedPages(docs);
+
+  const prompt = `A user asked a website chatbot this question: ${JSON.stringify(userMessage)}
+
+The vector search returned content from these pages:
+${summary}
+
+Think about what DIFFERENT pages on a typical website might ALSO contain relevant information that we MISSED. Information is often spread across multiple pages (e.g. deadlines appear on admissions, fees, scholarship pages; a person appears on faculty, events, news pages).
+
+If the retrieved pages likely cover the full answer, return: {"sufficient": true}
+If other pages probably have relevant info we missed, return: {"sufficient": false, "gap_queries": ["query1", "query2", "query3"]}
+
+gap_queries should target the MISSING pages specifically — not re-search pages we already have. 3-5 queries max.`;
+
+  const raw = await generateContentText({
+    model: GEMINI_MODELS.planner,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    config: {
+      temperature: 0.1,
+      maxOutputTokens: 256,
+      responseMimeType: "application/json",
+    },
+  });
+
+  try {
+    const cleaned = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+    const parsed = JSON.parse(cleaned.match(/\{[\s\S]*\}/)?.[0] ?? "{}") as {
+      sufficient?: boolean;
+      gap_queries?: string[];
+    };
+    if (parsed.sufficient) return [];
+    if (Array.isArray(parsed.gap_queries)) {
+      return parsed.gap_queries.filter((s) => typeof s === "string" && s.trim().length > 1);
+    }
+  } catch { /* ignore parse errors */ }
+  return [];
+}
+
 export type AgenticRetrievalResult = {
   docs: RetrievedDoc[];
-  needsComputation: boolean;
   /** For logging / debugging */
   retrievalMeta: {
     ruleQueryCount: number;
     totalQueriesUsed: number;
     plannerRan: boolean;
     refinerIterations: number;
+    sufficiencyRounds: number;
     bestDistance: number;
   };
 };
@@ -257,7 +314,6 @@ export async function runAgenticRetrieval(
   const exhaustiveList = isExhaustiveListQuestion(userMessage);
   const queryCap = exhaustiveList ? MAX_QUERIES_EXHAUSTIVE : MAX_QUERIES_TOTAL;
 
-  let needsComputation = false;
   let allQueries: string[] = [...baseQueries];
   let plannerRan = false;
 
@@ -265,7 +321,6 @@ export async function runAgenticRetrieval(
     try {
       const planned = await runPlanner(userMessage, history, exhaustiveList);
       plannerRan = true;
-      needsComputation = planned.needs_computation === true;
       const fromPlanner = [
         ...planned.search_queries,
         ...(planned.hyde_paragraph ? [planned.hyde_paragraph] : []),
@@ -335,21 +390,55 @@ export async function runAgenticRetrieval(
     }
   }
 
+  // --- Cross-page sufficiency check: find pages we missed ---
+  let sufficiencyRounds = 0;
+  const maxSufficiencyRounds = Math.max(1, maxRefinerRounds);
+  if (docs.length > 0 && getGeminiApiKeyForAgentic()) {
+    for (let sr = 0; sr < maxSufficiencyRounds; sr++) {
+      try {
+        const gapQueries = await runSufficiencyCheck(userMessage, docs);
+        if (gapQueries.length === 0) break;
+        sufficiencyRounds++;
+        console.log(
+          `[sufficiency] Round ${sr + 1}: filling gaps with ${gapQueries.length} queries: ${gapQueries.join(", ")}`
+        );
+        const gapDocs = await querySiteDocs({
+          siteId,
+          query: gapQueries,
+          topK: RETRIEVAL_TOP_K,
+          exhaustiveSpread: exhaustiveList,
+        });
+        if (gapDocs.length === 0) break;
+        const existingIds = new Set(docs.map((d) => d.id));
+        const newDocs = gapDocs.filter((d) => !existingIds.has(d.id));
+        if (newDocs.length === 0) break;
+        docs = [...docs, ...newDocs];
+        allQueries = uniqueQueries([...allQueries, ...gapQueries], queryCap + 8);
+        console.log(
+          `[sufficiency] Added ${newDocs.length} new chunks from gap retrieval (total: ${docs.length})`
+        );
+      } catch (e) {
+        console.warn("[sufficiency] check failed:", e);
+        break;
+      }
+    }
+  }
+
   docs = await expandRetrievalAcrossTrackedPages(siteId, docs, userMessage);
 
   const bestDist = bestDistance(docs);
   console.log(
-    `[RAG retrieval] site="${siteId}" ruleQueries=${baseQueries.length} totalQueries=${allQueries.length} planner=${plannerRan} refiner=${refinerIterations} exhaustiveList=${exhaustiveList} chunks=${docs.length} bestDistance=${bestDist.toFixed(4)}`
+    `[RAG retrieval] site="${siteId}" ruleQueries=${baseQueries.length} totalQueries=${allQueries.length} planner=${plannerRan} refiner=${refinerIterations} sufficiency=${sufficiencyRounds} exhaustiveList=${exhaustiveList} chunks=${docs.length} bestDistance=${bestDist.toFixed(4)}`
   );
 
   return {
     docs,
-    needsComputation,
     retrievalMeta: {
       ruleQueryCount: baseQueries.length,
       totalQueriesUsed: allQueries.length,
       plannerRan,
       refinerIterations,
+      sufficiencyRounds,
       bestDistance: bestDist,
     },
   };

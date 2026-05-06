@@ -1,5 +1,5 @@
 import { createPartFromBase64 } from "@google/genai";
-import { querySiteDocs, type RetrievedDoc } from "./vectorstore";
+import { type RetrievedDoc } from "./vectorstore";
 import { hasSocialIntent, searchSocialMedia, buildSocialContextString } from "./social-search";
 import { getFaqUserAnswerForQuestion } from "./db";
 import { runAgenticRetrieval } from "./agentic-retrieval";
@@ -12,7 +12,6 @@ import {
   GEMINI_MODELS,
   generateContentText,
   llmJudgeEnabled,
-  codeExecutionEnabled,
 } from "./gemini-client";
 
 export type { ChatHistoryItem } from "./chat-types";
@@ -77,18 +76,31 @@ export function buildRetrievalQueries(message: string): string[] {
 
 function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
   const exhaustive = isExhaustiveListQuestion(userMessage);
-  const maxChars = exhaustive ? 1650 : 2200;
-  const maxSources = exhaustive ? 34 : 28;
+  const maxChars = exhaustive ? 1800 : 2400;
+  const maxSources = exhaustive ? 38 : 30;
   const ordered = exhaustive
     ? sortDocsForExhaustiveAnswer(docs, userMessage)
     : [...docs].sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
   const slice = ordered.slice(0, maxSources);
 
-  return slice
-    .map(
-      (d, idx) =>
-        `[Source ${idx + 1}]\nTitle: ${d.title}\nURL: ${d.url}\n\n${d.content.slice(0, maxChars).trim()}`
-    )
+  const byUrl = new Map<string, { title: string; bestDistance: number; chunks: string[] }>();
+  for (const d of slice) {
+    const key = d.url || `_untitled_${d.id}`;
+    const entry = byUrl.get(key) ?? { title: d.title, bestDistance: d.distance ?? 1, chunks: [] };
+    entry.chunks.push(d.content.slice(0, maxChars).trim());
+    if ((d.distance ?? 1) < entry.bestDistance) entry.bestDistance = d.distance ?? 1;
+    byUrl.set(key, entry);
+  }
+
+  const pages = [...byUrl.entries()].sort((a, b) => a[1].bestDistance - b[1].bestDistance);
+
+  let sourceIdx = 0;
+  return pages
+    .map(([url, { title, chunks }]) => {
+      sourceIdx++;
+      const body = chunks.join("\n\n");
+      return `[Source ${sourceIdx}]\nTitle: ${title}\nURL: ${url}\n\n${body}`;
+    })
     .join("\n\n---\n\n");
 }
 
@@ -147,12 +159,6 @@ function sanitizeAnswerText(raw: string): string {
     .replace(/<\/?think>/gi, "")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1: $2")
     .trim();
-}
-
-function messageNeedsComputation(text: string): boolean {
-  return /\d+\s*[%+*/×÷-]|\b(sum|total|average|mean|percent|percentage|calculate|how many|multiply|divided by|fraction|prime|fibonacci|equation|logic puzzle|riddle)\b/i.test(
-    text
-  );
 }
 
 function contextSummariesForJudge(docs: RetrievedDoc[], userMessage: string): string {
@@ -302,7 +308,7 @@ export async function answerQuestionWithRag(params: {
 
   const baseQueries = buildRetrievalQueries(message);
 
-  const { docs: agenticDocs, needsComputation, retrievalMeta } = await runAgenticRetrieval({
+  const { docs: agenticDocs, retrievalMeta } = await runAgenticRetrieval({
     siteId,
     userMessage: message,
     history,
@@ -311,7 +317,7 @@ export async function answerQuestionWithRag(params: {
 
   console.log(
     `RAG for site "${siteId}": ${retrievalMeta.totalQueriesUsed} retrieval quer${retrievalMeta.totalQueriesUsed === 1 ? "y" : "ies"} ` +
-      `(rule=${retrievalMeta.ruleQueryCount}, planner=${retrievalMeta.plannerRan}, refiner=${retrievalMeta.refinerIterations}) → ${agenticDocs.length} chunks, bestDist≈${retrievalMeta.bestDistance.toFixed(4)}`
+      `(rule=${retrievalMeta.ruleQueryCount}, planner=${retrievalMeta.plannerRan}, refiner=${retrievalMeta.refinerIterations}, sufficiency=${retrievalMeta.sufficiencyRounds}) → ${agenticDocs.length} chunks, bestDist≈${retrievalMeta.bestDistance.toFixed(4)}`
   );
 
   const socialIntent = hasSocialIntent(message);
@@ -341,21 +347,33 @@ export async function answerQuestionWithRag(params: {
   const catalogQuestion = isExhaustiveListQuestion(message);
 
   const systemPrompt = `
-You are NavBot, a helpful assistant that answers questions using content retrieved from the website with siteId: "${siteId}".
+You are NavBot, a friendly and knowledgeable assistant for this website. You answer questions using ONLY the retrieved website content provided below. You sound like a helpful human who knows the website inside-out — not like a search engine reading results aloud.
 
-RULES:
-1. Answer primarily from the provided website context. Do NOT use prior knowledge.
-2. If dates, deadlines, rounds, or schedules appear in the context, state them clearly and precisely.
-3. If the context contains a table, extract the relevant row/column and present it cleanly.
-4. If social media posts are provided, you may reference them and MUST include the post URL so the user can check it out.
-5. If the answer is not in any context, say "I don't have that information" and suggest contacting the site owner.
-6. If the user asks for a list, steps, bullet points, "name all", "what are the", or multiple distinct items, answer with a clear bullet list: each item on its own line starting with "• " or "- ". Include every relevant item you find in the context; do not omit items to be brief.
-7. For non-list questions, keep answers concise: usually 1-4 short sentences, no fluff, no repeated phrasing.
-8. Include useful next-step details only if they are directly relevant to the question.
-9. Do NOT include citations, markdown links, or "Source:" text in the body for website sources; plain answer text only. But DO include social media URLs inline.
-10. If the user's question is conversational or a greeting, respond naturally without citing sources.
-11. CATALOG / MULTI-PAGE: The context is built from many website chunks, each tagged with Title and URL. For questions about everything the organization has done (events, workshops, projects, programs), read across ALL [Source …] blocks — not only the first few. A single chunk often describes ONE page (e.g. one URL under /events/… = one event or workshop). List a separate bullet for each distinct event/workshop/session you can name from those blocks.
-12. URL AWARENESS: If the user asks about events or workshops and some sources have "/events/" in the URL, those sources are usually the primary evidence. Do not answer using only generic pages (e.g. /about, /projects) when /events/ sources in the same context describe specific named activities — combine them into one complete list.
+CORE RULES:
+1. Answer ONLY from the provided context. Never use prior knowledge or make assumptions about information not in the context.
+2. If the answer is not in the context, say "I don't have that information from the website" and suggest the user contact the site owner or check the website directly.
+3. If the user's message is conversational (greeting, thanks, small talk), respond naturally and warmly without citing sources.
+
+FORMATTING:
+4. For lists, steps, or "name all / what are the / how many" questions: use a bullet list (• or -), one item per line. Include EVERY relevant item from the context — do not omit items to be brief.
+5. For non-list questions: keep answers concise — 1-4 clear sentences, no filler, no repeated phrasing.
+6. If the context contains a table or structured data (fees, schedules, comparisons), extract the relevant rows and present them cleanly.
+7. Do NOT include citations, markdown links, or "Source:" text in the body. Plain text only. Exception: social media URLs should be included inline.
+
+CROSS-PAGE SYNTHESIS:
+8. The context comes from MULTIPLE pages of the website, each tagged with [Source N], Title, and URL. A single question often has its answer spread across several pages. Read ALL source blocks and combine information — do not answer from just the first few.
+9. When different pages mention the same topic (e.g. deadlines on admissions page AND on scholarship page AND on fees page), synthesize all of them into one complete answer. Flag differences if pages contradict each other (e.g. "The admissions page says Jan 15, while the scholarship page says Jan 30").
+10. For questions about a person, department, or topic: gather details from every page that mentions them. A person may appear on a faculty page, an events page, and a news page — combine all of it.
+
+UNIVERSITY & ACADEMIC AWARENESS:
+11. For admission/application questions: mention ALL deadlines, rounds, and eligibility criteria you find across the context. Order deadlines chronologically. If multiple programs have different deadlines, list each separately.
+12. For fee/cost questions: include tuition, any additional fees, scholarship/aid info, and payment deadlines if mentioned anywhere in the context. Present fee structures clearly — use a breakdown if multiple components exist.
+13. For program/course questions: include curriculum structure, duration, credits, specializations, and any unique features mentioned. If multiple programs exist, distinguish between them clearly.
+14. For faculty/people questions: include designation, department, research interests, achievements, and any events/talks they are associated with — gathered from all pages.
+15. For placement/career questions: include statistics, top recruiters, salary ranges, and any relevant programs mentioned in the context.
+
+REASONING & COUNTING:
+16. For questions involving counting ("how many"), arithmetic, comparisons, or date logic: enumerate items explicitly (e.g. "1. X, 2. Y, 3. Z — that's 3 total") so you don't miscount. Show brief reasoning when the question is quantitative.
 `.trim();
 
   let combinedSystemPrompt = `${systemPrompt}\n\nWEBSITE CONTEXT (your primary knowledge source):\n\n${contextString}`;
@@ -363,10 +381,6 @@ RULES:
   if (socialContextString) {
     combinedSystemPrompt += `\n\n---\n\nSOCIAL MEDIA POSTS (supplementary — include post URLs when referencing):\n\n${socialContextString}`;
   }
-
-  const useCodeExec =
-    codeExecutionEnabled() &&
-    (needsComputation || messageNeedsComputation(message));
 
   const contents = [
     ...history.slice(-6).map((h) => ({
@@ -379,7 +393,6 @@ RULES:
   const rawAnswer = await generateContentText({
     model: GEMINI_MODELS.chat,
     contents,
-    useCodeExecution: useCodeExec,
     config: {
       systemInstruction: combinedSystemPrompt,
       temperature: 0.2,
