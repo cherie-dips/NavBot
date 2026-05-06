@@ -74,10 +74,12 @@ export function buildRetrievalQueries(message: string): string[] {
   return Array.from(queries);
 }
 
+const CONTEXT_BUDGET_CHARS = 40_000;
+
 function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
   const exhaustive = isExhaustiveListQuestion(userMessage);
-  const maxChars = exhaustive ? 1800 : 2400;
-  const maxSources = exhaustive ? 38 : 30;
+  const maxCharsPerChunk = exhaustive ? 1800 : 2400;
+  const maxSources = exhaustive ? 20 : 12;
   const ordered = exhaustive
     ? sortDocsForExhaustiveAnswer(docs, userMessage)
     : [...docs].sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
@@ -87,7 +89,7 @@ function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
   for (const d of slice) {
     const key = d.url || `_untitled_${d.id}`;
     const entry = byUrl.get(key) ?? { title: d.title, bestDistance: d.distance ?? 1, chunks: [] };
-    entry.chunks.push(d.content.slice(0, maxChars).trim());
+    entry.chunks.push(d.content.slice(0, maxCharsPerChunk).trim());
     if ((d.distance ?? 1) < entry.bestDistance) entry.bestDistance = d.distance ?? 1;
     byUrl.set(key, entry);
   }
@@ -95,13 +97,17 @@ function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
   const pages = [...byUrl.entries()].sort((a, b) => a[1].bestDistance - b[1].bestDistance);
 
   let sourceIdx = 0;
-  return pages
-    .map(([url, { title, chunks }]) => {
-      sourceIdx++;
-      const body = chunks.join("\n\n");
-      return `[Source ${sourceIdx}]\nTitle: ${title}\nURL: ${url}\n\n${body}`;
-    })
-    .join("\n\n---\n\n");
+  let totalChars = 0;
+  const blocks: string[] = [];
+  for (const [url, { title, chunks }] of pages) {
+    sourceIdx++;
+    const body = chunks.join("\n\n");
+    const block = `[Source ${sourceIdx}]\nTitle: ${title}\nURL: ${url}\n\n${body}`;
+    if (totalChars + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 0) break;
+    blocks.push(block);
+    totalChars += block.length;
+  }
+  return blocks.join("\n\n---\n\n");
 }
 
 function deduplicateSources(

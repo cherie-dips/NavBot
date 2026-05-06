@@ -258,12 +258,16 @@ async function runSufficiencyCheck(
 The vector search returned content from these pages:
 ${summary}
 
-Think about what DIFFERENT pages on a typical website might ALSO contain relevant information that we MISSED. Information is often spread across multiple pages (e.g. deadlines appear on admissions, fees, scholarship pages; a person appears on faculty, events, news pages).
+Are there DIFFERENT pages on the website that we missed? Information is often spread across multiple pages (e.g. deadlines on admissions AND fees AND scholarship pages; a person on faculty AND events AND news pages).
 
 If the retrieved pages likely cover the full answer, return: {"sufficient": true}
 If other pages probably have relevant info we missed, return: {"sufficient": false, "gap_queries": ["query1", "query2", "query3"]}
 
-gap_queries should target the MISSING pages specifically — not re-search pages we already have. 3-5 queries max.`;
+CRITICAL rules for gap_queries:
+- Each query MUST target a DIFFERENT page/section we don't already have. Look at the pages above and think about what's MISSING.
+- Do NOT rephrase the original question. Do NOT generate variations like "X role", "X biography", "X profile" — those all hit the same page.
+- Instead think: "we have the faculty page, but we're missing the events page, the news page, the about page" → query each missing section.
+- 3-5 queries max.`;
 
   const raw = await generateContentText({
     model: GEMINI_MODELS.planner,
@@ -391,9 +395,12 @@ export async function runAgenticRetrieval(
   }
 
   // --- Cross-page sufficiency check: find pages we missed ---
+  // Skip for simple questions with good initial retrieval to save latency.
   let sufficiencyRounds = 0;
-  const maxSufficiencyRounds = Math.max(1, maxRefinerRounds);
-  if (docs.length > 0 && getGeminiApiKeyForAgentic()) {
+  const initialDistGood = bestDistance(docs) < 0.45;
+  const skipSufficiency = !exhaustiveList && initialDistGood && docs.length >= 3;
+  const maxSufficiencyRounds = 1;
+  if (!skipSufficiency && docs.length > 0 && getGeminiApiKeyForAgentic()) {
     for (let sr = 0; sr < maxSufficiencyRounds; sr++) {
       try {
         const gapQueries = await runSufficiencyCheck(userMessage, docs);
