@@ -210,9 +210,9 @@ function chunkTextFromMetadata(
 // ---------------------------------------------------------------------------
 const COLLECTION_PREFIX = "site_";
 
-const CHUNK_SIZE = 900;
-const CHUNK_OVERLAP = 180;
-const MAX_PAGE_CONTENT_LENGTH = 12000;
+const CHUNK_SIZE = 1500;
+const CHUNK_OVERLAP = 300;
+const MAX_PAGE_CONTENT_LENGTH = 24000;
 const MAX_TITLE_LENGTH = 500;
 const EMBED_BATCH_SIZE = 32;
 const UPSERT_BATCH_SIZE = 100;
@@ -269,6 +269,26 @@ interface EnrichedChunk {
   totalChunks: number;
 }
 
+function findSectionHeading(
+  sections: Array<{ heading: string; content: string }> | undefined,
+  chunkText: string
+): string {
+  if (!sections || sections.length === 0) return "";
+  // Find the section whose content best overlaps with this chunk
+  const preview = chunkText.slice(0, 200);
+  for (const s of sections) {
+    if (s.content && preview.includes(s.content.slice(0, 80))) return s.heading;
+  }
+  // Fallback: check which section contains any of the chunk's first line
+  const firstLine = chunkText.split("\n")[0]?.trim() || "";
+  if (firstLine.length > 15) {
+    for (const s of sections) {
+      if (s.content.includes(firstLine)) return s.heading;
+    }
+  }
+  return "";
+}
+
 function buildEnrichedChunks(page: CrawledPage): EnrichedChunk[] {
   const content =
     typeof page.content === "string"
@@ -281,10 +301,13 @@ function buildEnrichedChunks(page: CrawledPage): EnrichedChunk[] {
   if (rawChunks.length === 0) return [];
 
   return rawChunks.map((chunk, i) => {
+    // B: Find heading breadcrumb for this chunk
+    const heading = findSectionHeading(page.sections, chunk);
     const enrichedDocument = [
       `Page: ${title}`,
       `URL: ${url}`,
-      rawChunks.length > 1 ? `Section: ${i + 1} of ${rawChunks.length}` : "",
+      heading ? `Section: ${heading}` : "",
+      rawChunks.length > 1 ? `Part: ${i + 1} of ${rawChunks.length}` : "",
       "",
       chunk,
     ]

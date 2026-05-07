@@ -2,6 +2,7 @@ import * as cheerio from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 import crypto from "crypto";
 import { fetchRenderedHtml, detectFramework } from "./browser-render";
+import { ocrImageUrl } from "./image-ocr";
 
 export interface CrawledPage {
   url: string;
@@ -9,6 +10,8 @@ export interface CrawledPage {
   content: string;
   /** MD5 of first 600 chars of content — used for change detection in sync */
   hash: string;
+  /** Heading hierarchy for each section — used for contextual chunking */
+  sections?: Array<{ heading: string; content: string }>;
 }
 
 /** Normalize a URL for consistent comparison (strip trailing slash, fragment, sort params). */
@@ -35,11 +38,13 @@ const DEFAULT_OPTIONS: Required<CrawlOptions> = {
 };
 
 const SKIP_PATH_PATTERNS: RegExp[] = [
-  /\.(pdf|jpg|jpeg|png|gif|svg|webp|zip|css|js|ico|woff|woff2|ttf|eot)$/i,
+  /\.(jpg|jpeg|png|gif|svg|webp|zip|css|js|ico|woff|woff2|ttf|eot)$/i,
   /\/(tag|category|author)\//,
   /\/page\/\d+/,
   /[?&](utm_|ref=|source=)/,
 ];
+
+const PDF_PATTERN = /\.pdf$/i;
 
 const SKIP_CONTENT_PATTERNS: RegExp[] = [
   /^(404|page not found|access denied)/i,
@@ -174,53 +179,228 @@ function tableToMarkdown($: cheerio.CheerioAPI, table: AnyNode): string {
 }
 
 
+function extractMetadata($: cheerio.CheerioAPI): string[] {
+  const meta: string[] = [];
+  const desc = $('meta[name="description"]').attr("content")?.trim();
+  if (desc && desc.length > 10) meta.push(`Description: ${desc}`);
+  const ogDesc = $('meta[property="og:description"]').attr("content")?.trim();
+  if (ogDesc && ogDesc.length > 10 && ogDesc !== desc) meta.push(`Summary: ${ogDesc}`);
+
+  $('script[type="application/ld+json"]').each((_, el) => {
+    try {
+      const raw = $(el).text().trim();
+      if (!raw) return;
+      const ld = JSON.parse(raw) as Record<string, unknown>;
+      const pick = (key: string) => {
+        const v = ld[key];
+        return typeof v === "string" && v.trim().length > 5 ? v.trim() : null;
+      };
+      const ldDesc = pick("description");
+      if (ldDesc && ldDesc !== desc && ldDesc !== ogDesc) meta.push(`Structured: ${ldDesc}`);
+      const ldName = pick("name");
+      if (ldName) meta.push(`Entity: ${ldName}`);
+    } catch { /* ignore bad JSON-LD */ }
+  });
+  return meta;
+}
+
+interface ExtractedSection {
+  heading: string;
+  content: string;
+}
+
 function extractStructuredContent(
   $: cheerio.CheerioAPI,
   url: string,
   title: string
-): string {
+): { text: string; sections: ExtractedSection[]; imageUrls: string[] } {
+  const metaLines = extractMetadata($);
+
   $(
-    "script, style, noscript, nav, footer, header, .cookie-banner, " +
+    "script, style, noscript, .cookie-banner, " +
       ".popup, .modal, .advertisement, [aria-hidden='true']"
   ).remove();
 
   const parts: string[] = [];
   parts.push(`Page Title: ${title}`);
   parts.push(`Page URL: ${url}`);
+  if (metaLines.length > 0) parts.push(metaLines.join("\n"));
   parts.push("");
 
   const contentRoot = $("main, article, [role='main'], .content, #content, body").first();
 
-  contentRoot.find("h1, h2, h3, h4, h5, h6, p, li, table, blockquote").each((_, el) => {
+  // B: Track heading hierarchy for breadcrumbs
+  const headingStack: string[] = [];
+  const sections: ExtractedSection[] = [];
+  let currentSectionParts: string[] = [];
+
+  function flushSection() {
+    if (currentSectionParts.length > 0) {
+      sections.push({
+        heading: headingStack.join(" > "),
+        content: currentSectionParts.join("\n"),
+      });
+      currentSectionParts = [];
+    }
+  }
+
+  // A: Collect image URLs for OCR (large images without alt text)
+  const imageUrls: string[] = [];
+
+  contentRoot.find("h1, h2, h3, h4, h5, h6, p, li, table, blockquote, img, figure, figcaption").each((_, el) => {
     const tag = (el as Element).tagName?.toLowerCase();
     if (!tag) return;
 
     if (/^h[1-6]$/.test(tag)) {
+      flushSection();
       const level = parseInt(tag[1]!, 10);
       const prefix = "#".repeat(level);
       const text = $(el).text().replace(/\s+/g, " ").trim();
-      if (text) parts.push(`\n${prefix} ${text}`);
+      if (text) {
+        // Update heading stack: pop deeper/same levels, push new
+        while (headingStack.length >= level) headingStack.pop();
+        headingStack.push(text);
+        parts.push(`\n${prefix} ${text}`);
+      }
       return;
     }
 
     if (tag === "table") {
       const md = tableToMarkdown($, el);
-      if (md) parts.push(`\n${md}\n`);
+      if (md) {
+        parts.push(`\n${md}\n`);
+        currentSectionParts.push(md);
+      }
       return;
     }
 
+    // A: Extract image alt text
+    if (tag === "img") {
+      const alt = $(el).attr("alt")?.trim();
+      if (alt && alt.length > 5) {
+        parts.push(`[Image: ${alt}]`);
+        currentSectionParts.push(`[Image: ${alt}]`);
+      }
+      // Collect large images without alt text for OCR
+      const src = $(el).attr("src") || $(el).attr("data-src") || "";
+      if (src && (!alt || alt.length <= 5)) {
+        try {
+          const imgUrl = new URL(src, url).toString();
+          if (/\.(jpg|jpeg|png|webp)/i.test(imgUrl)) imageUrls.push(imgUrl);
+        } catch { /* skip bad URLs */ }
+      }
+      return;
+    }
+
+    // A: Extract figcaption text
+    if (tag === "figcaption") {
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+      if (text.length > 5) {
+        parts.push(`[Caption: ${text}]`);
+        currentSectionParts.push(`[Caption: ${text}]`);
+      }
+      return;
+    }
+
+    if (tag === "figure") return; // children handled individually
+
     if (tag === "p" || tag === "li" || tag === "blockquote") {
       const text = $(el).text().replace(/\s+/g, " ").trim();
-      if (text.length > 30) parts.push(text);
+      // C: Lower minimum from 30 → 10
+      if (text.length > 10) {
+        parts.push(text);
+        currentSectionParts.push(text);
+      }
     }
   });
 
-  return parts.join("\n").replace(/\n{4,}/g, "\n\n\n").trim();
+  flushSection();
+
+  // Also extract contact-like content from nav/footer before they're gone
+  const contactParts: string[] = [];
+  $("footer, nav, header").find("a[href^='mailto:'], a[href^='tel:']").each((_, el) => {
+    const text = $(el).text().replace(/\s+/g, " ").trim();
+    const href = $(el).attr("href") || "";
+    if (text.length > 3) contactParts.push(`${text} (${href})`);
+  });
+  const addr = $("footer address, .contact-info, .footer-contact").text().replace(/\s+/g, " ").trim();
+  if (addr.length > 10) contactParts.push(addr);
+  if (contactParts.length > 0) {
+    parts.push("\n## Contact Information");
+    parts.push(...contactParts);
+  }
+
+  const text = parts.join("\n").replace(/\n{4,}/g, "\n\n\n").trim();
+  return { text, sections, imageUrls };
 }
 
 
 export function contentFingerprint(text: string): string {
   return crypto.createHash("md5").update(text.slice(0, 600)).digest("hex");
+}
+
+// ---------------------------------------------------------------------------
+// H: PDF extraction
+// ---------------------------------------------------------------------------
+async function fetchPdfText(url: string): Promise<{ title: string; content: string } | null> {
+  try {
+    const res = await fetch(url, {
+      redirect: "follow",
+      headers: { "User-Agent": "NavBot/1.0 (site indexer; respectful crawler)" },
+    });
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    const { PDFParse } = await import("pdf-parse");
+    const parser = new PDFParse({ data: new Uint8Array(buf) });
+    const [info, textResult] = await Promise.all([
+      parser.getInfo().catch(() => null),
+      parser.getText(),
+    ]);
+    await parser.destroy().catch(() => {});
+    const text = textResult.text?.trim();
+    if (!text || text.length < 20) return null;
+    const title = (info as { info?: { Title?: string } } | null)?.info?.Title
+      || url.split("/").pop()?.replace(/\.pdf$/i, "")
+      || url;
+    const content = `Page Title: ${title}\nPage URL: ${url}\nType: PDF Document\n\n${text}`;
+    return { title, content };
+  } catch (err) {
+    console.warn(`[crawler] PDF extraction failed for ${url}:`, err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
+// G: Run OCR on collected image URLs (max 5 per page to limit API cost)
+const MAX_OCR_IMAGES_PER_PAGE = 5;
+async function ocrPageImages(imageUrls: string[]): Promise<string> {
+  if (imageUrls.length === 0) return "";
+  const toOcr = imageUrls.slice(0, MAX_OCR_IMAGES_PER_PAGE);
+  const results: string[] = [];
+  for (const imgUrl of toOcr) {
+    const text = await ocrImageUrl(imgUrl);
+    if (text && text.length > 10) results.push(`[Image text: ${text}]`);
+  }
+  return results.join("\n");
+}
+
+async function processHtmlPage(
+  rawUrl: string,
+  html: string,
+): Promise<CrawledPage | null> {
+  const $ = cheerio.load(html);
+  const title = $("title").first().text().replace(/\s+/g, " ").trim() || rawUrl;
+  const { text: content, sections, imageUrls } = extractStructuredContent($, rawUrl, title);
+
+  if (content.length === 0) return null;
+  if (SKIP_CONTENT_PATTERNS.some((p) => p.test(content))) return null;
+
+  // G: OCR images without alt text (if enabled)
+  let fullContent = content;
+  const ocrText = await ocrPageImages(imageUrls);
+  if (ocrText) fullContent += `\n\n${ocrText}`;
+
+  const hash = contentFingerprint(fullContent);
+  return { url: rawUrl, title, content: fullContent, hash, sections };
 }
 
 export async function crawlPages(urls: string[]): Promise<CrawledPage[]> {
@@ -230,18 +410,21 @@ export async function crawlPages(urls: string[]): Promise<CrawledPage[]> {
 
   for (const rawUrl of urls) {
     try {
+      // H: Handle PDFs
+      if (PDF_PATTERN.test(rawUrl)) {
+        const pdf = await fetchPdfText(rawUrl);
+        if (pdf) {
+          const hash = contentFingerprint(pdf.content);
+          pages.push({ url: rawUrl, title: pdf.title, content: pdf.content, hash });
+        }
+        continue;
+      }
+
       const html = await resolvePageHtml(rawUrl, rawUrl, mode);
       if (!html) continue;
 
-      const $ = cheerio.load(html);
-      const title = $("title").first().text().replace(/\s+/g, " ").trim() || rawUrl;
-      const content = extractStructuredContent($, rawUrl, title);
-
-      if (content.length === 0) continue;
-      if (SKIP_CONTENT_PATTERNS.some((p) => p.test(content))) continue;
-
-      const hash = contentFingerprint(content);
-      pages.push({ url: rawUrl, title, content, hash });
+      const page = await processHtmlPage(rawUrl, html);
+      if (page) pages.push(page);
     } catch (err) {
       console.error("Failed to crawl page", rawUrl, err);
     }
@@ -283,28 +466,36 @@ export async function crawlSite(
     visited.add(normalized);
 
     try {
+      // H: Handle PDFs in BFS crawl
+      if (PDF_PATTERN.test(normalized)) {
+        const pdf = await fetchPdfText(url);
+        if (pdf) {
+          const fp = contentFingerprint(pdf.content);
+          if (!contentSeen.has(fp)) {
+            contentSeen.add(fp);
+            pages.push({ url: normalized, title: pdf.title, content: pdf.content, hash: fp });
+          }
+        }
+        continue;
+      }
+
       const html = await resolvePageHtml(url, normalized, mode);
       if (!html) continue;
 
-      const $ = cheerio.load(html);
-      const title = $("title").first().text().replace(/\s+/g, " ").trim() || url;
-      const content = extractStructuredContent($, normalized, title);
+      const page = await processHtmlPage(normalized, html);
+      if (!page) continue;
 
-      if (content.length === 0) continue;
-      if (SKIP_CONTENT_PATTERNS.some((p) => p.test(content))) continue;
+      const $ = cheerio.load(html);
 
       // Dedup by content fingerprint (catches near-duplicate pages)
-      const fp = contentFingerprint(content);
-      if (contentSeen.has(fp)) {
+      if (contentSeen.has(page.hash)) {
         console.log(`Skipping duplicate content page: ${normalized}`);
         continue;
       }
-      contentSeen.add(fp);
+      contentSeen.add(page.hash);
+      pages.push(page);
 
-      // hash is the same fp — store it on the page so callers can persist it
-      pages.push({ url: normalized, title, content, hash: fp });
-
-      // Enqueue same-origin links
+      // Enqueue same-origin links (including PDFs now)
       if (depth < maxDepth) {
         const links = new Set<string>();
         $("a[href]").each((_, el) => {
