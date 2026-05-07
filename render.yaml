@@ -7,7 +7,7 @@
 # - Set BETTER_AUTH_SECRET on navbot-auth (long random string; used to sign sessions — required in production).
 # - Set VITE_API_URL, VITE_AUTH_URL, VITE_WIDGET_SCRIPT_URL on the static site (e.g. widget URL = https://<static-host>/chat-widget.iife.js).
 # - Widget script is served with Access-Control-Allow-Origin: * so it can load from GitHub Pages etc. (avoid crossorigin="anonymous" on <script> unless you need SRI).
-# - Secrets: PINECONE_* on navbot-api; GOOGLE_API_KEY (Gemini) on navbot-api only.
+# - Secrets: PINECONE_* on navbot-api; GROQ_API_KEY (Groq) on navbot-api; GOOGLE_API_KEY (Gemini, TTS only) on navbot-api.
 # - Google *login* (OAuth): set GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET on navbot-auth (not on the API).
 #   Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client ID (type: Web application).
 #   Authorized redirect URIs — must match exactly (https, no trailing slash on the host):
@@ -77,7 +77,11 @@ services:
         sync: false
       - key: PINECONE_INDEX
         sync: false
+      - key: GROQ_API_KEY
+        sync: false
       - key: GOOGLE_API_KEY
+        sync: false
+      - key: SERPER_API_KEY
         sync: false
 
   - type: web
