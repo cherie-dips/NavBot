@@ -2,7 +2,6 @@ import * as cheerio from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 import crypto from "crypto";
 import { fetchRenderedHtml, detectFramework } from "./browser-render";
-import { ocrImageUrl } from "./image-ocr";
 
 export interface CrawledPage {
   url: string;
@@ -213,7 +212,7 @@ function extractStructuredContent(
   $: cheerio.CheerioAPI,
   url: string,
   title: string
-): { text: string; sections: ExtractedSection[]; imageUrls: string[] } {
+): { text: string; sections: ExtractedSection[] } {
   const metaLines = extractMetadata($);
 
   $(
@@ -244,8 +243,6 @@ function extractStructuredContent(
     }
   }
 
-  // A: Collect image URLs for OCR (large images without alt text)
-  const imageUrls: string[] = [];
 
   contentRoot.find("h1, h2, h3, h4, h5, h6, p, li, table, blockquote, img, figure, figcaption").each((_, el) => {
     const tag = (el as Element).tagName?.toLowerCase();
@@ -280,14 +277,6 @@ function extractStructuredContent(
       if (alt && alt.length > 5) {
         parts.push(`[Image: ${alt}]`);
         currentSectionParts.push(`[Image: ${alt}]`);
-      }
-      // Collect large images without alt text for OCR
-      const src = $(el).attr("src") || $(el).attr("data-src") || "";
-      if (src && (!alt || alt.length <= 5)) {
-        try {
-          const imgUrl = new URL(src, url).toString();
-          if (/\.(jpg|jpeg|png|webp)/i.test(imgUrl)) imageUrls.push(imgUrl);
-        } catch { /* skip bad URLs */ }
       }
       return;
     }
@@ -331,7 +320,7 @@ function extractStructuredContent(
   }
 
   const text = parts.join("\n").replace(/\n{4,}/g, "\n\n\n").trim();
-  return { text, sections, imageUrls };
+  return { text, sections };
 }
 
 
@@ -343,7 +332,6 @@ export function contentFingerprint(text: string): string {
 // H: PDF extraction — pdfjs-dist for text PDFs, Gemini OCR for scanned PDFs
 // ---------------------------------------------------------------------------
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
-const MAX_PDF_OCR_SIZE = 4 * 1024 * 1024;
 
 async function pdfTextViaPdfjs(buf: Buffer): Promise<{ text: string; title: string }> {
   const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -370,25 +358,6 @@ async function pdfTextViaPdfjs(buf: Buffer): Promise<{ text: string; title: stri
   };
 }
 
-async function pdfTextViaGemini(buf: Buffer): Promise<string> {
-  const { getGeminiApiKey, getGoogleGenAI } = await import("./gemini-client");
-  if (!getGeminiApiKey()) return "";
-  const ai = getGoogleGenAI();
-  const b64 = buf.toString("base64");
-  const response = await ai.models.generateContent({
-    model: "gemini-2.5-flash",
-    contents: [{
-      role: "user",
-      parts: [
-        { inlineData: { mimeType: "application/pdf", data: b64 } },
-        { text: "Extract ALL text from this PDF document. Return the raw text content only, preserving structure like headings, paragraphs, and tables. No commentary." },
-      ],
-    }],
-    config: { temperature: 0, maxOutputTokens: 4096 },
-  });
-  return response.text?.trim() || "";
-}
-
 async function fetchPdfText(url: string): Promise<{ title: string; content: string } | null> {
   try {
     const res = await fetch(url, {
@@ -412,16 +381,6 @@ async function fetchPdfText(url: string): Promise<{ title: string; content: stri
       console.warn(`[crawler] pdfjs failed for ${url}:`, err instanceof Error ? err.message : err);
     }
 
-    // Fallback: Gemini OCR for scanned PDFs (no text layer)
-    if (text.length < 50 && buf.length <= MAX_PDF_OCR_SIZE) {
-      console.log(`[crawler] PDF has no text layer, trying Gemini OCR: ${url}`);
-      try {
-        text = await pdfTextViaGemini(buf);
-      } catch (err) {
-        console.warn(`[crawler] Gemini PDF OCR failed for ${url}:`, err instanceof Error ? err.message : err);
-      }
-    }
-
     if (text.length < 20) return null;
     const title = pdfTitle || url.split("/").pop()?.replace(/\.pdf$/i, "") || url;
     return { title, content: `Page Title: ${title}\nPage URL: ${url}\nType: PDF Document\n\n${text}` };
@@ -431,37 +390,19 @@ async function fetchPdfText(url: string): Promise<{ title: string; content: stri
   }
 }
 
-// G: Run OCR on collected image URLs (max 5 per page to limit API cost)
-const MAX_OCR_IMAGES_PER_PAGE = 5;
-async function ocrPageImages(imageUrls: string[]): Promise<string> {
-  if (imageUrls.length === 0) return "";
-  const toOcr = imageUrls.slice(0, MAX_OCR_IMAGES_PER_PAGE);
-  const results: string[] = [];
-  for (const imgUrl of toOcr) {
-    const text = await ocrImageUrl(imgUrl);
-    if (text && text.length > 10) results.push(`[Image text: ${text}]`);
-  }
-  return results.join("\n");
-}
-
-async function processHtmlPage(
+function processHtmlPage(
   rawUrl: string,
   html: string,
-): Promise<CrawledPage | null> {
+): CrawledPage | null {
   const $ = cheerio.load(html);
   const title = $("title").first().text().replace(/\s+/g, " ").trim() || rawUrl;
-  const { text: content, sections, imageUrls } = extractStructuredContent($, rawUrl, title);
+  const { text: content, sections } = extractStructuredContent($, rawUrl, title);
 
   if (content.length === 0) return null;
   if (SKIP_CONTENT_PATTERNS.some((p) => p.test(content))) return null;
 
-  // G: OCR images without alt text (if enabled)
-  let fullContent = content;
-  const ocrText = await ocrPageImages(imageUrls);
-  if (ocrText) fullContent += `\n\n${ocrText}`;
-
-  const hash = contentFingerprint(fullContent);
-  return { url: rawUrl, title, content: fullContent, hash, sections };
+  const hash = contentFingerprint(content);
+  return { url: rawUrl, title, content, hash, sections };
 }
 
 export async function crawlPages(urls: string[]): Promise<CrawledPage[]> {
@@ -484,7 +425,7 @@ export async function crawlPages(urls: string[]): Promise<CrawledPage[]> {
       const html = await resolvePageHtml(rawUrl, rawUrl, mode);
       if (!html) continue;
 
-      const page = await processHtmlPage(rawUrl, html);
+      const page = processHtmlPage(rawUrl, html);
       if (page) pages.push(page);
     } catch (err) {
       console.error("Failed to crawl page", rawUrl, err);
@@ -543,7 +484,7 @@ export async function crawlSite(
       const html = await resolvePageHtml(url, normalized, mode);
       if (!html) continue;
 
-      const page = await processHtmlPage(normalized, html);
+      const page = processHtmlPage(normalized, html);
       if (!page) continue;
 
       const $ = cheerio.load(html);
