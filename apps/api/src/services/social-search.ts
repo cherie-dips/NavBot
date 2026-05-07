@@ -73,7 +73,15 @@ function buildSearchQueries(
     const siteFilter = PLATFORM_SITES[platform];
     if (!siteFilter) continue;
 
-    const handle = username.replace(/^@/, "").trim();
+    let handle = username.replace(/^@/, "").trim();
+    // Extract slug from full URLs (e.g. "https://linkedin.com/school/plakshauniversity/...")
+    try {
+      const parsed = new URL(handle);
+      const segments = parsed.pathname.split("/").filter(Boolean);
+      const slug = segments.find((s) => s !== "in" && s !== "company" && s !== "school" && s !== "posts");
+      if (slug) handle = slug;
+    } catch { /* not a URL, use as-is */ }
+
     queries.push({
       platform,
       searchQuery: `${siteFilter} "${handle}" ${query}`,
