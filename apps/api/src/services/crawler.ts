@@ -340,8 +340,55 @@ export function contentFingerprint(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// H: PDF extraction
+// H: PDF extraction — pdfjs-dist for text PDFs, Gemini OCR for scanned PDFs
 // ---------------------------------------------------------------------------
+const MAX_PDF_SIZE = 10 * 1024 * 1024;
+const MAX_PDF_OCR_SIZE = 4 * 1024 * 1024;
+
+async function pdfTextViaPdfjs(buf: Buffer): Promise<{ text: string; title: string }> {
+  const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = workerPath;
+
+  const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buf), useSystemFonts: true }).promise;
+  const textParts: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const tc = await page.getTextContent();
+    const pageText = tc.items
+      .filter((item) => "str" in item && typeof (item as Record<string, unknown>).str === "string")
+      .map((item) => (item as Record<string, unknown>).str as string)
+      .join(" ");
+    if (pageText.trim()) textParts.push(pageText.trim());
+  }
+  const meta = await doc.getMetadata().catch(() => null);
+  const pdfTitle = (meta?.info as Record<string, unknown> | undefined)?.Title;
+  doc.destroy();
+  return {
+    text: textParts.join("\n\n").trim(),
+    title: typeof pdfTitle === "string" && pdfTitle.trim() ? pdfTitle.trim() : "",
+  };
+}
+
+async function pdfTextViaGemini(buf: Buffer): Promise<string> {
+  const { getGeminiApiKey, getGoogleGenAI } = await import("./gemini-client");
+  if (!getGeminiApiKey()) return "";
+  const ai = getGoogleGenAI();
+  const b64 = buf.toString("base64");
+  const response = await ai.models.generateContent({
+    model: "gemini-2.5-flash",
+    contents: [{
+      role: "user",
+      parts: [
+        { inlineData: { mimeType: "application/pdf", data: b64 } },
+        { text: "Extract ALL text from this PDF document. Return the raw text content only, preserving structure like headings, paragraphs, and tables. No commentary." },
+      ],
+    }],
+    config: { temperature: 0, maxOutputTokens: 4096 },
+  });
+  return response.text?.trim() || "";
+}
+
 async function fetchPdfText(url: string): Promise<{ title: string; content: string } | null> {
   try {
     const res = await fetch(url, {
@@ -350,20 +397,34 @@ async function fetchPdfText(url: string): Promise<{ title: string; content: stri
     });
     if (!res.ok) return null;
     const buf = Buffer.from(await res.arrayBuffer());
-    const { PDFParse } = await import("pdf-parse");
-    const parser = new PDFParse({ data: new Uint8Array(buf) });
-    const [info, textResult] = await Promise.all([
-      parser.getInfo().catch(() => null),
-      parser.getText(),
-    ]);
-    await parser.destroy().catch(() => {});
-    const text = textResult.text?.trim();
-    if (!text || text.length < 20) return null;
-    const title = (info as { info?: { Title?: string } } | null)?.info?.Title
-      || url.split("/").pop()?.replace(/\.pdf$/i, "")
-      || url;
-    const content = `Page Title: ${title}\nPage URL: ${url}\nType: PDF Document\n\n${text}`;
-    return { title, content };
+    if (buf.length > MAX_PDF_SIZE) {
+      console.log(`[crawler] PDF too large (${(buf.length / 1024 / 1024).toFixed(1)}MB), skipping: ${url}`);
+      return null;
+    }
+
+    let text = "";
+    let pdfTitle = "";
+    try {
+      const result = await pdfTextViaPdfjs(buf);
+      text = result.text;
+      pdfTitle = result.title;
+    } catch (err) {
+      console.warn(`[crawler] pdfjs failed for ${url}:`, err instanceof Error ? err.message : err);
+    }
+
+    // Fallback: Gemini OCR for scanned PDFs (no text layer)
+    if (text.length < 50 && buf.length <= MAX_PDF_OCR_SIZE) {
+      console.log(`[crawler] PDF has no text layer, trying Gemini OCR: ${url}`);
+      try {
+        text = await pdfTextViaGemini(buf);
+      } catch (err) {
+        console.warn(`[crawler] Gemini PDF OCR failed for ${url}:`, err instanceof Error ? err.message : err);
+      }
+    }
+
+    if (text.length < 20) return null;
+    const title = pdfTitle || url.split("/").pop()?.replace(/\.pdf$/i, "") || url;
+    return { title, content: `Page Title: ${title}\nPage URL: ${url}\nType: PDF Document\n\n${text}` };
   } catch (err) {
     console.warn(`[crawler] PDF extraction failed for ${url}:`, err instanceof Error ? err.message : err);
     return null;
