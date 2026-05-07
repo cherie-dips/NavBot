@@ -27,16 +27,16 @@ router.post("/", async (req: Request, res: Response) => {
       history: history || [],
     });
 
-    await logChatTurn({
+    res.json(result);
+
+    logChatTurn({
       siteId,
       query: message,
       channel: "text",
       answerPreview: result.answer,
       latencyMs: Date.now() - t0,
       sourceCount: result.sources?.length ?? 0,
-    });
-
-    res.json(result);
+    }).catch((err) => console.error("[chat] logChatTurn failed:", err.message));
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "chat_failed" });
@@ -109,18 +109,18 @@ router.post(
         history,
       });
 
+      res.json(result);
+
       if (result.transcript && result.transcript.trim()) {
-        await logChatTurn({
+        logChatTurn({
           siteId,
           query: result.transcript.trim(),
           channel: "voice",
           answerPreview: result.answer,
           latencyMs: Date.now() - t0,
           sourceCount: result.sources?.length ?? 0,
-        });
+        }).catch((err) => console.error("[voice] logChatTurn failed:", err.message));
       }
-
-      res.json(result);
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: "voice_chat_failed" });
