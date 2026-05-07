@@ -57,6 +57,13 @@ interface EvalResult {
 const BASELINES_PATH = path.join(__dirname, "baseline-results.json");
 const OUTPUT_PATH = path.join(__dirname, "eval-results.json");
 
+const RPM_LIMIT = parseInt(process.env.EVAL_RPM ?? "5", 10);
+const DELAY_BETWEEN_CALLS_MS = Math.ceil((60 / RPM_LIMIT) * 1000);
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 function parseJudgeResponse(raw: string): JudgeScores {
   const cleaned = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
   const match = cleaned.match(/\{[\s\S]*\}/);
@@ -201,26 +208,55 @@ async function main() {
     results: BaselineResult[];
   };
 
-  console.log(`\nEvaluating ${baselines.length} responses with LLM-as-judge (${GEMINI_MODELS.judge})...\n`);
+  // Resume from previous partial run if available
+  let evalResults: EvalResult[] = [];
+  const doneIds = new Set<string>();
+  if (fs.existsSync(OUTPUT_PATH)) {
+    try {
+      const prev = JSON.parse(fs.readFileSync(OUTPUT_PATH, "utf-8")) as { evalResults: EvalResult[] };
+      if (Array.isArray(prev.evalResults)) {
+        evalResults = prev.evalResults;
+        for (const r of evalResults) doneIds.add(r.id);
+        console.log(`Resuming: ${doneIds.size} questions already judged, skipping them.`);
+      }
+    } catch { /* start fresh */ }
+  }
 
-  const evalResults: EvalResult[] = [];
+  const remaining = baselines.filter((b) => !doneIds.has(b.id));
+  console.log(`\nEvaluating ${remaining.length} responses with LLM-as-judge (${GEMINI_MODELS.judge}, ${RPM_LIMIT} RPM)...\n`);
 
-  for (const b of baselines) {
-    console.log(`[${b.id}] Judging: ${b.question.slice(0, 60)}...`);
+  for (let i = 0; i < remaining.length; i++) {
+    const b = remaining[i]!;
+    console.log(`[${b.id}] (${i + 1}/${remaining.length}) Judging: ${b.question.slice(0, 60)}...`);
 
-    const singleScores = await judgeAnswer({
-      question: b.question,
-      groundTruth: b.ground_truth,
-      answer: b.single_prompt_answer,
-      category: b.category,
-    });
+    let singleScores: JudgeScores;
+    try {
+      singleScores = await judgeAnswer({
+        question: b.question,
+        groundTruth: b.ground_truth,
+        answer: b.single_prompt_answer,
+        category: b.category,
+      });
+    } catch (err) {
+      console.warn(`  [judge] single-prompt scoring failed: ${err instanceof Error ? err.message : err}`);
+      singleScores = { correctness: 0, groundedness: 0, relevance: 0, explanation: "Judge call failed" };
+    }
 
-    const agenticScores = await judgeAnswer({
-      question: b.question,
-      groundTruth: b.ground_truth,
-      answer: b.agentic_answer,
-      category: b.category,
-    });
+    console.log(`  [rate-limit] waiting ${DELAY_BETWEEN_CALLS_MS / 1000}s...`);
+    await sleep(DELAY_BETWEEN_CALLS_MS);
+
+    let agenticScores: JudgeScores;
+    try {
+      agenticScores = await judgeAnswer({
+        question: b.question,
+        groundTruth: b.ground_truth,
+        answer: b.agentic_answer,
+        category: b.category,
+      });
+    } catch (err) {
+      console.warn(`  [judge] agentic scoring failed: ${err instanceof Error ? err.message : err}`);
+      agenticScores = { correctness: 0, groundedness: 0, relevance: 0, explanation: "Judge call failed" };
+    }
 
     evalResults.push({
       id: b.id,
@@ -239,8 +275,16 @@ async function main() {
       },
     });
 
+    // Save after every question
+    fs.writeFileSync(OUTPUT_PATH, JSON.stringify({ evalResults }, null, 2));
+
     console.log(`  Single: corr=${singleScores.correctness} grnd=${singleScores.groundedness} rel=${singleScores.relevance}`);
     console.log(`  Agentic: corr=${agenticScores.correctness} grnd=${agenticScores.groundedness} rel=${agenticScores.relevance}`);
+
+    if (i < remaining.length - 1) {
+      console.log(`  [rate-limit] waiting ${DELAY_BETWEEN_CALLS_MS / 1000}s before next question...`);
+      await sleep(DELAY_BETWEEN_CALLS_MS);
+    }
   }
 
   fs.writeFileSync(OUTPUT_PATH, JSON.stringify({ evalResults }, null, 2));

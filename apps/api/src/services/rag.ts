@@ -336,7 +336,7 @@ export async function answerQuestionWithRag(params: {
   history: ChatHistoryItem[];
 }) {
   const { siteId, message, history } = params;
-  const faqUserAnswer = await getFaqUserAnswerForQuestion(siteId, message);
+  const faqUserAnswer = await getFaqUserAnswerForQuestion(siteId, message).catch(() => null);
   if (faqUserAnswer && !faqUserAnswer.stale) {
     return {
       answer: faqUserAnswer.answer.trim(),
@@ -348,7 +348,7 @@ export async function answerQuestionWithRag(params: {
 
   const socialIntent = hasSocialIntent(message);
   const socialPromise = socialIntent
-    ? searchSocialMedia(siteId, message)
+    ? searchSocialMedia(siteId, message).catch(() => [])
     : Promise.resolve([]);
 
   const [{ docs: agenticDocs, retrievalMeta }, socialResults] = await Promise.all([

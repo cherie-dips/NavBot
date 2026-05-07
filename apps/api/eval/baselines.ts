@@ -44,6 +44,13 @@ interface BaselineResult {
 const DATASET_PATH = path.join(__dirname, "dataset.json");
 const OUTPUT_PATH = path.join(__dirname, "baseline-results.json");
 
+const RPM_LIMIT = parseInt(process.env.EVAL_RPM ?? "5", 10);
+const DELAY_BETWEEN_CALLS_MS = Math.ceil((60 / RPM_LIMIT) * 1000);
+
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
 async function singlePromptRag(siteId: string, question: string): Promise<string> {
   const docs = await querySiteDocs({
     siteId,
@@ -88,7 +95,7 @@ async function agenticRag(siteId: string, question: string): Promise<string> {
 }
 
 async function main() {
-  const siteId = process.env.EVAL_SITE_ID || "";
+  const siteId = process.env.EVAL_SITE_ID || "plaksha.edu.in";
   if (!siteId) {
     console.error("Set EVAL_SITE_ID environment variable to your target site ID.");
     process.exit(1);
@@ -97,14 +104,29 @@ async function main() {
   const dataset: Dataset = JSON.parse(fs.readFileSync(DATASET_PATH, "utf-8"));
   const examples = dataset.examples;
 
-  console.log(`\nRunning baselines on ${examples.length} questions for site "${siteId}"...\n`);
+  // Resume from previous partial run if available
+  let results: BaselineResult[] = [];
+  const doneIds = new Set<string>();
+  if (fs.existsSync(OUTPUT_PATH)) {
+    try {
+      const prev = JSON.parse(fs.readFileSync(OUTPUT_PATH, "utf-8")) as { results: BaselineResult[] };
+      if (Array.isArray(prev.results)) {
+        results = prev.results;
+        for (const r of results) doneIds.add(r.id);
+        console.log(`Resuming: ${doneIds.size} questions already completed, skipping them.`);
+      }
+    } catch { /* start fresh */ }
+  }
+
+  const remaining = examples.filter((e) => !doneIds.has(e.id));
+  console.log(`\nRunning baselines on ${remaining.length} questions for site "${siteId}" (${RPM_LIMIT} RPM)...\n`);
   console.log("=".repeat(80));
 
-  const results: BaselineResult[] = [];
+  for (let i = 0; i < remaining.length; i++) {
+    const ex = remaining[i]!;
+    console.log(`\n[${ex.id}] (${i + 1}/${remaining.length}) ${ex.question}`);
 
-  for (const ex of examples) {
-    console.log(`\n[${ex.id}] ${ex.question}`);
-
+    // --- Single-prompt baseline (1 LLM call) ---
     const t0 = Date.now();
     let singleAnswer: string;
     try {
@@ -114,6 +136,11 @@ async function main() {
     }
     const singleLatency = Date.now() - t0;
 
+    // Rate-limit pause between single-prompt and agentic
+    console.log(`  [rate-limit] waiting ${DELAY_BETWEEN_CALLS_MS / 1000}s...`);
+    await sleep(DELAY_BETWEEN_CALLS_MS);
+
+    // --- Agentic baseline (2-3 LLM calls internally) ---
     const t1 = Date.now();
     let agenticAnswer: string;
     try {
@@ -134,8 +161,18 @@ async function main() {
       agentic_latency_ms: agenticLatency,
     });
 
+    // Save after every question so progress is not lost
+    fs.writeFileSync(OUTPUT_PATH, JSON.stringify({ siteId, results }, null, 2));
+
     console.log(`  Single-prompt (${singleLatency}ms): ${singleAnswer.slice(0, 100)}...`);
     console.log(`  Agentic       (${agenticLatency}ms): ${agenticAnswer.slice(0, 100)}...`);
+
+    // Rate-limit pause before next question
+    if (i < remaining.length - 1) {
+      const pauseSec = (DELAY_BETWEEN_CALLS_MS * 2) / 1000;
+      console.log(`  [rate-limit] waiting ${pauseSec}s before next question...`);
+      await sleep(DELAY_BETWEEN_CALLS_MS * 2);
+    }
   }
 
   fs.writeFileSync(OUTPUT_PATH, JSON.stringify({ siteId, results }, null, 2));

@@ -1,17 +1,27 @@
 import pg from "pg";
 
-const connectionString = process.env.DATABASE_URL;
-if (!connectionString) {
-  throw new Error(
-    "DATABASE_URL is not set. Add it to apps/api/.env (e.g. Render PostgreSQL internal URL)."
-  );
+let _pool: pg.Pool | null = null;
+
+export function getPool(): pg.Pool {
+  if (!_pool) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      console.warn("DATABASE_URL is not set — DB queries will fail gracefully.");
+    }
+    _pool = new pg.Pool({
+      connectionString: connectionString || "postgresql://localhost:5432/unused",
+      max: 5,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
+    });
+  }
+  return _pool;
 }
 
-export const pool = new pg.Pool({
-  connectionString,
-  max: 5,
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 10_000,
+export const pool = new Proxy({} as pg.Pool, {
+  get(_target, prop) {
+    return (getPool() as unknown as Record<string | symbol, unknown>)[prop];
+  },
 });
 
 let schemaReady: Promise<void> | null = null;

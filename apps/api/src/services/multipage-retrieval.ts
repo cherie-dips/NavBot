@@ -131,7 +131,7 @@ export async function expandRetrievalAcrossTrackedPages(
   if (!isExhaustiveListQuestion(userMessage)) return semanticDocs;
 
   const seeds = [...new Set(semanticDocs.map((d) => d.url).filter(Boolean))];
-  const tracked = await getTrackedUrls(siteId);
+  const tracked = await getTrackedUrls(siteId).catch(() => new Set<string>());
   if (tracked.size === 0) {
     console.log(`[multipage] no tracked URLs in DB for site "${siteId}" — skip expansion`);
     return sortDocsForExhaustiveAnswer(semanticDocs, userMessage);

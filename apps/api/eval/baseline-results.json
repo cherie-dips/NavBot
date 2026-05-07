@@ -1,0 +1,635 @@
+{
+  "siteId": "plaksha.edu.in",
+  "results": [
+    {
+      "id": "q001",
+      "question": "What are the BTech admission deadlines for 2026?",
+      "ground_truth": "Plaksha BTech 2026 admissions have 5 rounds: Round 1 deadline December 20, 2025; Round 2 deadline February 15, 2026; Round 3 deadline March 21, 2026; Round 4 deadline April 30, 2026; Round 5 deadline June 7, 2026.",
+      "category": "factual",
+      "single_prompt_answer": "The BTech application form submission deadlines for 2026 are:\n* Round 1: Dec 20, 2025\n* Round 2: Feb 15, 2026\n* Round 3: Mar 21, 2026\n* Round 4: Apr 30, 2026\n* Round 5: June 7, 2026",
+      "agentic_answer": "The application form submission deadlines for BTech admissions 2026 are:\n\n\u2022 Round 1: December 20, 2025\n\u2022 Round 2: February 15, 2026\n\u2022 Round 3: March 21, 2026\n\u2022 Round 4: April 30, 2026\n\u2022 Round 5: June 7, 2026\n\nSource: https://plaksha.edu.in/admissions | https://plaksha.edu.in/ug/btech-degree/data-science-business-economics | https://plaksha.edu.in/ug/btech-degree/computer-science-and-artificial-intelligence | https://plaksha.edu.in/ug/btech-degree/biological-systems-engineering | https://plaksha.edu.in/bharti-scholarship | https://plaksha.edu.in/faqs | https://plaksha.edu.in/blog/modern-education-and-the-role-of-a-technology-university | https://plaksha.edu.in/hs/young-technology-scholars",
+      "single_prompt_latency_ms": 18543,
+      "agentic_latency_ms": 56579
+    },
+    {
+      "id": "q002",
+      "question": "How much is the annual tuition fee at Plaksha?",
+      "ground_truth": "The annual tuition fee for Category A students is \u20b98,40,000. For the 2025 intake, tuition was Rs 7.8 lakh per annum. Additional costs include hostel fee of \u20b91,55,000 and meal plan of \u20b972,000 per year.",
+      "category": "factual",
+      "single_prompt_answer": "For the BTech Class of 2030 (Aug 2026 intake), the annual tuition fee for both category A and category B students is 8,40,000 INR.",
+      "agentic_answer": "For the BTech Class of 2030, the annual tuition fee is INR 8,40,000. Additional annual costs include a hostel fee of INR 1,55,000 and a meal plan of INR 72,000, while one-time charges include an admission fee of INR 55,000 and a refundable security deposit of INR 50,000. International students (Category B) also pay a supplementary fee of INR 1,50,000. \n\nFees vary based on financial aid and are subject to an annual revision of 5% to 8%.\n\nSource: https://plaksha.edu.in/financial-aid | https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha",
+      "single_prompt_latency_ms": 22022,
+      "agentic_latency_ms": 69521
+    },
+    {
+      "id": "q003",
+      "question": "What BTech programs does Plaksha University offer?",
+      "ground_truth": "Plaksha offers four 4-year BTech degrees: 1) Computer Science & Artificial Intelligence, 2) Robotics & Autonomous Systems, 3) Biological Systems Engineering, 4) Data Science, Economics & Business.",
+      "category": "list",
+      "single_prompt_answer": "Plaksha University offers the following BTech programs:\n* BTech in Computer Science & Artificial Intelligence\n* BTech in Robotics & Autonomous Systems (also referred to as B.Tech in Robotics & Cyber-Physical Systems)\n* BTech in Biological Systems Engineering\n* BTech in Data Science, Economics & Business",
+      "agentic_answer": "Plaksha University offers four interdisciplinary BTech programs:\n\n\u2022 BTech in Computer Science & Artificial Intelligence\n\u2022 BTech in Robotics & Autonomous Systems (also referred to as Robotics & Cyber-Physical Systems)\n\u2022 BTech in Biological Systems Engineering\n\u2022 BTech in Data Science, Economics & Business\n\nSource: https://plaksha.edu.in/ | https://plaksha.edu.in/statements/plaksha-university-to-have-1500-students",
+      "single_prompt_latency_ms": 18346,
+      "agentic_latency_ms": 84997
+    },
+    {
+      "id": "q004",
+      "question": "When was Plaksha University founded?",
+      "ground_truth": "The Reimagining Higher Education Foundation was created in 2017. Plaksha's 50-acre campus is located in SAS Nagar (Mohali), Punjab, and the campus opened in August 2021.",
+      "category": "factual",
+      "single_prompt_answer": "Plaksha University was established in 2021.",
+      "agentic_answer": "Plaksha University was established in 2021 under the Punjab State Private Universities Policy of 2010, although its inception is mentioned as being in 2017.\n\nSource: https://plaksha.edu.in/admissions | https://plaksha.edu.in/",
+      "single_prompt_latency_ms": 15417,
+      "agentic_latency_ms": 53534
+    },
+    {
+      "id": "q005",
+      "question": "What is the average placement package at Plaksha?",
+      "ground_truth": "The average CTC is INR 20 lakh per annum, and the median CTC is INR 17 lakh per annum. The CTC range is INR 8 to 65 lakh per annum.",
+      "category": "factual",
+      "single_prompt_answer": "The average salary for the Technology Leaders Program (TLP), Class of 2022, was INR 19.45 LPA.",
+      "agentic_answer": "For the Technology Leaders Program (TLP) Class of 2022, the average salary was a record INR 19.45 LPA.\n\nSource: https://plaksha.edu.in/statements/tlp-placements-plaksha-university-students-secure-placements-with-leading-mncs-and-startups-in-the-country | https://plaksha.edu.in/faculty-open-positions",
+      "single_prompt_latency_ms": 13058,
+      "agentic_latency_ms": 44946
+    },
+    {
+      "id": "q006",
+      "question": "What scholarships are available at Plaksha?",
+      "ground_truth": "Plaksha offers merit-based scholarships (25%-100% tuition waivers based on board exam scores 95-100% or JEE percentile 95th-100th) and need-based financial aid (25%-100% of tuition and living expenses for families with gross annual income below Rs 50 lakh). Named scholarships include: Bharti Scholarship (by Bharti Airtel Foundation), Axis Bank Scholarship (for diverse backgrounds in STEM), and Ayyalasomayajula Lalitha Scholarship Fund (for women in postgraduate programs, supported by A.T.E. Chandra Foundation).",
+      "category": "list",
+      "single_prompt_answer": "Plaksha offers the following scholarships and financial aid:\n\n*   **Merit Scholarships:** Available between 25%-100% for students with exceptional accomplishments in academics (e.g., 100% in boards and 95%ile to 100%ile in JEE), extra-curricular pursuits, or co-curricular contributions.\n*   **Need-based Financial Aid:** Available up to 100% based on annual family income.\n*   **Bharti Scholarship:** Fully supports up to 20 exceptional undergraduate students from diverse socioeconomic backgrounds.\n*   **Axis Scholarship:** Supports deserving candidates from diverse socio-economic, gender, and geographical backgrounds pursuing full-time undergraduate programs in the STEM domain.",
+      "agentic_answer": "Plaksha offers the following scholarships and financial aid options:\n\n\u2022 Merit Scholarships: Tuition waivers ranging from 25% to 100% based on high academic performance in board and competitive exams (such as JEE), as well as achievements in extracurricular and co-curricular activities.\n\u2022 Need-Based Financial Aid: Available to all admitted students based on demonstrated financial need.\n\u2022 Bharti Scholarship: A prestigious scholarship that fully supports exceptional undergraduate students from diverse socioeconomic backgrounds, with a maximum of 20 students supported.\n\u2022 Axis Scholarship: Supports deserving candidates from diverse socio-economic, gender, and geographical backgrounds pursuing full-time undergraduate programs in the STEM domain.\n\u2022 First-generation learners scholarship: A need-based scholarship specifically for first-generation learners from their families.\n\u2022 Scholarships for women students: Aimed at women from diverse socio-economic and geographic backgrounds to help them build careers in STEM fields.\n\nSource: https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha | https://plaksha.edu.in/financial-aid",
+      "single_prompt_latency_ms": 20103,
+      "agentic_latency_ms": 42138
+    },
+    {
+      "id": "q007",
+      "question": "Tell me about the PhD program at Plaksha",
+      "ground_truth": "Plaksha offers a full-time PhD program starting August 2026 (Monsoon) or Spring semester. Research areas include Computer Science & AI/ML, Robotics & Autonomous Systems, Biosystems Engineering, Data Science & Economics, Environment & Clean Energy, and more. Standard fellowship is Rs 48,000/month. Special fellowships in CS & AI offer Rs 80,000/month rising to Rs 1,00,000 by year 5 (8 positions). There are 30+ active scholars across cohorts from 2021-2026.",
+      "category": "factual",
+      "single_prompt_answer": "The PhD program at Plaksha University is an interdisciplinary program that combines domain knowledge, research skills, and portable skills to address grand challenges such as clean energy, agriculture, health, and water security.\n\n**Key Details:**\n*   **Research Areas:** Opportunities exist in Computer Science, AI/ML, Data Science, Economics, Robotics, Autonomous Systems, Biosystems Engineering & Human Health, Environment & Clean Energy, Natural Sciences, Humanities, and Language and Linguistics.\n*   **Current Opportunities:** Full-time positions are available commencing August 2026. Specifically, the Harish and Bina Shah School of AI and Computer Science offers eight positions with special fellowship packages.\n*   **Eligibility:** Applicants need a 4-year bachelor's degree (min 75% aggregate), an MPhil (min 55% aggregate), an equivalent master's degree (min 55% aggregate), or an equivalent accredited foreign qualification.\n*   **Program Features:** Hostel accommodation is available for students. Currently, over 30 scholars are pursuing research under faculty trained in India and abroad.\n*   **Application:** Applicants may apply only once per admission cycle.",
+      "agentic_answer": "The PhD program at Plaksha is an interdisciplinary program that combines domain knowledge, research skills, and portable skills to prepare students for high-level academic and professional achievement. It places a strong emphasis on addressing grand challenges such as water security, clean energy, health, and agriculture.\n\n**Research Areas and Opportunities**\nResearch opportunities are available across various fields, including:\n\u2022 Computer Science and Artificial Intelligence\n\u2022 Data Science\n\u2022 Economics\n\u2022 Robotics and Autonomous Systems\n\u2022 Biosystems\n\u2022 For the August 2026 intake, specific interdisciplinary fields include Biosystems Engineering & Human Health, Robotics & Deep Learning, Computer Science & AI/ML, Environment & Clean Energy, Natural Sciences, Humanities, and Language and Linguistics.\n\nAdditionally, there are eight new PhD positions with a special fellowship package available at the Harish and Bina Shah School of AI and Computer Science.\n\n**Eligibility Criteria**\nCandidates are eligible to apply if they hold any one of the following qualifications in the concerned discipline:\n\u2022 A 4-year/8-semester bachelor's degree with at least 75% marks in aggregate (or equivalent grade).\n\u2022 A 1-year/2-semester master's degree with at least 55% marks in aggregate (or equivalent grade) following a 4-year/8-semester bachelor's degree.\n\u2022 A 2-year/4-semester master's degree with at least 55% marks in aggregate (or equivalent grade) following a 3-year bachelor's degree.\n\u2022 An MPhil degree with at least 55% marks in aggregate (or equivalent grade).\n\u2022 An equivalent qualification from an accredited foreign educational institution.\n\n**Key Program Details**\n\u2022 Admissions: Applications are currently open for the program commencing in August 2026; applicants may only apply once per admission cycle.\n\u2022 Community: There are currently more than 30 active PhD scholars, and the 2022 cohort consists of almost 55% women students.\n\u2022 Facilities: Students have access to modern research laboratories and hostel accommodation.\n\nSource: https://plaksha.edu.in/phd | https://plaksha.edu.in/office-of-global-engagements",
+      "single_prompt_latency_ms": 31838,
+      "agentic_latency_ms": 72944
+    },
+    {
+      "id": "q008",
+      "question": "What research centers does Plaksha have?",
+      "ground_truth": "Plaksha has four main research centers: 1) Indorama Ventures Center for Clean Energy (IVCCE), 2) Center for Sustainable and Precision Agriculture (CSPA), 3) Center for Water Security (CWS), 4) Center for Equitable and Personalized Health (CEPH). Additional facilities include the Binny Bansal Institute for Inventing the Future (IIF), ARK Foundation Robotics Lab, Info Edge Center for Entrepreneurship, Center for Thinking Language and Communication (CTLC), and DS Brar Center for Girls and Women in STEM.",
+      "category": "list",
+      "single_prompt_answer": "Plaksha has the Center for Clean Energy and the Center for Water Security.",
+      "agentic_answer": "Plaksha has the following research centers:\n\n\u2022 Center for Clean Energy & Climate (also referred to as Center for Clean Energy)\n\u2022 Center for Water Security\n\u2022 Center for Digital Agriculture\n\u2022 Center for Digital Health\n\u2022 Info Edge Center for Entrepreneurship\n\nSource: https://plaksha.edu.in/intermediate/centers | https://plaksha.edu.in/team-details/dilipkumar-khandelwal",
+      "single_prompt_latency_ms": 10792,
+      "agentic_latency_ms": 58600
+    },
+    {
+      "id": "q009",
+      "question": "Where is the Plaksha campus located?",
+      "ground_truth": "Plaksha's campus is at Alpha, Sector 101, IT City Rd, Sahibzada Ajit Singh Nagar (Mohali), Punjab 140306. It is a 10-minute drive from Chandigarh International Airport and 30 minutes from Chandigarh city center. There are 20+ academic/research institutions within 20-30 minutes including ISB, IISER, and PGIMER.",
+      "category": "factual",
+      "single_prompt_answer": "The Plaksha campus is located in Mohali, in the Chandigarh tri-city.",
+      "agentic_answer": "The Plaksha campus is located in Mohali, within the Chandigarh tri-city. Its specific address is Alpha, Sector 101, IT City Rd, Sahibzada Ajit Singh Nagar, Punjab 140306.\n\nSource: https://plaksha.edu.in/contact-us | https://plaksha.edu.in/gallery/campus",
+      "single_prompt_latency_ms": 9648,
+      "agentic_latency_ms": 55607
+    },
+    {
+      "id": "q010",
+      "question": "What companies recruit from Plaksha?",
+      "ground_truth": "Recruiting companies include \u2014 Consulting & Strategy: Boston Consulting Group, ICF, McKinsey & Company. Tech & Product: Flipkart, Sarvam AI, Whatfix, Wayfair, Quizizz. Finance & Analytics: Arcesium, DE Shaw, Fractal, Jefferies, JM Financial. Startups: Pixxel, LAT Aerospace, Predli. Other: Aditya Birla, Policy Bazaar, Nagarro.",
+      "category": "list",
+      "single_prompt_answer": "Based on the provided text, companies that recruit from Plaksha include Educational Initiatives and Cactus Communication.",
+      "agentic_answer": "Students at Plaksha secure placements with leading MNCs and startups across the country. Specific companies mentioned where students have landed roles include:\n\n\u2022 Educational Initiatives\n\u2022 Cactus Communication\n\nSource: https://plaksha.edu.in/corporate-partnerships-careers | https://plaksha.edu.in/faqs",
+      "single_prompt_latency_ms": 17058,
+      "agentic_latency_ms": 72014
+    },
+    {
+      "id": "q011",
+      "question": "How does the need-based financial aid work at Plaksha?",
+      "ground_truth": "Need-based financial aid is for salaried families with gross annual income below Rs 50 lakh. Aid ranges from 25% to 100% of tuition and living expenses. Income slab Rs 0-12 lakh results in Rs 0-2.1 lakh tuition payable; income slab Rs 12-50 lakh results in Rs 2.1-6.3 lakh tuition payable. 46.3% of students receive financial aid, 26% are on full waiver. Contact: financialaid.ug@plaksha.edu.in.",
+      "category": "procedural",
+      "single_prompt_answer": "Need-based financial aid at Plaksha works as follows:\n\n*   **Process:** Admissions are \"need-blind,\" meaning students are admitted based on performance alone. Only applicants shortlisted for the admissions interview are invited to submit a separate financial aid application.\n*   **Assessment:** Aid is determined by the Office of Financial Aid based on the family's financial profile, including gross annual income, wealth, savings, assets, and essential (non-discretionary) expenses. For salaried families, aid is considered if the household's gross annual income is below INR 50 lakh.\n*   **Coverage:** Aid varies from a 25% tuition fee waiver up to a 100% waiver of the entire fee, including hostel and food.\n*   **Holistic Review:** While primarily need-driven, if demand exceeds available resources, the committee may also consider academic performance, extra-curricular achievements, and co-curricular contributions.\n*   **Requirements:** Applicants must initially submit Income Tax Returns for all earning family members.",
+      "agentic_answer": "Need-based financial aid at Plaksha is designed to bridge the gap between what a family can afford and the actual cost of education. The admissions process is \"need-blind,\" meaning students are admitted based on their application performance alone, and financial aid is determined after admission.\n\nHere is how the process and support work:\n\n**Application Process**\n- Applicants should select the 'yes' option in the financial aid box at the end of their admission application.\n- Only applicants who are shortlisted for the admissions interview will be invited to submit a separate financial aid application.\n\n**Aid and Support**\n- Tuition fee waivers range from 25% to 100%.\n- For students from low-income households, admission fees and living expenses may be waived in exceptional cases.\n- Families with a gross annual income up to INR 75 lakh can access an interest-free loan for 25% of the tuition fee through approved providers.\n\n**Selection Criteria**\n- Aid is primarily based on the family's financial profile.\n- If the demand for aid exceeds available resources, the university takes a holistic view, considering academic performance, co-curricular contributions, and extra-curricular achievements.\n\n**Indicative Financial Aid Brackets**\nThe website provides two different indicative sets of data regarding income and aid:\n\nOne set of indicative aid percentages based on annual gross income:\n- Under Rs 18 lakh: Upto 100% aid\n- Rs 18 lakh - Rs 28 lakh: Upto 75% aid\n- Rs 28 lakh - Rs 38 lakh: Upto 50% aid\n- Rs 38 lakh - Rs 50 lakh: Upto 25% aid\n\nAnother set of indicative tuition fees payable based on annual gross income:\n- 0 - 12 lakh: 0 - 2.1 lakh payable\n- 12 lakh - 50 lakh: 2.1 lakh - 6.3 lakh payable\n\nSource: https://plaksha.edu.in/financial-aid | https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha",
+      "single_prompt_latency_ms": 27812,
+      "agentic_latency_ms": 77036
+    },
+    {
+      "id": "q012",
+      "question": "Who are some faculty members at Plaksha?",
+      "ground_truth": "Notable faculty include: Deepak Khemani (Professor, PhD IIT Bombay, AI), Prakarsh Singh (Chair Professor, PhD London School of Economics, Economics), Deepan Muthirayan (Assistant Professor, PhD UC Berkeley, CS & AI), Dhiraj Sinha (Assistant Professor, PhD University of Cambridge, Sensors), Pankaj Pansari (Assistant Professor, PhD University of Oxford, Machine Learning), Rajesh Sharma (Professor, PhD Nanyang Technological University, Social Computing).",
+      "category": "list",
+      "single_prompt_answer": "Faculty members at Plaksha include Dr. Srikant Srinivasan, Dr. Sunita Chauhan, Chaitanya Indira, Deepan Muthirayan, and Malini Balakrishnan.",
+      "agentic_answer": "Faculty members and academic leaders at Plaksha include:\n\n\u2022 Prof. Rudra Pratap (Vice Chancellor)\n\u2022 Pallavi Jain (Director of Strategy & Programs)\n\u2022 Dr. Srikant Srinivasan\n\u2022 Dr. Sunita Chauhan\n\u2022 Prof Rajesh Sharma\n\u2022 Amit Sheth\n\u2022 Chaitanya Indira\n\u2022 Deepan Muthirayan\n\u2022 Malini Balakrishnan\n\u2022 Arvind Agrawal (Pro-Vice Chancellor)\n\nSource: https://plaksha.edu.in/whats-happening-at-plaksha | https://plaksha.edu.in/statements/plaksha-university-to-have-1500-students",
+      "single_prompt_latency_ms": 20994,
+      "agentic_latency_ms": 41471
+    },
+    {
+      "id": "q013",
+      "question": "What is the Tech Leaders Fellowship?",
+      "ground_truth": "The Tech Leaders Fellowship (TLF) is a one-year, full-time residential postgraduate program co-created with UC Berkeley. The curriculum covers AI-ML, Data Science, Mathematics, Programming, Statistics, Computer Vision, NLP, Leadership, Entrepreneurship, and Design Thinking, taught by 15+ faculty from UC Berkeley, Purdue, UPenn, and Microsoft. The program is currently on hiatus after the Class of 2024 and will resume as a Master's program in 2025.",
+      "category": "factual",
+      "single_prompt_answer": "The Tech Leaders Fellowship (TLF) is a one-year, full-time, residential postgraduate program co-created in partnership with UC Berkeley and Purdue University. Designed to nurture innovators, entrepreneurs, and technologists, the program blends fundamental AI-ML and Data Science with real-world applications, design thinking, and tech leadership experience to address global challenges. It is equivalent to a one-year Master's degree in terms of curriculum, credits, and rigour.",
+      "agentic_answer": "The Tech Leaders Fellowship (TLF) is a one-year, full-time residential postgraduate program co-created in partnership with UC Berkeley and Purdue University. It is designed to nurture innovators, entrepreneurs, and technologists who can use AI-ML, Data Science, and data-driven tools to solve real-world global challenges. The program is equivalent to a one-year Master's degree in terms of its curriculum, credits, and rigor.\n\nSource: https://plaksha.edu.in/pg/tech-leaders-fellowship | https://plaksha.edu.in/blog/technology-leaders-program-1",
+      "single_prompt_latency_ms": 23720,
+      "agentic_latency_ms": 55622
+    },
+    {
+      "id": "q014",
+      "question": "What facilities does the Plaksha campus have?",
+      "ground_truth": "The 50-acre campus includes the Axis Bank FutureTech Building (104,000 sq ft, 4 floors) housing a High-Performance Computing Cluster, Data Analytics Lab, Human-Technology Interaction Lab, and Product Prototyping Studio. Other facilities include the Bharti Building, ARK Foundation Robotics Lab, library, maker spaces, hostel rooms, indoor sports lounge, indoor basketball court, and lawns. The campus is designed by architect Aaron Schwarz (Plan A) and is net carbon neutral.",
+      "category": "list",
+      "single_prompt_answer": "Plaksha campus facilities include:\n\n*   **Academic and Tech:** A tech-enabled \"living lab\" with signature maker spaces and labs, the Axis Bank FutureTech Building, DS Brar Center, Binny Bansal Institute for Inventing the Future, Center for Clean Energy, Center for Water Security, and the ARK Foundation Robotics Lab.\n*   **Student Life and Wellness:** Twin sharing accommodation, provisions for indoor and outdoor sports, a dance room, yoga studio, music room, wellness center, and laundry.",
+      "agentic_answer": "The Plaksha campus is a 50-acre, tech-enabled, energy-efficient, and sustainable space that includes the following facilities:\n\n\u2022 Axis Bank FutureTech Building\n\u2022 DS Brar Center\n\u2022 Binny Bansal Institute for Inventing the Future\n\u2022 Center for Clean Energy\n\u2022 Center for Water Security\n\u2022 ARK Foundation Robotics Lab\n\u2022 Signature maker spaces and labs\n\u2022 Shared core lab infrastructure\n\u2022 Twin sharing accommodation\n\u2022 Provisions for both indoor and outdoor sports\n\u2022 Dance room\n\u2022 Yoga studio\n\u2022 Music room\n\u2022 Wellness center\n\u2022 Laundry\n\nSource: https://plaksha.edu.in/gallery/campus | https://plaksha.edu.in/blog/plaksha-campus-and-location",
+      "single_prompt_latency_ms": 25718,
+      "agentic_latency_ms": 52731
+    },
+    {
+      "id": "q015",
+      "question": "What is the PhD fellowship stipend at Plaksha?",
+      "ground_truth": "Standard PhD fellowship is Rs 48,000 per month (for candidates with Master's + 4-year Bachelor's) or Rs 42,000/month in the first year rising to Rs 48,000 (for 4/5-year degree holders). For 8 special positions in CS & AI, the stipend is Rs 80,000/month rising to Rs 1,00,000 by year 5. All PhD scholars get Rs 2 lakh professional development allowance and an international fellowship of up to 6 months with airfare and stipend covered.",
+      "category": "factual",
+      "single_prompt_answer": "For PhD positions in Computer Science and AI at the Harish and Bina Shah School of AI and Computer Science, the fellowship starts at \u20b980,000/month and rises to \u20b91,00,000 by year 5.",
+      "agentic_answer": "For PhD positions at the Harish and Bina Shah School of AI and Computer Science, the fellowship starts at \u20b980,000 per month and rises to \u20b91,00,000 by year 5.\n\nSource: https://plaksha.edu.in/financial-aid | https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha",
+      "single_prompt_latency_ms": 19401,
+      "agentic_latency_ms": 53822
+    },
+    {
+      "id": "q016",
+      "question": "Calculate the total 4-year BTech cost at Plaksha including tuition, hostel, and meals",
+      "ground_truth": "Annual costs: Tuition \u20b98,40,000 + Hostel \u20b91,55,000 + Meals \u20b972,000 = \u20b910,67,000 per year. For 4 years: \u20b910,67,000 \u00d7 4 = \u20b942,68,000 (approximately \u20b942.7 lakhs).",
+      "category": "computation",
+      "single_prompt_answer": "I do not have the total 4-year cost because the annual fee is subject to a revision of 5% to 8% annually. However, for Category A students (Aug 2026 intake), the first-year cost for tuition (8,40,000 INR), hostel (1,55,000 INR), and meals (72,000 INR) totals 10,67,000 INR.",
+      "agentic_answer": "Based on the fee details for the August 2026 intake, the total 4-year cost for tuition, hostel, and meals is 42,68,000 INR.\n\nHere is the breakdown of the calculation:\n\u2022 Annual Tuition fee: 8,40,000 INR\n\u2022 Annual Hostel fee: 1,55,000 INR\n\u2022 Annual Meal plan: 72,000 INR\n\u2022 Annual Total: 10,67,000 INR\n\u2022 4-Year Total: 10,67,000 INR x 4 = 42,68,000 INR\n\nPlease note that the annual fee is subject to revision based on inflation, typically in the range of 5% to 8% annually.\n\nSource: https://plaksha.edu.in/admissions | https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha",
+      "single_prompt_latency_ms": 66861,
+      "agentic_latency_ms": 47973
+    },
+    {
+      "id": "q017",
+      "question": "What percentage of Plaksha students receive scholarships?",
+      "ground_truth": "69% of students have received merit scholarship or financial aid. 33.7% of students are on full tuition waiver. 46.3% receive need-based financial aid specifically, with 26% on full waiver under financial aid. On the admissions page, it states 67% of students receive scholarships. A total of INR 53 crore has been distributed as of September 2025.",
+      "category": "cross_page",
+      "single_prompt_answer": "69% of students have been supported by merit scholarship and financial aid till date.",
+      "agentic_answer": "To date, 69% of students have been supported by merit scholarships and financial aid, although the admissions page mentions that almost 67% of students are on some form of scholarship or financial aid.\n\nSource: https://plaksha.edu.in/financial-aid | https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha",
+      "single_prompt_latency_ms": 11670,
+      "agentic_latency_ms": 27633
+    },
+    {
+      "id": "q018",
+      "question": "What are the PhD application deadlines for Monsoon 2026?",
+      "ground_truth": "For Monsoon 2026: Applications open March 1, deadline April 30, interviews May 1-15, offers May 16-31. Eligibility requires Master's with 55%+ marks or 4-year Bachelor's with 75%+ or MPhil with 55%+. Contact: phd.academics@plaksha.edu.in.",
+      "category": "factual",
+      "single_prompt_answer": "I don't have that information.",
+      "agentic_answer": "I don't have that information from the website. I suggest you contact the site owner or check the website directly for the PhD application deadlines.\n\nSource: https://plaksha.edu.in/admissions | https://plaksha.edu.in/phd | https://plaksha.edu.in/financial-aid | https://plaksha.edu.in/plaksha-research-fellowship | https://plaksha.edu.in/bharti-scholarship | https://plaksha.edu.in/faculty-details/dr-prashanth-suresh-kumar | https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha | https://plaksha.edu.in/grand-challenge-scholars-program",
+      "single_prompt_latency_ms": 12518,
+      "agentic_latency_ms": 34119
+    },
+    {
+      "id": "q019",
+      "question": "Which universities have Plaksha alumni gone to for higher education?",
+      "ground_truth": "Plaksha alumni have pursued Master's and PhD programs at Carnegie Mellon University, King's College London, Macquarie University, Mohamed bin Zayed University of AI, NYU, UC San Diego, University of Chicago, University of Pennsylvania, and Wake Forest University. 28% of BTech graduates pursue higher education and research.",
+      "category": "list",
+      "single_prompt_answer": "I don't have that information.",
+      "agentic_answer": "I don't have that information from the website. I suggest you contact the site owner or check the website directly.\n\nSource: https://plaksha.edu.in/statements/plaksha-university-to-have-1500-students | https://plaksha.edu.in/about-us",
+      "single_prompt_latency_ms": 12870,
+      "agentic_latency_ms": 43688
+    },
+    {
+      "id": "q020",
+      "question": "Tell me about the Center for Water Security at Plaksha",
+      "ground_truth": "The Center for Water Security (CWS) is directed by Dr. Malini Balakrishnan. Its mission is sustainable clean water access for India for the next 50 years. Research includes autonomous aquatic robots, optical sensors for heavy metal detection (Cr, As, U targeting WHO <0.1 ppm), AI for sewage treatment plant optimization, and forward osmosis technology. Faculty include Dr. Malini Balakrishnan, Dr. Prashanth Suresh Kumar, Dr. Chaitanya Lekshmi Indira, and Dr. Sandeep Manjanna. Partners include IIT Madras & ICCW, ATE Enterprise Pvt Ltd, and DigitalPaani.",
+      "category": "factual",
+      "single_prompt_answer": "The Center for Water Security (CWS) at Plaksha is a transdisciplinary research center dedicated to solving water challenges in India and ensuring sustainable access to clean water for all social, economic, and environmental activities for the next 50 years. \n\nKey details include:\n*   **Focus:** It specifically addresses urban challenges such as pollution of urban streams and untreated sewage discharge, utilizing fundamental and applied research to develop resource-efficient wastewater treatment and advanced water quality monitoring.\n*   **Approach:** The center implements real-time monitoring solutions and leverages advanced treatment technologies and resource recovery from wastewater to create actionable and scalable solutions.\n*   **Collaborations:** CWS collaborates with government, NGOs, and industries. Notable partnerships include an MoU with ATE Enterprise Private Limited (ATEEPL) for industrial wastewater treatment and recycling, and an MoU with IIT Madras and its International Center for Clean Water (ICCW) for academic and scientific collaboration.",
+      "agentic_answer": "The Center for Water Security is a transdisciplinary research center led by Director Dr. Malini Balakrishnan that aims to solve water challenges in India, specifically focusing on sustainable access to clean water in urban contexts. The center utilizes fundamental and applied research to tackle issues such as untreated sewage discharge and the pollution of urban streams through resource-efficient wastewater treatment and advanced water quality monitoring. \n\nTo drive impactful solutions, the center collaborates with government, NGOs, and industry partners, including:\n- IIT Madras and its International Center for Clean Water (ICCW) for academic and scientific collaboration.\n- ATE Enterprise Private Limited (ATEEPL) to promote wastewater treatment and recycling solutions for industries such as pharma, textile, dairy, and food processing.\n\nSource: https://plaksha.edu.in/center-for-water-security | https://plaksha.edu.in/intermediate/centers",
+      "single_prompt_latency_ms": 20597,
+      "agentic_latency_ms": 48839
+    },
+    {
+      "id": "q021",
+      "question": "What student wellbeing and counseling support does Plaksha provide?",
+      "ground_truth": "Counselors are available all 7 days of the week: Dr. Shalini Sharma (PhD Punjabi University, available Mon/Tue/Thu/Fri) and Dr. Pamil Preet (available Wed/Thu/Fri/Sat/Sun). Appointments are booked via detalks.com. Programs include Wellbeing Boot Camp (with YourDost), Procrastination Skill Building, Science of Being Human initiative, and a yoga program led by Srishti Malpath.",
+      "category": "factual",
+      "single_prompt_answer": "Plaksha provides a two-pronged wellbeing approach combining preventive skill-building with timely corrective support. Their services include:\n\n*   **On-Campus Support:** A dedicated wellbeing team with two full-time psychologists available seven days a week (Dr. Shalini Sharma and Dr. Pamil Preet), with appointments bookable via detalks.com.\n*   **Therapy and Resources:** Individual therapy sessions for students, executives, and faculty, as well as the \"Thrive Room,\" a nurturing space for mental and emotional wellbeing.\n*   **Specialized Sessions:** Programs to help students manage procrastination, overwhelm, distractions, and resistance to tasks.\n*   **External Partnerships:** Access to RoundGlass for workshops and resources, and YourDost for 24/7 text, audio, and video counseling.",
+      "agentic_answer": "Plaksha takes a two-pronged approach to wellbeing that blends preventive skill-building with timely corrective support. The support provided includes:\n\n\u2022 Dedicated Wellbeing Team: Two full-time psychologists are on campus daily, with the team available seven days a week. Students can book appointments through detalks.com with Dr. Shalini Sharma (available Mondays, Tuesdays, Thursdays, and Fridays) or Dr. Pamil Preet (available Wednesdays, Thursdays, Fridays, Saturdays, and Sundays).\n\u2022 Individual Therapy Sessions: These provide a safe space for students, faculty, and executives to process distressing experiences and develop healthy coping mechanisms.\n\u2022 MCKS Thrive Room: A dedicated nurturing space focused on mental, physical, and intellectual wellness to help students prioritize their wellbeing and build resilience.\n\u2022 External Partnerships: Plaksha partners with YourDost for 24/7 text, audio, and video counseling, and RoundGlass for additional workshops and mental health resources.\n\u2022 Specialized Sessions and Activities:\n  - Orientation sessions to help students manage the stress and anxiety of starting university.\n  - Procrastination Skill Building sessions to help students overcome distractions and overwhelm.\n  - Wellbeing Boot Camps featuring activities like appreciation cards, fort building, and wellbeing darts.\n  - Holistic tasks such as creating happiness recipes, compiling mood-boosting playlists, conducting happiness interviews, and capturing natural beauty and acts of kindness.\n\nSource: https://plaksha.edu.in/blog/a-year-of-holistic-wellbeing-at-plaksha | https://plaksha.edu.in/well-being",
+      "single_prompt_latency_ms": 19648,
+      "agentic_latency_ms": 47324
+    },
+    {
+      "id": "q022",
+      "question": "What loan partners does Plaksha work with for education financing?",
+      "ground_truth": "Plaksha's loan partners include Propelld, Axis Bank, Credila Financial Services, ICICI Bank (loans from Rs 1 lakh to Rs 3 crore, unsecured up to Rs 1 crore), and Avanse Financial Services (interest from 10.5% onwards, up to 15-year tenure).",
+      "category": "list",
+      "single_prompt_answer": "Plaksha works with the following loan partners for education financing:\n* Propelld\n* Axis Bank\n* Credila Financial Services Limited\n* ICICI Bank\n* Avanse Financial Services",
+      "agentic_answer": "Plaksha works with the following loan partners for education financing:\n\n\u2022 Propelld\n\u2022 Axis Bank\n\u2022 Credila Financial Services Limited\n\u2022 ICICI Bank\n\u2022 Avanse Financial Services\n\nSource: https://plaksha.edu.in/financial-aid | https://plaksha.edu.in/partnerships",
+      "single_prompt_latency_ms": 14291,
+      "agentic_latency_ms": 38182
+    },
+    {
+      "id": "q023",
+      "question": "What is the Grand Challenge Studio?",
+      "ground_truth": "The Grand Challenge Studio is part of Plaksha's BTech curriculum where students work on real-world challenges. It is a signature pedagogical approach across all four BTech programs.",
+      "category": "factual",
+      "single_prompt_answer": "The Innovation Lab & Grand Challenges (ILGC) studio is a series of courses that introduces students to societal and community challenges that can be solved with technological capabilities. It is an integrated, project-based learning experience spanning the four-year B.Tech program that focuses on solving real-life problems using a user-centric approach, teamwork, and faculty mentorship.",
+      "agentic_answer": "The Innovation Lab & Grand Challenges (ILGC) studio is a series of courses that introduces undergraduate students to societal and community challenges that can be solved with technological capabilities. It is an integrated, project-based learning experience that runs throughout the four-year B.Tech program. Students use a user-centric approach, working in teams with faculty mentorship to develop an interdisciplinary appreciation for engineering from technical, global, and historical perspectives.\n\nSource: https://plaksha.edu.in/ilgc | https://plaksha.edu.in/grand-challenge-scholars-program",
+      "single_prompt_latency_ms": 22653,
+      "agentic_latency_ms": 42478
+    },
+    {
+      "id": "q024",
+      "question": "How many students and faculty does Plaksha have?",
+      "ground_truth": "Plaksha has 500+ students and approximately 40 faculty members from top global institutions including MIT, Cornell, UC Berkeley, Purdue, and IITs. There are 330+ alumni. The university also has 30+ active PhD scholars across cohorts from 2021-2026.",
+      "category": "cross_page",
+      "single_prompt_answer": "Plaksha University has over 500 students and 40 faculty members.",
+      "agentic_answer": "Plaksha currently has:\n- Over 500 students\n- 40 faculty members\n\nThe university aims to grow these numbers over the next five years to:\n- 1,500 students\n- More than 100 faculty members\n\nSource: https://plaksha.edu.in/about-us | https://plaksha.edu.in/team/founding-group | https://plaksha.edu.in/team-details/dilipkumar-khandelwal | https://plaksha.edu.in/team-details/krish-mantripragada | https://plaksha.edu.in/statements/plaksha-university-to-have-1500-students | https://plaksha.edu.in/team | https://plaksha.edu.in/team-details/vishal-tulsyan | https://plaksha.edu.in/faculty-details/abhay-sharma",
+      "single_prompt_latency_ms": 17944,
+      "agentic_latency_ms": 45402
+    },
+    {
+      "id": "q025",
+      "question": "Hi there, what can you help me with?",
+      "ground_truth": "Hello! I'm the Plaksha University website assistant. I can help you with information about BTech programs, admissions and deadlines, tuition fees and scholarships, PhD program, placements, campus life, research centers, and more. What would you like to know?",
+      "category": "conversational",
+      "single_prompt_answer": "I can provide information about the Plaksha Helpdesk, which uses a support ticket system to streamline support requests, track progress and responses online via unique ticket numbers, and provide archives and history of requests. I can also provide information from the provided blog posts.",
+      "agentic_answer": "Hello! I'm NavBot, your friendly guide to Plaksha University. I can help you find information about our academic programs, campus facilities, faculty, and global partnerships. Whether you're curious about our BTech degrees, graduate studies, or how we're reimagining technology education, feel free to ask!\n\nSource: https://plaksha.edu.in/about-us | https://plaksha.edu.in/contact-us",
+      "single_prompt_latency_ms": 31834,
+      "agentic_latency_ms": 70883
+    },
+    {
+      "id": "q026",
+      "question": "Who won the FIFA World Cup in 2022?",
+      "ground_truth": "I can only answer questions related to Plaksha University's website content. I can help you with information about programs, admissions, fees, placements, campus life, and research at Plaksha.",
+      "category": "out_of_scope",
+      "single_prompt_answer": "I don't have that information.",
+      "agentic_answer": "I don't have that information from the website. I suggest you contact the site owner or check the website directly.\n\nSource: https://plaksha.edu.in/blog/galleries/photography | https://plaksha.edu.in/blog/360-professional-transformation-with-cutting-edge-roles-and-careers",
+      "single_prompt_latency_ms": 17691,
+      "agentic_latency_ms": 141683
+    },
+    {
+      "id": "q027",
+      "question": "What is the Bharti Scholarship?",
+      "ground_truth": "The Bharti Scholarship is provided by the Bharti Airtel Foundation. On the admissions page, it mentions Bharti Foundation offers up to 20 full scholarships for BTech students. It is one of the named merit scholarships at Plaksha.",
+      "category": "cross_page",
+      "single_prompt_answer": "The Bharti Scholarship is a prestigious scholarship set up by the Bharti Airtel Foundation for exceptional and deserving students from diverse socio-economic backgrounds to pursue full-time undergraduate studies at Plaksha University. It supports up to 20 students, empowering those who are financially modest but meritorious to pursue cutting-edge tech education. Beyond financial support, it offers a transformational experience including a student mentoring program by senior faculty and industry leaders during the first year and participation in exchange programs with global universities.",
+      "agentic_answer": "The Bharti Scholarship, established by the Bharti Airtel Foundation, is a prestigious award for up to 20 exceptional undergraduate students from diverse socio-economic backgrounds. It provides full support to help meritorious but financially modest students pursue cutting-edge tech education at Plaksha University. Beyond financial aid, recipients receive mentoring from senior faculty and industry leaders during their first year and opportunities to participate in exchange programs with global universities.\n\nSource: https://plaksha.edu.in/bharti-scholarship | https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha",
+      "single_prompt_latency_ms": 21464,
+      "agentic_latency_ms": 46717
+    },
+    {
+      "id": "q028",
+      "question": "What is the hostel fee at Plaksha?",
+      "ground_truth": "The annual hostel fee at Plaksha is \u20b91,55,000. The meal plan costs \u20b972,000 per year additionally.",
+      "category": "factual",
+      "single_prompt_answer": "The hostel fee for first-year BTech students (Aug 2026 intake) for both category A and category B is 1,55,000 INR.",
+      "agentic_answer": "For BTech students in the August 2026 intake, the hostel fee is INR 1,55,000 for both Category A and Category B students.\n\nSource: https://plaksha.edu.in/financial-aid | https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha",
+      "single_prompt_latency_ms": 12919,
+      "agentic_latency_ms": 39338
+    },
+    {
+      "id": "q029",
+      "question": "Who is Deepak Khemani?",
+      "ground_truth": "Deepak Khemani is a Professor at Plaksha University. He holds a PhD from IIT Bombay and specializes in Artificial Intelligence.",
+      "category": "factual",
+      "single_prompt_answer": "Dr. Deepak Khemani is a Professor at Plaksha who works in artificial intelligence with a focus on symbolic reasoning. His research interests include constraint satisfaction problems and search methods for problem solving, with the goal of combining knowledge representation, heuristic search, and constraints processing to build problem solvers. He holds a BTech in Mechanical Engineering, an MTech in Computer Science & Engineering, and a PhD in Computer Science & Engineering from IIT Bombay. His past associations include IIT Madras, Technical University Munich, Tata Research Centre, IIT Mandi, and IIT Dharwad.",
+      "agentic_answer": "Dr. Deepak Khemani is a Professor at Plaksha who specializes in artificial intelligence, specifically symbolic reasoning. He focuses on combining knowledge representation, heuristic search, and constraints processing to build problem solvers, such as tutoring systems for math and physics. He holds a BTech in Mechanical Engineering and an MTech and PhD in Computer Science & Engineering from IIT Bombay. His professional history includes a long association with IIT Madras and various visiting roles at institutions like Technical University Munich and IIT Mandi.\n\nSource: https://plaksha.edu.in/faculty-details/dr-deepak-khemani | https://plaksha.edu.in/team-details/deepak-goyal",
+      "single_prompt_latency_ms": 16647,
+      "agentic_latency_ms": 47662
+    },
+    {
+      "id": "q030",
+      "question": "What is the Indorama Ventures Center for Clean Energy?",
+      "ground_truth": "The Indorama Ventures Center for Clean Energy (IVCCE) is directed by Dr. Vishal Garg. It focuses on urban heat island mitigation, decarbonization of residential cooling, smart buildings, and grid modernization. Faculty include Dr. Anupam Sobti, Dr. Shashikant Pawar, Dr. Vivek Deulkar, and Prof. Vishal Garg. Key stat: Buildings account for 32.6% of India's electricity. The center is partnered with Indorama Ventures PCL.",
+      "category": "factual",
+      "single_prompt_answer": "The Indorama Ventures Center for Clean Energy is an interdisciplinary research center at Plaksha University, established with support from Indorama Ventures. Its objective is to lead the clean energy transition through education and research, operating at the intersection of energy and digitalization to enable scalable, sustainable, and affordable energy solutions. The center aims to develop industry-relevant professionals and entrepreneurs and has a vision of shaping India's energy sector toward decarbonization, self-sufficiency, and grid security to provide clean and secure energy access to all.",
+      "agentic_answer": "The Indorama Ventures Center for Clean Energy is an interdisciplinary research center at Plaksha University dedicated to leading the transition to clean energy through education and research. Its mission is to support India's journey toward a net zero-carbon, self-reliant, and energy-secure future by working at the intersection of energy and digitalization. The center focuses on developing industry-relevant professionals and entrepreneurs and currently concentrates its research on Smart Homes, District Cooling with thermal storage, and the Mitigation of Urban Heat Island (UHI).\n\nSource: https://plaksha.edu.in/center-for-clean-energy | https://plaksha.edu.in/statements/IndoramaVentures-CleanEnergy",
+      "single_prompt_latency_ms": 27403,
+      "agentic_latency_ms": 49141
+    },
+    {
+      "id": "q031",
+      "question": "What career paths do Plaksha graduates take?",
+      "ground_truth": "67% of BTech graduates go into industry roles (consulting, tech, product, finance), 28% pursue higher education and research, and 5% take entrepreneurship or other pathways. The alumni network has 330+ members.",
+      "category": "factual",
+      "single_prompt_answer": "Plaksha graduates pursue various career paths, including:\n\n*   **Technology Roles:** 55% of the first graduating class entered AI, ML, and Data Science roles. Specific technology leadership roles include Data Scientists, Machine Learning Engineers, Product Managers, and Product Analysts.\n*   **Diverse Sectors:** Graduates work in multinational firms, research labs, universities worldwide, social work, policy, and governance.\n*   **Entrepreneurship:** Some graduates found their own startups.\n*   **Further Education:** Some pursue studies at top universities globally.",
+      "agentic_answer": "Plaksha graduates pursue a variety of career paths, including:\n\n\u2022 AI, ML, and Data Science roles (which 55% of the first graduating class entered)\n\u2022 Software Development\n\u2022 Product Management\n\u2022 Data sciences\n\u2022 Research-based roles, including positions in research labs and universities worldwide\n\u2022 Entrepreneurship and starting their own startups\n\u2022 Roles in multinational firms\n\u2022 Social work\n\u2022 Policy\n\u2022 Governance\n\nSource: https://plaksha.edu.in/statements/plaksha-university-to-have-1500-students | https://plaksha.edu.in/blog/undergraduate-program?page=1",
+      "single_prompt_latency_ms": 22477,
+      "agentic_latency_ms": 39081
+    },
+    {
+      "id": "q032",
+      "question": "Tell me about the Axis Bank FutureTech Building",
+      "ground_truth": "The Axis Bank FutureTech Building is 104,000 sq ft across 4 floors. It houses a High-Performance Computing Cluster, Data Analytics Lab, Human-Technology Interaction Lab, and Product Prototyping Studio. It is home to the Harish and Bina Shah School of AI & Computer Science and the Binny Bansal Institute for Inventing the Future.",
+      "category": "cross_page",
+      "single_prompt_answer": "I don't have that information.",
+      "agentic_answer": "The Axis Bank FutureTech Building is one of the campus spaces at Plaksha University.\n\nSource: https://plaksha.edu.in/statements/leading-experts-deliberate-on-the-future | https://plaksha.edu.in/statements/MoU-with-Kotak-Foundation",
+      "single_prompt_latency_ms": 25792,
+      "agentic_latency_ms": 47404
+    },
+    {
+      "id": "q033",
+      "question": "What is the eligibility for the PhD program?",
+      "ground_truth": "PhD eligibility requires Master's degree with 55%+ marks, or 4-year Bachelor's degree with 75%+, or MPhil with 55%+. Preference is given to holders of CSIR NET-JRF, DBT-JRF, UGC NET-JRF, GATE, IIT-JAM, or GRE.",
+      "category": "factual",
+      "single_prompt_answer": "Candidates are eligible for the PhD program if they possess any one of the following qualifications in the concerned discipline:\n\n*   A 1-year/2-semester master's degree with at least 55% marks in aggregate (following a 4-year/8-semester bachelor's degree).\n*   A 2-year/4-semester master's degree with at least 55% marks in aggregate (following a 3-year bachelor's degree).\n*   A 4-year/8-semester bachelor's degree program with at least 75% marks in aggregate.\n*   An MPhil degree with at least 55% marks in aggregate.\n*   A qualification declared equivalent to a master's degree by the corresponding statutory regulatory body with at least 55% marks in aggregate.\n*   An equivalent qualification from an accredited foreign educational institution approved, recognized, or authorized by a statutory authority in its home country.",
+      "agentic_answer": "Candidates are eligible to apply for the PhD program if they have any one of the following qualifications in the concerned discipline:\n\n\u2022 A 1-year/2-semester master's degree with at least 55% marks in aggregate (or equivalent grade) following a 4-year/8-semester bachelor's degree program.\n\u2022 A 2-year/4-semester master's degree with at least 55% marks in aggregate (or equivalent grade) following a 3-year bachelor's degree.\n\u2022 A 4-year/8-semester bachelor's degree program with at least 75% marks in aggregate (or equivalent grade).\n\u2022 An MPhil degree with at least 55% marks in aggregate (or equivalent grade).\n\u2022 Qualifications declared equivalent to a master's degree by the corresponding statutory regulatory body, with at least 55% marks in aggregate (or equivalent grade).\n\u2022 An equivalent qualification from a foreign educational institution accredited by an approved, recognized, or authorized assessment and accreditation agency in its home country.\n\nSource: https://plaksha.edu.in/phd | https://plaksha.edu.in/plaksha-research-fellowship",
+      "single_prompt_latency_ms": 26294,
+      "agentic_latency_ms": 53346
+    },
+    {
+      "id": "q034",
+      "question": "What consulting firms recruit from Plaksha?",
+      "ground_truth": "Consulting and strategy firms recruiting from Plaksha include Boston Consulting Group (BCG), ICF, and McKinsey & Company.",
+      "category": "factual",
+      "single_prompt_answer": "I don't have that information.",
+      "agentic_answer": "I don't have that information from the website. I suggest you contact the site owner or check the website directly for details on recruiting partners.\n\nSource: https://plaksha.edu.in/whats-happening-at-plaksha | https://plaksha.edu.in/office-of-global-engagements",
+      "single_prompt_latency_ms": 14458,
+      "agentic_latency_ms": 55139
+    },
+    {
+      "id": "q035",
+      "question": "What is the DS Brar Center for Girls and Women in STEM?",
+      "ground_truth": "The DS Brar Center for Girls and Women in STEM is supported by Mphasis. Programs include the She Innovates Fellowship and Inspiring Speakers series. Mentors include Amita Karadkhedkar (Citi), Rekha Menon (ex-Accenture Chairperson), and Aparna Gupta (Microsoft). Partners include Mphasis, Beyond, Infoedge, Her Second Innings, Pink Lemonade, and encubay.",
+      "category": "factual",
+      "single_prompt_answer": "The DS Brar Center for Girls and Women in STEM works to increase the enrollment of women in STEM fields, build a cohort of future change-makers in STEM careers, and bridge the STEM gender gap through a support network of role models from industry, academia, and government. It achieves this by sharing success stories from entrepreneurs and industry leaders and exchanging insights with a global community to brainstorm impact-driven solutions for the involvement of girls and women in STEM education.",
+      "agentic_answer": "The DS Brar Center for Girls and Women in STEM works to bridge the gender gap in STEM fields and increase the enrollment of women students. They aim to build a cohort of future change-makers in STEM careers through the following:\n\n- Bridging the STEM gender gap via a support network of role models across government, academia, and industry.\n- Sharing inspiring success stories from game-changing entrepreneurs and industry leaders about the challenges and opportunities in STEM education and careers.\n- Exchanging insights with a global community to brainstorm impact-driven solutions regarding the contribution and involvement of girls and women in STEM education.\n\nThe center also offers the She Innovates Fellowship.\n\nSource: https://plaksha.edu.in/ds-brar-center | https://plaksha.edu.in/blog/launchpad-for-women-in-stem",
+      "single_prompt_latency_ms": 18235,
+      "agentic_latency_ms": 55794
+    },
+    {
+      "id": "q036",
+      "question": "How much total scholarship money has Plaksha given out?",
+      "ground_truth": "Plaksha has given out INR 53 crore as merit scholarship and financial aid as of September 30, 2025. Of this, INR 44.92 crore was in need-based financial aid.",
+      "category": "factual",
+      "single_prompt_answer": "Plaksha University has given out INR 53 Cr as merit scholarship and financial aid so far.",
+      "agentic_answer": "Plaksha has given out INR 53 Cr in merit scholarships and financial aid so far.\n\nSource: https://plaksha.edu.in/financial-aid | https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha",
+      "single_prompt_latency_ms": 13009,
+      "agentic_latency_ms": 41724
+    },
+    {
+      "id": "q037",
+      "question": "What are the PhD research areas at Plaksha?",
+      "ground_truth": "PhD research areas include Computer Science & AI/ML, Robotics & Autonomous Systems, Biosystems Engineering, Data Science & Economics, Environment & Clean Energy, Physics/Chemistry/Materials, Humanities/Language/Linguistics, and Natural Sciences.",
+      "category": "list",
+      "single_prompt_answer": "PhD research areas at Plaksha include:\n\n*   **Interdisciplinary fields:** Biosystems Engineering & Human Health, Robotics & Deep Learning, Computer Science & AI/ML, Environment & Clean Energy, Natural Sciences, Humanities, and Language and Linguistics.\n*   **General areas:** Computer Science and Artificial Intelligence, Data Science, Economics, Robotics, Autonomous Systems, and Biosystems.\n*   **Grand challenges:** Interdisciplinary research addressing clean energy, agriculture, health, and water security.",
+      "agentic_answer": "Plaksha offers research opportunities in the following areas:\n\n\u2022 Computer Science and Artificial Intelligence (including AI/ML)\n\u2022 Data Science\n\u2022 Economics\n\u2022 Robotics (including Deep Learning)\n\u2022 Autonomous Systems\n\u2022 Biosystems (including Biosystems Engineering & Human Health)\n\u2022 Environment & Clean Energy\n\u2022 Natural Sciences\n\u2022 Humanities\n\u2022 Language and Linguistics\n\u2022 Agriculture\n\u2022 Health\n\u2022 Water security\n\nSource: https://plaksha.edu.in/phd | https://plaksha.edu.in/faculty-open-positions | https://plaksha.edu.in/office-of-global-engagements | https://plaksha.edu.in/ | https://plaksha.edu.in/work-at-plaksha | https://plaksha.edu.in/blog/the-plaksha-way | https://plaksha.edu.in/gallery/library | https://plaksha.edu.in/whats-happening-at-plaksha",
+      "single_prompt_latency_ms": 14946,
+      "agentic_latency_ms": 79273
+    },
+    {
+      "id": "q038",
+      "question": "What is the Minor in Tech Entrepreneurship?",
+      "ground_truth": "The Minor in Tech Entrepreneurship is offered through the Info Edge Center for Entrepreneurship. The center also runs the Technology Startup Lab, Startup Sprint, and Aeternum summit. Notable speakers include Binny Bansal (Flipkart), Sanjeev Bikhchandani (InfoEdge), Rajesh Magow (MakeMyTrip), and Ritesh Malik (Innov8). Student startup Thinklude won Rs 5 lakh grant at Saksham Accelerator.",
+      "category": "cross_page",
+      "single_prompt_answer": "The Minor in Technology Entrepreneurship is an undergraduate program launched by Plaksha University in collaboration with UC Berkeley's Sutardja Center for Entrepreneurship and Technology (SCET). Modeled after Berkeley's entrepreneurship curriculum, it is designed to equip students with the knowledge, skills, leadership, and entrepreneurial mindset needed for technology-driven ventures. The program focuses on hands-on learning through real-world startup projects, simulations, entrepreneurial challenge labs, innovative case-based pedagogy, and venture building.",
+      "agentic_answer": "The Minor in Technology Entrepreneurship is an undergraduate program co-created with UC Berkeley's Sutardja Center for Entrepreneurship and Technology (SCET) and modeled after Berkeley's entrepreneurship curriculum. It is designed to equip students with the mindset, skills, and knowledge needed for technology-driven ventures through hands-on learning, real-world startup projects, simulations, and entrepreneurial challenge labs. As the program evolves, it will introduce advanced electives at the intersection of sustainability, business, and technology.\n\nSource: https://plaksha.edu.in/statements/tech-entrepreneurship-minor | https://plaksha.edu.in/center-for-entrepreneurship",
+      "single_prompt_latency_ms": 22975,
+      "agentic_latency_ms": 53007
+    },
+    {
+      "id": "q039",
+      "question": "What sports are available at Plaksha?",
+      "ground_truth": "Sports available at Plaksha include table tennis, basketball, cricket, and indoor basketball court. The campus has an indoor sports lounge and outdoor lawns.",
+      "category": "list",
+      "single_prompt_answer": "Plaksha University has provisions for both indoor and outdoor sports, including table tennis, basketball, and cricket.",
+      "agentic_answer": "Plaksha University provides provisions for both indoor and outdoor sports, including:\n\u2022 Table tennis\n\u2022 Basketball\n\u2022 Cricket\n\nSource: https://plaksha.edu.in/gallery/campus | https://plaksha.edu.in/blog/life-at-plaksha-campus",
+      "single_prompt_latency_ms": 12249,
+      "agentic_latency_ms": 35476
+    },
+    {
+      "id": "q040",
+      "question": "Who designed the Plaksha campus?",
+      "ground_truth": "The Plaksha campus was designed by architect Aaron Schwarz of Plan A, who was formerly a Senior Principal at Perkins Eastman. The campus is net carbon neutral.",
+      "category": "factual",
+      "single_prompt_answer": "The Plaksha campus was designed by internationally renowned architect Aaron Schwarz (Founder, Plan A, & Former Senior Principal at Perkins Eastman).",
+      "agentic_answer": "The Plaksha campus was designed by the internationally renowned architect Aaron Schwarz, who is the Founder of Plan A and a Former Senior Principal at Perkins Eastman.\n\nSource: https://plaksha.edu.in/blog/plaksha-campus-and-location | https://plaksha.edu.in/contact-us",
+      "single_prompt_latency_ms": 12289,
+      "agentic_latency_ms": 45113
+    },
+    {
+      "id": "q041",
+      "question": "What is the Center for Sustainable and Precision Agriculture?",
+      "ground_truth": "The Center for Sustainable and Precision Agriculture (CSPA) is directed by Dr. Shashank Tamaskar. It focuses on affordable precision agriculture technology, satellite/drone geospatial tech, AI farming, robotic monitoring/weeding, bio-pesticides/bio-sensors, and commodity price prediction.",
+      "category": "factual",
+      "single_prompt_answer": "The Center for Sustainable and Precision Agriculture (CSPA), directed by Dr. Shashank Tamaskar, develops affordable precision agriculture technologies to empower Indian agriculture with data-driven farming. Its goals are to increase farm yields, ensure agricultural sustainability, enhance food security, and reduce operational costs for farmers. To achieve this, the center utilizes big data, AI, and satellite and drone-based geospatial technology to provide timely advisories in local languages, build robotic systems for weeding and monitoring, develop bio-sensors and bio-pesticides, and provide commodity price predictions.",
+      "agentic_answer": "The Center for Sustainable and Precision Agriculture (CSPA), directed by Dr. Shashank Tamaskar, develops affordable precision agriculture technologies to empower Indian agriculture with data-driven farming. It aims to increase farm yields, enhance food security, and reduce operational costs by combining AI, big data, and satellite and drone-based geospatial solutions. To achieve this, the center focuses on creating robotic systems for monitoring and weeding, developing bio-sensors and bio-pesticides, and providing commodity price predictions and timely advisories in local languages.\n\nSource: https://plaksha.edu.in/intermediate/centers | https://plaksha.edu.in/blog/pioneering-solutions-for-a-sustainable-future",
+      "single_prompt_latency_ms": 25297,
+      "agentic_latency_ms": 64717
+    },
+    {
+      "id": "q042",
+      "question": "How do I renew my financial aid at Plaksha?",
+      "ground_truth": "Financial aid renewal requires minimum CGPA typically 6.5/10.0 for need-based aid. For merit scholarships, students need to maintain top 5-10% CGPA. Additional requirements include no backlogs, high attendance, volunteer service, and a pay-it-forward pledge.",
+      "category": "procedural",
+      "single_prompt_answer": "To renew a scholarship, students must apply at the end of each academic year. Renewal is contingent upon the student following the Student Code of Conduct, demonstrating exemplary behavior and conduct, and meeting the academic and other criteria set forth in the annually released Scholarship Guidelines.",
+      "agentic_answer": "To renew a scholarship for an undergraduate program, you must apply at the end of each academic year. Renewal is contingent upon meeting the criteria set in the annually released Scholarship Guidelines, which include:\n\n\u2022 Maintaining excellence in academics, co-curricular, and extra-curricular activities.\n\u2022 Upholding good conduct and following the Student Code of Conduct.\n\nSource: https://plaksha.edu.in/financial-aid | https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha",
+      "single_prompt_latency_ms": 16386,
+      "agentic_latency_ms": 39457
+    },
+    {
+      "id": "q043",
+      "question": "What is the highest placement package at Plaksha?",
+      "ground_truth": "The highest CTC at Plaksha is INR 65 lakh per annum. The CTC range is INR 8 to 65 lakh per annum, with an average of INR 20 lakh and median of INR 17 lakh.",
+      "category": "factual",
+      "single_prompt_answer": "The highest salary for the Technology Leaders Program (TLP), Class of 2022, was INR 41 lakh.",
+      "agentic_answer": "The highest salary for the Technology Leaders Program (TLP) Class of 2022 was INR 41 lakh.\n\nSource: https://plaksha.edu.in/statements/tlp-placements-plaksha-university-students-secure-placements-with-leading-mncs-and-startups-in-the-country | https://plaksha.edu.in/statements",
+      "single_prompt_latency_ms": 17448,
+      "agentic_latency_ms": 30565
+    },
+    {
+      "id": "q044",
+      "question": "Tell me about the Binny Bansal Institute for Inventing the Future",
+      "ground_truth": "The Binny Bansal Institute for Inventing the Future (IIF) is an AI-led innovation hub at the intersection of AI+X. It has four impact clusters: Clean Energy, Healthcare, Water Security, and Agriculture. Partners include UC Berkeley, Cornell, NUS, LSE, Imperial College, Cambridge, MIT, Purdue, IITs, and IISc. It holds the ConfAI bi-annual conference and YTS+ summer program. It is housed in the Axis Bank FutureTech Building.",
+      "category": "factual",
+      "single_prompt_answer": "The Binny Bansal Institute for Inventing the Future is a Research Institute at Plaksha University.",
+      "agentic_answer": "The Binny Bansal Institute for Inventing the Future is one of the research institutes at Plaksha University. It is named after Binny Bansal, who is a Distinguished Trustee of the university and holds a BTech in Computer Science from IIT Delhi.\n\nSource: https://plaksha.edu.in/team-details/binny-bansal | https://plaksha.edu.in/statements/leading-experts-deliberate-on-the-future",
+      "single_prompt_latency_ms": 12998,
+      "agentic_latency_ms": 61944
+    },
+    {
+      "id": "q046",
+      "question": "What finance companies recruit from Plaksha?",
+      "ground_truth": "Finance and analytics companies recruiting from Plaksha include Arcesium, Capital2B, Clix Capital, DE Shaw, Fractal, Jefferies, JM Financial, and Meru Capitals.",
+      "category": "list",
+      "single_prompt_answer": "I don't have that information.",
+      "agentic_answer": "I don't have that information from the website. I suggest you contact the site owner or check the website directly.\n\nSource: https://plaksha.edu.in/whats-happening-at-plaksha | https://plaksha.edu.in/statements/plaksha-university-to-have-1500-students",
+      "single_prompt_latency_ms": 13890,
+      "agentic_latency_ms": 50726
+    },
+    {
+      "id": "q047",
+      "question": "Tell me about the ARK Foundation Robotics Lab",
+      "ground_truth": "The ARK Foundation Robotics Lab is a teaching and research facility for intelligent systems supporting the BTech in Robotics & Autonomous Systems. Faculty include Andy Ruina (Visiting, PhD Brown), Dhiraj Sinha (PhD Cambridge), Sandeep Manjanna (PhD McGill), Shashank Tamaskar (PhD Purdue), Shashikant Pawar (PhD IISc), Srikant Srinivasan (PhD Purdue), and Sunita Chauhan (PhD Imperial College London). Research areas include autonomous drones/underwater robots/ground vehicles, drone-based precision agriculture, tethered drones for mosquito eradication/defense, and multi-modal sensor fusion.",
+      "category": "factual",
+      "single_prompt_answer": "The ARK Foundation Robotics Lab is listed as one of the research labs and facilities at Plaksha University.",
+      "agentic_answer": "The ARK Foundation Robotics Lab is one of the research labs and facilities at Plaksha University.\n\nSource: https://plaksha.edu.in/ug/btech-degree/robotics-autonomous-systems | https://plaksha.edu.in/statements/inaugurates-anthem-biosciences-lab",
+      "single_prompt_latency_ms": 13333,
+      "agentic_latency_ms": 40670
+    },
+    {
+      "id": "q048",
+      "question": "How big is the Plaksha campus?",
+      "ground_truth": "Plaksha has a 50-acre campus located in SAS Nagar (Mohali), Punjab. It has 500+ students and 40 faculty members.",
+      "category": "factual",
+      "single_prompt_answer": "The Plaksha campus is 50 acres.",
+      "agentic_answer": "The Plaksha campus is 50 acres in size.\n\nSource: https://plaksha.edu.in/gallery/campus | https://plaksha.edu.in/blog/plaksha-campus-and-location",
+      "single_prompt_latency_ms": 8796,
+      "agentic_latency_ms": 36370
+    },
+    {
+      "id": "q049",
+      "question": "What is the Ayyalasomayajula Lalitha Scholarship Fund?",
+      "ground_truth": "The Ayyalasomayajula Lalitha Scholarship Fund is for women in postgraduate programs at Plaksha, supported by the A.T.E. Chandra Foundation.",
+      "category": "factual",
+      "single_prompt_answer": "The A. Lalitha Scholarship for women in STEM is a zero-interest loan extended to deserving women students from a less privileged background.",
+      "agentic_answer": "I don't have that information from the website. I suggest you contact the site owner or check the website directly for more details.\n\nSource: https://plaksha.edu.in/statements/plaksha-university-to-have-1500-students | https://plaksha.edu.in/team-details/mukesh-sharma",
+      "single_prompt_latency_ms": 16914,
+      "agentic_latency_ms": 83544
+    },
+    {
+      "id": "q050",
+      "question": "What is the Center for Equitable and Personalized Health?",
+      "ground_truth": "The Center for Equitable and Personalized Health (CEPH) is directed by Dr. Chaitanya Lekshmi Indira. It focuses on bio-informed diagnostics and therapeutics, non-communicable disease care, biomarker identification, AI-powered point-of-care solutions, with a focus on LMICs and Indian medical contexts.",
+      "category": "factual",
+      "single_prompt_answer": "The Center for Equitable and Personalized Health (CEPH) focuses on advancing next-generation bio-informed technologies to improve medical diagnostics and therapeutics for non-communicable disease care, specifically within the Indian medical scenario and LMICs. Using cutting-edge science, translational research, and interdisciplinary investigations at the intersection of molecular biology, disease modeling, materials, and next-generation diagnostics, the center aims to:\n\n*   Deliver accessible and personalized healthcare solutions, including AI-powered point-of-care tools and biomarker identification.\n*   Enable individualized disease susceptibility and personalized treatment options.\n*   Contextualize non-communicable disease data for people of Indian-origin to enhance preventive healthcare and reduce therapeutic failures.\n*   Provide a deeper understanding of human physiology in the Indian context to cater to equitable healthcare for neurodegenerative diseases, diabetes, and cancer.\n*   Research the elements of epidemiology and air/water pollution that cause health hazards.",
+      "agentic_answer": "The Center for Equitable and Personalized Health (CEPH) is a research center focused on improving medical diagnostics and therapeutics for non-communicable diseases, specifically within the Indian medical scenario and LMICs. By utilizing bio-informed technologies, AI-powered point-of-care tools, and interdisciplinary research, the center aims to deliver accessible, personalized healthcare solutions for conditions such as cancer, diabetes, and neurodegenerative diseases. Its goals include contextualizing health data for people of Indian-origin and developing precision diagnosis platforms to reduce therapeutic failures.\n\nSource: https://plaksha.edu.in/intermediate/centers | https://plaksha.edu.in/blog/ceph-striving-to-combat-the-root-of-non-communicable-diseases-in-india",
+      "single_prompt_latency_ms": 31391,
+      "agentic_latency_ms": 80974
+    },
+    {
+      "id": "q051",
+      "question": "What PhD supervisors are available in AI and Computer Science?",
+      "ground_truth": "PhD supervisors in CS & AI include Ankur Nahar (Computer Networks), Anupam Sobti (Computer Vision & GNNs), Deepan Muthirayan (AI & Robotics), Mayank Ratan Bharadwaj (Game Theory & LLMs), Rajesh Sharma (Social Computing & NLP), Siddharth (Human-AI Interaction), and Tapas Pandit (Cryptography).",
+      "category": "list",
+      "single_prompt_answer": "The PhD supervisors available in AI and Computer Science are:\n* Prof Ankur Nahar\n* Prof Anupam Sobti\n* Prof Deepan Muthirayan\n* Prof Mayank Ratan Bharadwaj\n* Prof Rajesh Sharma\n* Prof Siddharth\n* Prof Sunita Chauhan\n* Prof Tapas Pandit",
+      "agentic_answer": "The available PhD supervisors in AI and Computer Science, along with their specializations, are:\n\n\u2022 Prof Ankur Nahar: Intelligent Transportation Systems, Routing and Switching (Computer Networks, Communication)\n\u2022 Prof Anupam Sobti: Computer Vision, Graph Neural Networks and Agentic AI (Artificial Intelligence)\n\u2022 Prof Deepan Muthirayan: AI and Robotics (AI and Robotics)\n\u2022 Prof Mayank Ratan Bharadwaj: AI for Social Good, Game Theory, Large Language Models, Computational Social Choice (Game Theory, Computer Science and AI)\n\u2022 Prof Rajesh Sharma: Social Computing, Computational Social Science, NLP, Social Network Analysis (Computer science)\n\u2022 Prof Sandeep Manjanna: Reinforcement Learning, Planning and Perception (Computer Vision) (Computer Science, Applied Machine Learning, and Robotics)\n\u2022 Prof Siddharth: Human - AI Interaction (Artificial Intelligence)\n\u2022 Prof Sunita Chauhan: Multi-Robot/IOT-agents interactive control strategies (Embodied AI)\n\u2022 Prof Tapas Pandit: Cryptography (Computer Science)\n\nSource: https://plaksha.edu.in/phd | https://plaksha.edu.in/faculty",
+      "single_prompt_latency_ms": 19698,
+      "agentic_latency_ms": 83172
+    },
+    {
+      "id": "q052",
+      "question": "If my family income is Rs 8 lakh per year, how much tuition will I pay at Plaksha?",
+      "ground_truth": "For families in the Rs 0-12 lakh income slab, tuition payable ranges from Rs 0 to Rs 2.1 lakh. With Rs 8 lakh income, you would fall in this slab and pay somewhere in the range of Rs 0-2.1 lakh tuition per year, compared to the full tuition of Rs 7.8-8.4 lakh.",
+      "category": "computation",
+      "single_prompt_answer": "For a family with an annual gross income of 0 - 12 lakh, the tuition fee payable is 0 - 2.1 lakh.",
+      "agentic_answer": "For salaried families with an annual gross income between 0 and 12 lakh, the tuition fee payable is between 0 and 2.1 lakh. Please note that these brackets are indicative and subject to additional conditions and documentation, with the final decision made by the Scholarship Committee.\n\nSource: https://plaksha.edu.in/financial-aid | https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha",
+      "single_prompt_latency_ms": 18286,
+      "agentic_latency_ms": 46571
+    },
+    {
+      "id": "q053",
+      "question": "What is the CTLC at Plaksha?",
+      "ground_truth": "The Center for Thinking, Language and Communication (CTLC) is directed by Brainerd Prince. It runs programs including the Springer Plaksha Review, LearnED, stemX, and ProACT. It has five labs: Teaching Lab, Conversation Lab, Reading & Listening Lab, Publishing Lab, and Writing Lab. Projects include Museum of Innovation and Technology, Morung: Writings on Tech, and Su-vivaad course. Located on the 3rd Floor, Bharti Building. Contact: ctlc@plaksha.edu.in.",
+      "category": "factual",
+      "single_prompt_answer": "The Centre for Thinking, Language and Communication (CTLC) at Plaksha University, established in April/spring 2022, aims to enhance the thinking, linguistic, and communicative capacities of the university community, particularly engineering and technology students. \n\nThe CTLC focuses on:\n* **Education and Training:** Delivering courses (including unique stemX courses), personalized tutorials, and an experiential learning approach to equip students with academic, personal, research, and business communication skills.\n* **Mentorship and Research:** Mentoring students in public speaking and writing for popular publishing, and conducting research on the interface of communicating capacities and STEM education.\n* **Innovation:** Developing EdTech products for STEM education.\n* **Professional Development and Social Impact:** Enhancing professional development for students and professionals both within and beyond Plaksha through strategic partnerships with industries, governments, and academic institutions.",
+      "agentic_answer": "The Center for Thinking, Language and Communication (CTLC) was established in the spring of 2022 to enhance the thinking, linguistic, and communicative capacities of the university community, particularly engineering students. It focuses on professional development and communication skills for students and professionals both within and beyond Plaksha. To drive social impact, the CTLC collaborates with governments, industries, and academic institutions, and it also features the CTLC Studio, which hosts digital exhibitions on Indic Technology.\n\nSource: https://plaksha.edu.in/ctlc/resource-morung | https://plaksha.edu.in/statements/MoU-with-Kotak-Foundation",
+      "single_prompt_latency_ms": 24694,
+      "agentic_latency_ms": 59558
+    },
+    {
+      "id": "q054",
+      "question": "What is the Axis Bank Scholarship?",
+      "ground_truth": "The Axis Bank Scholarship is a named scholarship at Plaksha aimed at students from diverse backgrounds in STEM fields.",
+      "category": "factual",
+      "single_prompt_answer": "The Axis Bank Scholarship, set up by Axis Bank, supports deserving candidates from diverse geographical, gender, and socio-economic backgrounds who are pursuing full-time undergraduate programs. It aims to enrich the talent pool of individuals intending to join the workforce or pursue higher education in the STEM domain.",
+      "agentic_answer": "The Axis Bank Scholarship is designed to support deserving candidates from diverse geographical, gender, and socio-economic backgrounds who are pursuing full-time undergraduate programs. Set up by Axis Bank, it aims to enrich the talent pool of individuals intending to join the workforce or pursue higher education in the STEM domain.\n\nSource: https://giving.plaksha.edu.in/scholarship | https://plaksha.edu.in/blog/scholarships-and-financial-aid-at-plaksha-an-overview-of-the-financial-aid-and-scholarship-process-at-plaksha",
+      "single_prompt_latency_ms": 24914,
+      "agentic_latency_ms": 52549
+    },
+    {
+      "id": "q055",
+      "question": "How far is Plaksha from Chandigarh Airport?",
+      "ground_truth": "Plaksha campus is a 10-minute drive from Chandigarh International Airport and a 30-minute ride to Chandigarh city center.",
+      "category": "factual",
+      "single_prompt_answer": "Plaksha is a 10-minute drive from the Chandigarh International Airport.",
+      "agentic_answer": "Plaksha University is a 10-minute drive from the Chandigarh International Airport.\n\nSource: https://plaksha.edu.in/gallery/campus | https://plaksha.edu.in/blog/plaksha-campus-and-location",
+      "single_prompt_latency_ms": 7543,
+      "agentic_latency_ms": 48516
+    },
+    {
+      "id": "q056",
+      "question": "What are the career outcomes for Plaksha BTech graduates?",
+      "ground_truth": "67% go into industry roles (consulting, tech, product, finance), 28% pursue higher education and research, and 5% take entrepreneurship or other pathways. Average CTC is INR 20 LPA, median INR 17 LPA, range INR 8-65 LPA. There are 330+ alumni in the network.",
+      "category": "cross_page",
+      "single_prompt_answer": "The provided text does not list specific career outcomes for BTech graduates, although it states that the Office of Corporate Partnerships and Careers (CPC) ensures \"superlative career outcomes for our students.\"",
+      "agentic_answer": "The Office of Corporate Partnerships and Careers (CPC) works to ensure superlative career outcomes for students. Recruiting partners for the university fall into the following categories:\n\n\u2022 Consulting & Strategy\n\u2022 Tech & Product\n\u2022 Finance & Analytics\n\u2022 Startups & Emerging Tech\n\u2022 Others\n\nSource: https://plaksha.edu.in/corporate-partnerships-careers | https://plaksha.edu.in/about-us | https://plaksha.edu.in/admissions | https://plaksha.edu.in/statements/tlp-placements-plaksha-university-students-secure-placements-with-leading-mncs-and-startups-in-the-country | https://plaksha.edu.in/ug/btech-degree/data-science-business-economics | https://plaksha.edu.in/blog/career-opportunities-after-pursuing-technology-leaders-program-from-plaksha-university | https://plaksha.edu.in/blog/behind-the-scenes-how-plaksha-helps-tlp-students-land-new-age-tech-roles | https://plaksha.edu.in/partnerships",
+      "single_prompt_latency_ms": 36059,
+      "agentic_latency_ms": 58551
+    },
+    {
+      "id": "q057",
+      "question": "Who is Prakarsh Singh?",
+      "ground_truth": "Prakarsh Singh is a Chair Professor at Plaksha University. He holds a PhD from the London School of Economics and specializes in Economics.",
+      "category": "factual",
+      "single_prompt_answer": "Dr. Prakarsh Singh is the Chair Professor of Economics and Program Chair for Data Science, Economics & Business (DSEB) at Plaksha University. He holds a PhD in Economics from the London School of Economics. His professional background includes serving as a Senior Economist Manager and science leader at Amazon and as an Assistant Professor of Economics at Amherst College. His research interests include Randomized Controlled Experiments, Applied Microeconomics, Development Economics, and Personnel Economics.",
+      "agentic_answer": "Dr. Prakarsh Singh is the Chair Professor of Economics and the Program Chair for Data Science, Economics & Business (DSEB) at Plaksha University. He holds a PhD, Master of Research, and Bachelor of Science in Economics from the London School of Economics. With over 12 years of experience in academia and industry, he previously served as a senior economist manager at Amazon and a professor at Amherst College. His research interests include Applied Microeconomics, Development Economics, Personnel Economics, and Randomized Controlled Experiments.\n\nSource: https://plaksha.edu.in/faculty-details/dr-prakarsh-singh | https://plaksha.edu.in/team-details/sunny-singh",
+      "single_prompt_latency_ms": 27442,
+      "agentic_latency_ms": 76032
+    },
+    {
+      "id": "q058",
+      "question": "What startups have been associated with Plaksha?",
+      "ground_truth": "Student startup Thinklude won Rs 5 lakh grant at Saksham Accelerator. Recruiting startup companies include Bizom, Eggoz, Growth Natives, LAT Aerospace, Pixxel, and Predli. The Info Edge Center for Entrepreneurship runs Startup Sprint and Aeternum summit.",
+      "category": "cross_page",
+      "single_prompt_answer": "The startups involved in PLAP include Pinewheel Labs, Theranotes, RoboLLB, Purifico, AIRIS, RhoSigma Technologies, and WanderLog.",
+      "agentic_answer": "The following startups have been associated with Plaksha:\n\n\u2022 Thinklude\n\u2022 StimVeda Neurosciences\n\u2022 Pinewheel Labs\n\u2022 Theranotes\n\u2022 RoboLLB\n\u2022 Purifico\n\u2022 AIRIS\n\u2022 RhoSigma Technologies\n\u2022 WanderLog\n\nSource: https://plaksha.edu.in/team-details/ashish-kumar | https://plaksha.edu.in/team-details/dilipkumar-khandelwal",
+      "single_prompt_latency_ms": 18816,
+      "agentic_latency_ms": 50316
+    },
+    {
+      "id": "q059",
+      "question": "What is the BTech in Data Science, Economics & Business?",
+      "ground_truth": "The BTech in Data Science, Economics & Business is one of four 4-year BTech degrees offered at Plaksha. It is part of the undergraduate programs that include the Grand Challenge Studio and an option for a Minor in Tech Entrepreneurship.",
+      "category": "factual",
+      "single_prompt_answer": "The BTech in Data Science, Economics & Business is a cutting-edge interdisciplinary degree at the nexus of data science and the understanding of humans, economy, businesses, and government. It blends a strong core in data science with the study of how humans think, behave, and make decisions, how society works, and how global economic and financial markets operate, encouraging students to create solutions and value for society and the economy.",
+      "agentic_answer": "The BTech in Data Science, Economics & Business is an interdisciplinary degree that sits at the intersection of data science and the understanding of humans, government, businesses, and the economy. It blends a strong core in data science with the study of how global financial markets operate, how society works, and how humans make decisions. Students are encouraged to use these combined fields to create value and solutions for society and the economy.\n\nSource: https://plaksha.edu.in/ug/btech-degree/data-science-business-economics | https://plaksha.edu.in/ug/btech-degree/computer-science-and-artificial-intelligence",
+      "single_prompt_latency_ms": 16570,
+      "agentic_latency_ms": 40148
+    },
+    {
+      "id": "q060",
+      "question": "How do I book a counseling appointment at Plaksha?",
+      "ground_truth": "Counseling appointments are booked via detalks.com. Two counselors are available all 7 days: Dr. Shalini Sharma (Mon/Tue/Thu/Fri) and Dr. Pamil Preet (Wed/Thu/Fri/Sat/Sun).",
+      "category": "procedural",
+      "single_prompt_answer": "Counseling appointments can be booked through detalks.com.",
+      "agentic_answer": "You can easily book a counseling appointment through detalks.com. The wellbeing team is available on campus seven days a week to support you.\n\nSource: https://plaksha.edu.in/well-being | https://plaksha.edu.in/whats-happening-at-plaksha",
+      "single_prompt_latency_ms": 10524,
+      "agentic_latency_ms": 18904
+    },
+    {
+      "id": "q061",
+      "question": "What international partnerships does Plaksha have?",
+      "ground_truth": "Plaksha has partnerships with UC Berkeley (co-created the Tech Leaders Fellowship), Cornell, NUS, LSE, Imperial College London, Cambridge, MIT, Purdue, IITs, and IISc. These are associated with the Binny Bansal Institute for Inventing the Future.",
+      "category": "cross_page",
+      "single_prompt_answer": "Plaksha has international partnerships with UC Berkeley, UC San Diego, Purdue University, and Cornell University.",
+      "agentic_answer": "Plaksha has the following international partnerships:\n\n\u2022 UC Berkeley: An institution-wide partnership formalized in March 2019 that covers curriculum development, joint research, faculty and student exchange, and the co-creation of the Tech Leaders Fellowship.\n\u2022 Purdue University: A partnership that may lead to student exchange opportunities.\n\u2022 Cornell University: A partnership formalized through a MoA signed in 2023.\n\u2022 Penn Engineering: A partnership to co-deliver the MS in AI program.\n\u2022 UC San Diego: Listed as one of the university's strong global partnerships.\n\nSource: https://plaksha.edu.in/about-us | https://plaksha.edu.in/blog/partnering-with-global-institutions",
+      "single_prompt_latency_ms": 18842,
+      "agentic_latency_ms": 82112
+    },
+    {
+      "id": "q062",
+      "question": "What is the annual hostel and meal cost combined?",
+      "ground_truth": "Annual hostel fee is \u20b91,55,000 and annual meal plan is \u20b972,000. Combined: \u20b92,27,000 per year.",
+      "category": "computation",
+      "single_prompt_answer": "The combined annual hostel and meal cost is 2,27,000 INR (1,55,000 INR for the hostel fee and 72,000 INR for the meal plan).",
+      "agentic_answer": "The combined annual cost for the hostel and meal plan is INR 2,27,000 (INR 1,55,000 for the hostel fee and INR 72,000 for the meal plan).\n\nSource: https://plaksha.edu.in/ug | https://plaksha.edu.in/about-us",
+      "single_prompt_latency_ms": 44366,
+      "agentic_latency_ms": 63552
+    },
+    {
+      "id": "q064",
+      "question": "Does Plaksha have seats reserved for Punjab students?",
+      "ground_truth": "Yes, 15% of seats are reserved for Punjab domicile students as mentioned on the admissions page.",
+      "category": "factual",
+      "single_prompt_answer": "Yes, 15% of the total seats are reserved for candidates holding Punjab domicile.",
+      "agentic_answer": "Yes, 15% of the total seats are reserved for candidates holding Punjab domicile. If any of these seats remain vacant, they are offered to non-domicile candidates.\n\nSource: https://plaksha.edu.in/admissions | https://plaksha.edu.in/about-us",
+      "single_prompt_latency_ms": 11587,
+      "agentic_latency_ms": 40191
+    },
+    {
+      "id": "q065",
+      "question": "What is the BTech in Biological Systems Engineering?",
+      "ground_truth": "The BTech in Biological Systems Engineering is one of four 4-year BTech degrees at Plaksha. It is part of the undergraduate programs alongside Computer Science & AI, Robotics & Autonomous Systems, and Data Science Economics & Business.",
+      "category": "factual",
+      "single_prompt_answer": "The BTech in Biological Systems Engineering is a program that mixes biology with technology, focusing on how cells work and advancements such as CRISPR, biosensors, biomaterials, and bioinformatics. It prepares students to tackle complex biological problems by merging biology, technology, and engineering.",
+      "agentic_answer": "The BTech in Biological Systems Engineering is a program that blends biology with technology to prepare students to solve complex biological problems. Students explore how cells work and study advancements such as CRISPR, bioinformatics, biomaterials, and biosensors. The curriculum is structured into four modules per semester, each consisting of weekly lectures, laboratory classes, and four topical mini-projects.\n\nSource: https://plaksha.edu.in/ug/btech-degree/biological-systems-engineering | https://plaksha.edu.in/faculty-details/dr-monika-sharma",
+      "single_prompt_latency_ms": 14631,
+      "agentic_latency_ms": 38620
+    }
+  ]
+}
