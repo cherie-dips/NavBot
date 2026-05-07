@@ -16,7 +16,7 @@ import fs from "fs";
 import path from "path";
 import {
   generateContentText,
-  GEMINI_MODELS,
+  GROQ_MODELS,
 } from "../src/services/gemini-client";
 
 interface BaselineResult {
@@ -118,7 +118,7 @@ Special cases:
 Return: {"correctness": <0-5>, "groundedness": <0-5>, "relevance": <0-5>, "explanation": "<1-2 sentence justification>"}`;
 
   const raw = await generateContentText({
-    model: GEMINI_MODELS.judge,
+    model: GROQ_MODELS.judge,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     config: {
       temperature: 0.1,
@@ -223,7 +223,7 @@ async function main() {
   }
 
   const remaining = baselines.filter((b) => !doneIds.has(b.id));
-  console.log(`\nEvaluating ${remaining.length} responses with LLM-as-judge (${GEMINI_MODELS.judge}, ${RPM_LIMIT} RPM)...\n`);
+  console.log(`\nEvaluating ${remaining.length} responses with LLM-as-judge (${GROQ_MODELS.judge}, ${RPM_LIMIT} RPM)...\n`);
 
   for (let i = 0; i < remaining.length; i++) {
     const b = remaining[i]!;

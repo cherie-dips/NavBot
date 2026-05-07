@@ -44,6 +44,9 @@ importers:
       express:
         specifier: ^4.21.2
         version: 4.22.1
+      groq-sdk:
+        specifier: ^1.1.2
+        version: 1.1.2
       morgan:
         specifier: ^1.10.0
         version: 1.10.1
@@ -3336,6 +3339,11 @@ packages:
 
   /graphmatch@1.1.1:
     resolution: {integrity: sha512-5ykVn/EXM1hF0XCaWh05VbYvEiOL2lY1kBxZtaYsyvjp7cmWOU1XsAdfQBwClraEofXDT197lFbXOEVMHpvQOg==}
+    dev: false
+
+  /groq-sdk@1.1.2:
+    resolution: {integrity: sha512-CZO0XUQQDhn43ri1+lZHxZKpb+bGutgTvFmCJtooexiitGmPqhm1hntOT3nCoaq07e+OpeokVnfUs0i/oQuUaQ==}
+    hasBin: true
     dev: false
 
   /has-flag@4.0.0:

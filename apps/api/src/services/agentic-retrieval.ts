@@ -7,8 +7,9 @@ import {
 import {
   agenticPlannerEnabled,
   agenticRagMaxRounds,
-  GEMINI_MODELS,
+  GROQ_MODELS,
   generateContentText,
+  getGroqApiKey,
 } from "./gemini-client";
 import type { ChatHistoryItem } from "./chat-types";
 
@@ -170,7 +171,7 @@ Return a JSON object:
 Example for "what are the deadlines?": {"search_queries":["admission application deadline","scholarship deadline","fee payment last date","hostel application deadline","exam registration deadline","financial aid deadline","semester start dates","academic calendar"],"hyde_paragraph":"Application deadlines vary by program. Admission rounds close in January, scholarship applications in February, and fee payment is due by March."}`;
 
   const raw = await generateContentText({
-    model: GEMINI_MODELS.planner,
+    model: GROQ_MODELS.planner,
     contents: [
       {
         role: "user",
@@ -215,7 +216,7 @@ Output JSON only: {"queries":["alternative search 1","alternative search 2","alt
 Use broader terms, URL path keywords (e.g. events, /events, workshop), abbreviations, or different phrasings.`;
 
   const raw = await generateContentText({
-    model: GEMINI_MODELS.planner,
+    model: GROQ_MODELS.planner,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     config: {
       temperature: 0.3,
@@ -273,7 +274,7 @@ export async function runAgenticRetrieval(
     queryCap
   );
 
-  const usePlanner = agenticPlannerEnabled() && getGeminiApiKeyForAgentic();
+  const usePlanner = agenticPlannerEnabled() && !!getGroqApiKey();
 
   const [initialDocs, plannerResult] = await Promise.all([
     querySiteDocs({
@@ -323,7 +324,7 @@ export async function runAgenticRetrieval(
     maxRefinerRounds > 0 &&
     round < maxRefinerRounds &&
     retrievalLooksWeak(userMessage, docs) &&
-    getGeminiApiKeyForAgentic()
+    !!getGroqApiKey()
   ) {
     round++;
     try {
@@ -373,6 +374,3 @@ export async function runAgenticRetrieval(
   };
 }
 
-function getGeminiApiKeyForAgentic(): boolean {
-  return !!(process.env.GOOGLE_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim());
-}

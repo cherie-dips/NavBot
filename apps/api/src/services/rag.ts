@@ -1,4 +1,3 @@
-import { createPartFromBase64 } from "@google/genai";
 import { type RetrievedDoc } from "./vectorstore";
 import { hasSocialIntent, searchSocialMedia, buildSocialContextString } from "./social-search";
 import { getFaqUserAnswerForQuestion } from "./db";
@@ -6,9 +5,11 @@ import { runAgenticRetrieval } from "./agentic-retrieval";
 import { isExhaustiveListQuestion, sortDocsForExhaustiveAnswer } from "./multipage-retrieval";
 import type { ChatHistoryItem } from "./chat-types";
 import {
-  geminiWithRetry,
-  getGeminiApiKey,
+  withRetry,
+  getGroqApiKey,
+  getGroqClient,
   getGoogleGenAI,
+  GROQ_MODELS,
   GEMINI_MODELS,
   generateContentText,
   llmJudgeEnabled,
@@ -16,9 +17,9 @@ import {
 
 export type { ChatHistoryItem } from "./chat-types";
 
-if (!getGeminiApiKey()) {
+if (!getGroqApiKey()) {
   console.warn(
-    "GOOGLE_API_KEY / GEMINI_API_KEY is not set. Chat, STT, and TTS will not work."
+    "GROQ_API_KEY is not set. Chat and STT will not work."
   );
 }
 
@@ -238,7 +239,7 @@ async function judgeAnswer(params: {
   docs: RetrievedDoc[];
   draftAnswer: string;
 }): Promise<string> {
-  if (!llmJudgeEnabled() || !getGeminiApiKey()) return params.draftAnswer;
+  if (!llmJudgeEnabled() || !getGroqApiKey()) return params.draftAnswer;
   if (params.docs.length === 0) return params.draftAnswer;
 
   const prompt = `You evaluate a website chatbot answer (NavBot). Return JSON only.
@@ -266,7 +267,7 @@ Rules:
 
   try {
     const raw = await generateContentText({
-      model: GEMINI_MODELS.judge,
+      model: GROQ_MODELS.judge,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         temperature: 0.1,
@@ -427,7 +428,7 @@ REASONING & COUNTING:
   ];
 
   const rawAnswer = await generateContentText({
-    model: GEMINI_MODELS.chat,
+    model: GROQ_MODELS.chat,
     contents,
     config: {
       systemInstruction: combinedSystemPrompt,
@@ -463,40 +464,36 @@ REASONING & COUNTING:
 }
 
 // ---------------------------------------------------------------------------
-// Speech-to-text (Gemini multimodal)
+// Speech-to-text (Groq Whisper)
 // ---------------------------------------------------------------------------
 async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<string> {
-  const ai = getGoogleGenAI();
-  const b64 = audioBuffer.toString("base64");
-  const audioPart = createPartFromBase64(b64, mimeType);
+  const groq = getGroqClient();
+
+  const ext = mimeType.includes("wav") ? "wav"
+    : mimeType.includes("mp3") || mimeType.includes("mpeg") ? "mp3"
+    : mimeType.includes("ogg") ? "ogg"
+    : mimeType.includes("webm") ? "webm"
+    : "wav";
 
   console.log(
-    `[STT] Sending ${(audioBuffer.length / 1024).toFixed(1)} KB of ${mimeType} to ${GEMINI_MODELS.stt}`
+    `[STT] Sending ${(audioBuffer.length / 1024).toFixed(1)} KB of ${mimeType} to Groq ${GROQ_MODELS.stt}`
   );
 
-  const response = await geminiWithRetry(
+  const file = new File([audioBuffer], `audio.${ext}`, { type: mimeType });
+
+  const response = await withRetry(
     () =>
-      ai.models.generateContent({
-        model: GEMINI_MODELS.stt,
-        contents: [
-          {
-            role: "user",
-            parts: [
-              audioPart,
-              {
-                text: "Transcribe the speech only. Same language as the speaker. Output plain transcript text without labels, quotes, or commentary.",
-              },
-            ],
-          },
-        ],
-        config: { temperature: 0 },
+      groq.audio.transcriptions.create({
+        file,
+        model: GROQ_MODELS.stt,
+        response_format: "text",
       }),
     { maxAttempts: 3, baseDelayMs: 800, label: "STT" }
   );
 
-  const transcript = response.text?.trim() ?? "";
+  const transcript = (typeof response === "string" ? response : response.text ?? "").trim();
   if (!transcript) {
-    throw new Error("Gemini STT returned an empty transcript.");
+    throw new Error("Groq Whisper returned an empty transcript.");
   }
   console.log(`[STT] Transcript: "${transcript}"`);
   return transcript;
@@ -521,7 +518,7 @@ export async function transcribeAndAnswer(params: {
       transcript: null,
       answer:
         "Sorry, I couldn't transcribe your voice message. " +
-        "Please check that GOOGLE_API_KEY is set and try WAV, MP3, OGG, or WebM audio. " +
+        "Please check that GROQ_API_KEY is set and try WAV, MP3, OGG, or WebM audio. " +
         "You can also type your question instead.",
       sources: [],
       error: msg,
@@ -552,7 +549,7 @@ export async function synthesizeSpeech(text: string): Promise<string> {
 
   console.log(`[TTS] Converting ${truncated.length} chars to speech`);
 
-  const response = await geminiWithRetry(
+  const response = await withRetry(
     () =>
       ai.models.generateContent({
         model: GEMINI_MODELS.tts,

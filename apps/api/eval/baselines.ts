@@ -14,7 +14,7 @@ import { querySiteDocs } from "../src/services/vectorstore";
 import { answerQuestionWithRag } from "../src/services/rag";
 import {
   generateContentText,
-  GEMINI_MODELS,
+  GROQ_MODELS,
 } from "../src/services/gemini-client";
 
 interface DatasetExample {
@@ -77,7 +77,7 @@ USER QUESTION: ${question}
 Answer concisely:`;
 
   const answer = await generateContentText({
-    model: GEMINI_MODELS.chat,
+    model: GROQ_MODELS.chat,
     contents: [{ role: "user", parts: [{ text: prompt }] }],
     config: { temperature: 0.2, maxOutputTokens: 500 },
   });

@@ -8,7 +8,7 @@ import {
   updateFaqUserAnswer,
 } from "./db";
 import { answerQuestionWithRag } from "./rag";
-import { generateContentText, GEMINI_MODELS, getGeminiApiKey } from "./gemini-client";
+import { generateContentText, GROQ_MODELS, getGroqApiKey } from "./gemini-client";
 
 const FAQ_ANSWER_PREVIEW_MAX = 800;
 
@@ -58,14 +58,14 @@ RULES:
 Example output:
 [{"label":"Admission deadlines","question":"What are the admission deadlines?"},{"label":"Programs offered","question":"What programs do you offer?"}]`;
 
-  if (!getGeminiApiKey()) {
-    console.warn("generateFaqsForSite: no GOOGLE_API_KEY — using fallback FAQs");
+  if (!getGroqApiKey()) {
+    console.warn("generateFaqsForSite: no GROQ_API_KEY — using fallback FAQs");
     return fallbackFaqs();
   }
 
   try {
     const raw = await generateContentText({
-      model: GEMINI_MODELS.chat,
+      model: GROQ_MODELS.chat,
       contents: [
         {
           role: "user",

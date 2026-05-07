@@ -1,36 +1,59 @@
-import { GoogleGenAI, type GenerateContentConfig, type GenerateContentResponse } from "@google/genai";
+import Groq from "groq-sdk";
 
 // ---------------------------------------------------------------------------
-// API key: GOOGLE_API_KEY preferred (matches plan); GEMINI_API_KEY fallback.
-// @google/genai also reads env internally when apiKey omitted.
+// API keys
 // ---------------------------------------------------------------------------
+export function getGroqApiKey(): string {
+  return process.env.GROQ_API_KEY?.trim() ?? "";
+}
+
+/** Kept for TTS (Gemini-only) */
 export function getGeminiApiKey(): string {
   const k = process.env.GOOGLE_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim();
   return k ?? "";
 }
 
-let _client: GoogleGenAI | null = null;
+// ---------------------------------------------------------------------------
+// Groq client singleton
+// ---------------------------------------------------------------------------
+let _groqClient: Groq | null = null;
 
-export function getGoogleGenAI(): GoogleGenAI {
-  if (!_client) {
-    const apiKey = getGeminiApiKey();
-    _client = new GoogleGenAI({ apiKey: apiKey || undefined });
+export function getGroqClient(): Groq {
+  if (!_groqClient) {
+    _groqClient = new Groq({ apiKey: getGroqApiKey() || undefined });
   }
-  return _client;
+  return _groqClient;
 }
 
 // ---------------------------------------------------------------------------
-// Model IDs (free-tier defaults per plan)
+// Gemini client singleton — kept ONLY for TTS
 // ---------------------------------------------------------------------------
+let _geminiClient: import("@google/genai").GoogleGenAI | null = null;
+
+export function getGoogleGenAI(): import("@google/genai").GoogleGenAI {
+  if (!_geminiClient) {
+    const { GoogleGenAI } = require("@google/genai") as typeof import("@google/genai");
+    const apiKey = getGeminiApiKey();
+    _geminiClient = new GoogleGenAI({ apiKey: apiKey || undefined });
+  }
+  return _geminiClient;
+}
+
+// ---------------------------------------------------------------------------
+// Model IDs
+// ---------------------------------------------------------------------------
+export const GROQ_MODELS = {
+  chat: process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.3-70b-versatile",
+  planner: process.env.GROQ_PLANNER_MODEL?.trim() || "llama-3.3-70b-versatile",
+  judge: process.env.GROQ_JUDGE_MODEL?.trim() || "llama-3.3-70b-versatile",
+  stt: process.env.GROQ_STT_MODEL?.trim() || "whisper-large-v3-turbo",
+} as const;
+
 export const GEMINI_MODELS = {
-  chat: process.env.GEMINI_CHAT_MODEL?.trim() || "gemma-4-31b-it",
-  planner: process.env.GEMINI_PLANNER_MODEL?.trim() || "gemma-4-26b-a4b-it",
-  judge: process.env.GEMINI_JUDGE_MODEL?.trim() || "gemma-4-26b-a4b-it",
-  stt: process.env.GEMINI_STT_MODEL?.trim() || "gemini-2.5-flash",
   tts: process.env.GEMINI_TTS_MODEL?.trim() || "gemini-2.5-flash-preview-tts",
 } as const;
 
-/** Max refiner retries when retrieval looks weak. Planner runs separately when enabled. */
+/** Max refiner retries when retrieval looks weak. */
 export function agenticRagMaxRounds(): number {
   const n = parseInt(process.env.AGENTIC_RAG_MAX_ROUNDS ?? "1", 10);
   return Number.isFinite(n) && n >= 0 ? Math.min(n, 3) : 1;
@@ -47,120 +70,34 @@ export function llmJudgeEnabled(): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Retry (transient errors)
+// Retry wrapper (rate limits, transient errors)
 // ---------------------------------------------------------------------------
-
-const DEFAULT_EMBED_429_MIN_MS = 60_000;
-
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error) return err.message;
   return String(err);
 }
 
-/**
- * Parse suggested wait from Gemini/Google 429 responses (message text or RetryInfo).
- * Returns milliseconds, or null if not found.
- */
-export function parseGemini429RetryDelayMs(err: unknown): number | null {
-  const msg = getErrorMessage(err);
-
-  const inline = /please retry in ([\d.]+)\s*s\.?/i.exec(msg);
-  if (inline) {
-    const sec = parseFloat(inline[1]!);
-    if (Number.isFinite(sec) && sec >= 0) return Math.ceil(sec * 1000) + 250;
-  }
-
-  const retryAfterHdr =
-    typeof (err as { response?: { headers?: { get?: (n: string) => string | null } } })?.response
-      ?.headers?.get === "function"
-      ? (err as { response: { headers: { get: (n: string) => string | null } } }).response.headers.get(
-          "retry-after"
-        )
-      : null;
-  if (retryAfterHdr) {
-    const asInt = parseInt(retryAfterHdr, 10);
-    if (Number.isFinite(asInt) && asInt >= 0) return asInt * 1000 + 250;
-    const dateMs = Date.parse(retryAfterHdr);
-    if (!Number.isNaN(dateMs)) {
-      const delta = dateMs - Date.now();
-      if (delta > 0) return Math.ceil(delta) + 250;
-    }
-  }
-
-  try {
-    const brace = msg.indexOf("{");
-    if (brace >= 0) {
-      let depth = 0;
-      let end = -1;
-      for (let i = brace; i < msg.length; i++) {
-        const c = msg[i]!;
-        if (c === "{") depth++;
-        else if (c === "}") {
-          depth--;
-          if (depth === 0) {
-            end = i;
-            break;
-          }
-        }
-      }
-      if (end > brace) {
-        const o = JSON.parse(msg.slice(brace, end + 1)) as {
-          error?: { details?: unknown[]; message?: string };
-        };
-        const details = o.error?.details;
-        if (Array.isArray(details)) {
-          for (const d of details) {
-            if (!d || typeof d !== "object") continue;
-            const t = (d as { "@type"?: string })["@type"];
-            if (typeof t === "string" && t.includes("RetryInfo")) {
-              const rd = (d as { retryDelay?: string }).retryDelay;
-              if (typeof rd === "string") {
-                const m = /^(\d+(?:\.\d+)?)s$/i.exec(rd.trim());
-                if (m) {
-                  const sec = parseFloat(m[1]!);
-                  if (Number.isFinite(sec) && sec >= 0) return Math.ceil(sec * 1000) + 250;
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  } catch {
-    /* ignore JSON parse */
-  }
-
-  return null;
-}
-
-function isRetryableGeminiError(msg: string): boolean {
+function isRetryableError(msg: string): boolean {
   return (
     msg.includes("500") ||
     msg.includes("503") ||
     msg.includes("429") ||
-    msg.includes("RESOURCE_EXHAUSTED") ||
     msg.includes("rate") ||
     msg.includes("timeout") ||
     msg.includes("ECONNRESET")
   );
 }
 
-export type GeminiRetryOptions = {
+export type RetryOptions = {
   maxAttempts?: number;
   baseDelayMs?: number;
   label?: string;
-  /**
-   * For 429 / RESOURCE_EXHAUSTED: wait max(parseGemini429RetryDelayMs, this) ms.
-   * Use for embedding index bursts (free-tier per-minute caps).
-   */
-  minDelayOn429Ms?: number;
 };
 
-export async function geminiWithRetry<T>(fn: () => Promise<T>, options?: GeminiRetryOptions): Promise<T> {
+export async function withRetry<T>(fn: () => Promise<T>, options?: RetryOptions): Promise<T> {
   const maxAttempts = options?.maxAttempts ?? 3;
   const baseDelayMs = options?.baseDelayMs ?? 800;
-  const label = options?.label ?? "Gemini";
-  const minDelayOn429Ms = options?.minDelayOn429Ms;
+  const label = options?.label ?? "LLM";
 
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -169,26 +106,11 @@ export async function geminiWithRetry<T>(fn: () => Promise<T>, options?: GeminiR
     } catch (err: unknown) {
       lastErr = err;
       const msg = getErrorMessage(err);
-      const retryable = isRetryableGeminiError(msg);
+      if (!isRetryableError(msg) || attempt === maxAttempts) throw err;
 
-      if (!retryable || attempt === maxAttempts) throw err;
-
-      const is429 = msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED");
-      let waitMs: number;
-      if (is429) {
-        const hintMs = parseGemini429RetryDelayMs(err);
-        if (minDelayOn429Ms != null) {
-          waitMs = Math.max(hintMs ?? 0, minDelayOn429Ms);
-        } else {
-          waitMs = Math.max(hintMs ?? 0, baseDelayMs * attempt);
-        }
-        waitMs += Math.floor(Math.random() * 1500);
-      } else {
-        waitMs = baseDelayMs * attempt;
-      }
-
+      const waitMs = baseDelayMs * attempt + Math.floor(Math.random() * 1000);
       console.warn(
-        `${label} request failed (attempt ${attempt}/${maxAttempts}): ${msg.slice(0, 500)}${msg.length > 500 ? "…" : ""}. Retrying in ${(waitMs / 1000).toFixed(1)}s...`
+        `${label} request failed (attempt ${attempt}/${maxAttempts}): ${msg.slice(0, 300)}. Retrying in ${(waitMs / 1000).toFixed(1)}s...`
       );
       await new Promise((r) => setTimeout(r, waitMs));
     }
@@ -196,37 +118,75 @@ export async function geminiWithRetry<T>(fn: () => Promise<T>, options?: GeminiR
   throw lastErr;
 }
 
-export function extractResponseText(response: GenerateContentResponse): string {
-  const t = response.text?.trim();
-  if (t) return t;
-  const parts = response.candidates?.[0]?.content?.parts;
-  if (!parts?.length) return "";
-  const chunks: string[] = [];
-  for (const p of parts) {
-    if (p && typeof (p as { text?: string }).text === "string") {
-      chunks.push((p as { text: string }).text);
-    }
-  }
-  return chunks.join("").trim();
+// Keep old names as aliases for backward compatibility in eval scripts
+export const geminiWithRetry = withRetry;
+export type GeminiRetryOptions = RetryOptions;
+export function parseGemini429RetryDelayMs(_err: unknown): number | null {
+  return null;
 }
 
+// ---------------------------------------------------------------------------
+// Groq chat completion — replaces generateContentText
+// ---------------------------------------------------------------------------
 export async function generateContentText(params: {
   model: string;
   contents: unknown;
-  config?: GenerateContentConfig;
+  config?: {
+    systemInstruction?: string;
+    temperature?: number;
+    maxOutputTokens?: number;
+    responseMimeType?: string;
+  };
 }): Promise<string> {
-  const ai = getGoogleGenAI();
-  const config: GenerateContentConfig = { ...(params.config ?? {}) };
+  const groq = getGroqClient();
 
-  const response = await geminiWithRetry(
+  const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
+
+  if (params.config?.systemInstruction) {
+    messages.push({ role: "system", content: params.config.systemInstruction });
+  }
+
+  const rawContents = params.contents as Array<{
+    role: string;
+    parts?: Array<{ text?: string }>;
+    content?: string;
+  }>;
+
+  if (Array.isArray(rawContents)) {
+    for (const item of rawContents) {
+      const role = item.role === "model" || item.role === "assistant" ? "assistant" : "user";
+      let text = "";
+      if (item.parts && Array.isArray(item.parts)) {
+        text = item.parts.map((p) => p.text ?? "").join("");
+      } else if (typeof item.content === "string") {
+        text = item.content;
+      }
+      if (text) {
+        messages.push({ role, content: text });
+      }
+    }
+  }
+
+  const isJsonMode = params.config?.responseMimeType === "application/json";
+
+  if (isJsonMode) {
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.role === "user" && !lastMsg.content.includes("JSON")) {
+      lastMsg.content += "\n\nRespond with valid JSON only.";
+    }
+  }
+
+  const response = await withRetry(
     () =>
-      ai.models.generateContent({
+      groq.chat.completions.create({
         model: params.model,
-        contents: params.contents as never,
-        config,
+        messages,
+        temperature: params.config?.temperature ?? 0.2,
+        max_tokens: params.config?.maxOutputTokens ?? 1024,
+        ...(isJsonMode ? { response_format: { type: "json_object" } } : {}),
       }),
-    { maxAttempts: 3, baseDelayMs: 800, label: "generateContent" }
+    { maxAttempts: 3, baseDelayMs: 800, label: "Groq" }
   );
 
-  return extractResponseText(response);
+  return response.choices[0]?.message?.content?.trim() ?? "";
 }
