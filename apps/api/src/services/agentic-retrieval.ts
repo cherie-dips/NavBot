@@ -228,71 +228,6 @@ Use broader terms, URL path keywords (e.g. events, /events, workshop), abbreviat
   return Array.isArray(q) ? q.filter((s) => typeof s === "string") : [];
 }
 
-function summarizeRetrievedPages(docs: RetrievedDoc[]): string {
-  const byUrl = new Map<string, { title: string; snippets: string[] }>();
-  for (const d of docs) {
-    const key = d.url || "(unknown)";
-    const entry = byUrl.get(key) ?? { title: d.title, snippets: [] };
-    if (entry.snippets.length < 2) {
-      entry.snippets.push(d.content.slice(0, 150).replace(/\s+/g, " ").trim());
-    }
-    byUrl.set(key, entry);
-  }
-  const lines: string[] = [];
-  for (const [url, { title, snippets }] of byUrl) {
-    lines.push(`- ${title} (${url}): ${snippets[0] ?? ""}`);
-  }
-  return lines.slice(0, 15).join("\n");
-}
-
-async function runSufficiencyCheck(
-  userMessage: string,
-  docs: RetrievedDoc[]
-): Promise<string[]> {
-  if (docs.length === 0) return [];
-
-  const summary = summarizeRetrievedPages(docs);
-
-  const prompt = `A user asked a website chatbot this question: ${JSON.stringify(userMessage)}
-
-The vector search returned content from these pages:
-${summary}
-
-Are there DIFFERENT pages on the website that we missed? Information is often spread across multiple pages (e.g. deadlines on admissions AND fees AND scholarship pages; a person on faculty AND events AND news pages).
-
-If the retrieved pages likely cover the full answer, return: {"sufficient": true}
-If other pages probably have relevant info we missed, return: {"sufficient": false, "gap_queries": ["query1", "query2", "query3"]}
-
-CRITICAL rules for gap_queries:
-- Each query MUST target a DIFFERENT page/section we don't already have. Look at the pages above and think about what's MISSING.
-- Do NOT rephrase the original question. Do NOT generate variations like "X role", "X biography", "X profile" — those all hit the same page.
-- Instead think: "we have the faculty page, but we're missing the events page, the news page, the about page" → query each missing section.
-- 3-5 queries max.`;
-
-  const raw = await generateContentText({
-    model: GEMINI_MODELS.planner,
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: {
-      temperature: 0.1,
-      maxOutputTokens: 256,
-      responseMimeType: "application/json",
-    },
-  });
-
-  try {
-    const cleaned = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-    const parsed = JSON.parse(cleaned.match(/\{[\s\S]*\}/)?.[0] ?? "{}") as {
-      sufficient?: boolean;
-      gap_queries?: string[];
-    };
-    if (parsed.sufficient) return [];
-    if (Array.isArray(parsed.gap_queries)) {
-      return parsed.gap_queries.filter((s) => typeof s === "string" && s.trim().length > 1);
-    }
-  } catch { /* ignore parse errors */ }
-  return [];
-}
-
 export type AgenticRetrievalResult = {
   docs: RetrievedDoc[];
   /** For logging / debugging */
@@ -418,38 +353,11 @@ export async function runAgenticRetrieval(
     }
   }
 
-  // --- Phase 4: Cross-page sufficiency (exhaustive list questions ONLY) ---
-  let sufficiencyRounds = 0;
-  if (exhaustiveList && docs.length > 0 && getGeminiApiKeyForAgentic()) {
-    try {
-      const gapQueries = await runSufficiencyCheck(userMessage, docs);
-      if (gapQueries.length > 0) {
-        sufficiencyRounds = 1;
-        console.log(
-          `[sufficiency] Filling gaps with ${gapQueries.length} queries: ${gapQueries.join(", ")}`
-        );
-        const gapDocs = await querySiteDocs({
-          siteId,
-          query: gapQueries,
-          topK: RETRIEVAL_TOP_K,
-          exhaustiveSpread: true,
-        });
-        docs = mergeDocsById(docs, gapDocs);
-        allQueries = uniqueQueries([...allQueries, ...gapQueries], queryCap + 8);
-        console.log(
-          `[sufficiency] Added chunks from gap retrieval (total: ${docs.length})`
-        );
-      }
-    } catch (e) {
-      console.warn("[sufficiency] check failed:", e);
-    }
-  }
-
   docs = await expandRetrievalAcrossTrackedPages(siteId, docs, userMessage);
 
   const bestDist = bestDistance(docs);
   console.log(
-    `[RAG retrieval] site="${siteId}" ruleQueries=${baseQueries.length} totalQueries=${allQueries.length} planner=${plannerRan} refiner=${refinerIterations} sufficiency=${sufficiencyRounds} exhaustiveList=${exhaustiveList} chunks=${docs.length} bestDistance=${bestDist.toFixed(4)}`
+    `[RAG retrieval] site="${siteId}" ruleQueries=${baseQueries.length} totalQueries=${allQueries.length} planner=${plannerRan} refiner=${refinerIterations} exhaustiveList=${exhaustiveList} chunks=${docs.length} bestDistance=${bestDist.toFixed(4)}`
   );
 
   return {
@@ -459,7 +367,7 @@ export async function runAgenticRetrieval(
       totalQueriesUsed: allQueries.length,
       plannerRan,
       refinerIterations,
-      sufficiencyRounds,
+      sufficiencyRounds: 0,
       bestDistance: bestDist,
     },
   };

@@ -346,26 +346,21 @@ export async function answerQuestionWithRag(params: {
 
   const baseQueries = buildRetrievalQueries(message);
 
-  const { docs: agenticDocs, retrievalMeta } = await runAgenticRetrieval({
-    siteId,
-    userMessage: message,
-    history,
-    baseQueries,
-  });
-
-  console.log(
-    `RAG for site "${siteId}": ${retrievalMeta.totalQueriesUsed} retrieval quer${retrievalMeta.totalQueriesUsed === 1 ? "y" : "ies"} ` +
-      `(rule=${retrievalMeta.ruleQueryCount}, planner=${retrievalMeta.plannerRan}, refiner=${retrievalMeta.refinerIterations}, sufficiency=${retrievalMeta.sufficiencyRounds}) → ${agenticDocs.length} chunks, bestDist≈${retrievalMeta.bestDistance.toFixed(4)}`
-  );
-
   const socialIntent = hasSocialIntent(message);
-  console.log(`[social] Intent detected: ${socialIntent} for query: "${message}"`);
-
   const socialPromise = socialIntent
     ? searchSocialMedia(siteId, message)
     : Promise.resolve([]);
 
-  const socialResults = await socialPromise;
+  const [{ docs: agenticDocs, retrievalMeta }, socialResults] = await Promise.all([
+    runAgenticRetrieval({ siteId, userMessage: message, history, baseQueries }),
+    socialPromise,
+  ]);
+
+  console.log(
+    `RAG for site "${siteId}": ${retrievalMeta.totalQueriesUsed} retrieval quer${retrievalMeta.totalQueriesUsed === 1 ? "y" : "ies"} ` +
+      `(rule=${retrievalMeta.ruleQueryCount}, planner=${retrievalMeta.plannerRan}, refiner=${retrievalMeta.refinerIterations}) → ${agenticDocs.length} chunks, bestDist≈${retrievalMeta.bestDistance.toFixed(4)}`
+  );
+
   const docs = agenticDocs;
 
   console.log(`[social] Got ${socialResults.length} social results, ${docs.length} vector docs`);

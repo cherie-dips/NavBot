@@ -32,8 +32,8 @@ export const GEMINI_MODELS = {
 
 /** Max refiner retries when retrieval looks weak. Planner runs separately when enabled. */
 export function agenticRagMaxRounds(): number {
-  const n = parseInt(process.env.AGENTIC_RAG_MAX_ROUNDS ?? "2", 10);
-  return Number.isFinite(n) && n >= 0 ? Math.min(n, 3) : 2;
+  const n = parseInt(process.env.AGENTIC_RAG_MAX_ROUNDS ?? "1", 10);
+  return Number.isFinite(n) && n >= 0 ? Math.min(n, 3) : 1;
 }
 
 export function agenticPlannerEnabled(): boolean {
