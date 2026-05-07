@@ -348,7 +348,10 @@ export async function answerQuestionWithRag(params: {
 
   const socialIntent = hasSocialIntent(message);
   const socialPromise = socialIntent
-    ? searchSocialMedia(siteId, message).catch(() => [])
+    ? searchSocialMedia(siteId, message).catch((err) => {
+        console.error("[social] searchSocialMedia failed:", err instanceof Error ? err.message : err);
+        return [] as Awaited<ReturnType<typeof searchSocialMedia>>;
+      })
     : Promise.resolve([]);
 
   const [{ docs: agenticDocs, retrievalMeta }, socialResults] = await Promise.all([

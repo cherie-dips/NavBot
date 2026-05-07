@@ -1,9 +1,7 @@
 import { getSocialHandles, type SocialHandles } from "./db";
 
-const SERPER_API_KEY = process.env.SERPER_API_KEY ?? "";
-
-if (!SERPER_API_KEY) {
-  console.warn("SERPER_API_KEY is not set. Social media search will be disabled.");
+function getSerperApiKey(): string {
+  return process.env.SERPER_API_KEY?.trim() ?? "";
 }
 
 // ---------------------------------------------------------------------------
@@ -97,13 +95,13 @@ function buildSearchQueries(
 async function serperSearch(
   query: string
 ): Promise<Array<{ title: string; link: string; snippet: string }>> {
-  if (!SERPER_API_KEY) return [];
+  if (!getSerperApiKey()) return [];
 
   try {
     const res = await fetch("https://google.serper.dev/search", {
       method: "POST",
       headers: {
-        "X-API-KEY": SERPER_API_KEY,
+        "X-API-KEY": getSerperApiKey(),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ q: query, num: 5 }),
@@ -137,11 +135,18 @@ export async function searchSocialMedia(
   siteId: string,
   userQuery: string
 ): Promise<SocialSearchResult[]> {
-  if (!SERPER_API_KEY) return [];
+  const serperKey = getSerperApiKey();
+  if (!serperKey) {
+    console.warn("[social-search] SERPER_API_KEY not set, skipping social search");
+    return [];
+  }
 
   const handles = await getSocialHandles(siteId);
   const configuredPlatforms = Object.entries(handles).filter(([, v]) => v?.trim());
-  if (configuredPlatforms.length === 0) return [];
+  if (configuredPlatforms.length === 0) {
+    console.warn(`[social-search] No social handles configured for site "${siteId}"`);
+    return [];
+  }
 
   // Check cache
   const cacheKey = `${siteId}:${userQuery.toLowerCase().trim()}`;
