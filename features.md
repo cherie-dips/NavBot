@@ -36,7 +36,6 @@ Users can register, add websites, and manage all sites from a single dashboard.
 - **Add sites by URL** — triggers automatic BFS crawl and Pinecone indexing
 - **View all registered sites** with page count, crawl status, and last-synced timestamp
 - **Delete sites** — removes the site record, all associated pages from the database, and all vectors from Pinecone
-- **Re-index** — triggers a full re-crawl and re-upsert of all pages
 - **Configure social media handles** per site (Instagram, Twitter/X, LinkedIn, Facebook) for supplementary search
 
 ### Widget Embed Code
@@ -81,8 +80,7 @@ Three rendering backends, selected automatically:
 - **Image alt text and figcaptions**
 - **Contact information** from nav/footer — emails, phone numbers, physical addresses
 - **Meta descriptions, OpenGraph tags, and JSON-LD** structured data
-- **PDF extraction** — downloads and extracts text from PDF URLs via `pdfjs-dist`, with Gemini Vision OCR fallback for scanned/image PDFs
-- **Image OCR** — extracts text from images without alt text using Gemini Vision (configurable via `NAVBOT_IMAGE_OCR` env var)
+- **PDF extraction** — downloads and extracts text from PDF URLs via `pdfjs-dist`
 
 ### Chunking Strategy
 - **1500-character chunks** with **300-character overlap** for context continuity
@@ -111,16 +109,15 @@ An embeddable React widget that site owners paste into their HTML. Built as an I
 
 ### Voice Chat
 - **Speech-to-Text**: Records audio in the browser, sends as multipart form data to `/api/chat/voice`
-- **Transcription**: Groq Whisper (`whisper-large-v3-turbo`) converts audio to text
+- **Transcription**: Sarvam Saaras (`saaras:v3`) converts audio to text
 - Supports **WAV, MP3, OGG, and WebM** audio formats, up to 10 MB
 - Transcribed text is then processed through the full RAG pipeline
 - Transcript is returned to the widget alongside the answer
 
 ### Text-to-Speech
 - `/api/chat/tts` endpoint converts answer text to audio
-- Uses **Google Gemini TTS** (`gemini-2.5-flash-preview-tts`) with configurable voice (default: `Kore`)
+- Uses **Sarvam Bulbul** (`bulbul:v2`) with configurable speaker (default: `anushka`) and language (default: `en-IN`)
 - Returns base64-encoded WAV audio for playback in the widget
-- PCM16 mono audio conversion with proper WAV header generation
 - 1000-character limit per TTS request (longer answers are truncated)
 
 ### Configuration
@@ -144,7 +141,7 @@ User Question
     │
     ├── Rule-based Query Expansion (7 domain patterns)
     │
-    ├── LLM Planner (Groq llama-3.3-70b) → generates 6-12 search queries + HyDE paragraph
+    ├── LLM Planner (Sarvam sarvam-m) → generates 6-12 search queries + HyDE paragraph
     │
     ├── Vector Search (Pinecone) → top-K chunks per query, URL spreading
     │
@@ -156,7 +153,7 @@ User Question
     │
     ├── Context Building (50K char budget, page directory, source blocks)
     │
-    ├── Groq Chat Completion (llama-3.3-70b, cross-page synthesis instructions)
+    ├── Sarvam Chat Completion (sarvam-m, cross-page synthesis instructions)
     │
     ├── LLM Judge (validates answer against context, revises or rejects)
     │
@@ -187,7 +184,7 @@ When enabled (`ENABLE_AGENTIC_PLANNER=true`, default), an LLM call generates:
 - A **HyDE paragraph** (Hypothetical Document Embedding) — a synthetic passage that might answer the question, used as an additional search query for better semantic matching
 - Event-section retrieval boosters for workshop/event questions
 
-The planner uses `GROQ_PLANNER_MODEL` (default: `llama-3.3-70b-versatile`) with JSON-mode output.
+The planner uses `SARVAM_PLANNER_MODEL` (default: `sarvam-m`) with JSON-mode output.
 
 ### Stage 4: Multi-Query Vector Search
 Each generated query is sent to Pinecone in parallel:
@@ -213,18 +210,18 @@ Retrieved chunks are assembled into a structured context string:
 - Standard questions get 1800 chars/chunk and up to 20 sources
 
 ### Stage 8: LLM Chat Completion
-The assembled context is sent to Groq (`GROQ_CHAT_MODEL`, default: `llama-3.3-70b-versatile`) with:
-- A detailed system prompt with 16 rules covering: grounded answering, cross-page synthesis, formatting (bullets for lists, concise for factual), university/academic awareness (deadlines, fees, programs, faculty), and counting/arithmetic reasoning
+The assembled context is sent to Sarvam (`SARVAM_CHAT_MODEL`, default: `sarvam-m`) with:
+- A detailed system prompt with 22 rules covering: customer service chatbot identity, first-person voice, grounded answering, cross-page synthesis, data-first responses (specific dates/amounts/names over generic steps), concise formatting (bullets for lists, direct for factual), university/academic awareness, follow-up questions, and security constraints
 - Last 6 conversation turns for multi-turn context
 - Temperature: 0.2 for factual consistency
-- Higher token limit for catalog/list questions (2048 vs 700)
+- Higher token limit for catalog/list questions (1536 vs 400)
 
 ### Stage 9: LLM Judge
 When enabled (`ENABLE_LLM_JUDGE=true`), a second LLM call validates the draft answer:
 - Checks that all factual claims are supported by retrieved context
 - Returns `{"acceptable": true}` or provides a `revised_answer`
 - If the draft is unacceptable and no revision is possible, returns a safe fallback ("I don't have that information")
-- Uses `GROQ_JUDGE_MODEL` with temperature 0.1 and JSON-mode output
+- Uses `SARVAM_JUDGE_MODEL` with temperature 0.1 and JSON-mode output
 - Receives condensed context summaries (320 chars per source, up to 6-14 sources)
 
 ### Stage 10: Source Attribution
@@ -332,7 +329,6 @@ Keep indexed content fresh without full re-crawls.
 ### Manual Controls
 - **Preview mode** via `GET /api/sites/:siteId/sync` — shows what would change before applying
 - **Trigger sync** via `POST /api/sites/:siteId/sync`
-- **Full re-crawl** via `POST /api/sites/:siteId/reindex` when incremental sync isn't enough
 
 ---
 
@@ -409,7 +405,6 @@ Key findings:
 | GET | `/api/sites?userId=...` | List user's sites |
 | POST | `/api/sites` | Crawl & index a new site |
 | DELETE | `/api/sites/:siteId` | Delete site and vectors |
-| POST | `/api/sites/:siteId/reindex` | Re-crawl and re-index |
 | GET | `/api/sites/dashboard-stats` | Analytics and metrics |
 | GET | `/api/sites/:siteId/widget-config` | Public widget config |
 | GET | `/api/sites/:siteId/theme` | Get widget theme |
@@ -476,12 +471,11 @@ Response:
 | Auth | better-auth | Email/password, Google OAuth, GitHub OAuth |
 | API | Express + TypeScript | REST API server |
 | Vector DB | Pinecone | `llama-text-embed-v2` embeddings, 1024 dims, records mode |
-| LLM (Chat/Planner/Judge) | Groq (`groq-sdk`) | `llama-3.3-70b-versatile` via Groq API |
-| STT | Groq Whisper | `whisper-large-v3-turbo` for speech-to-text |
-| TTS | Google Gemini | `gemini-2.5-flash-preview-tts` for text-to-speech |
+| LLM (Chat/Planner/Judge) | Sarvam AI (`sarvamai`) | `sarvam-m` (24B) via Sarvam API; also supports `sarvam-30b` and `sarvam-105b` |
+| STT | Sarvam Saaras | `saaras:v3` for speech-to-text |
+| TTS | Sarvam Bulbul | `bulbul:v2` for text-to-speech (configurable speaker and language) |
 | Database | PostgreSQL | Sites, pages, analytics, social handles, FAQs |
 | Crawling | Cheerio + Playwright + pdfjs-dist | Static HTML, SPA rendering, PDF extraction |
-| OCR | Gemini Vision | Scanned PDF and image text extraction |
 | Social Search | Serper.dev | Google search API scoped to social platforms |
 | Widget | React IIFE bundle | Cross-origin embeddable via `<script>` tag |
 | Monorepo | pnpm + Turborepo | Shared packages across apps |
@@ -496,14 +490,14 @@ Response:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GROQ_API_KEY` | Yes | Groq API key for chat, planner, judge, and STT |
-| `GROQ_CHAT_MODEL` | No | Chat model (default: `llama-3.3-70b-versatile`) |
-| `GROQ_PLANNER_MODEL` | No | Planner model (default: `llama-3.3-70b-versatile`) |
-| `GROQ_JUDGE_MODEL` | No | Judge model (default: `llama-3.3-70b-versatile`) |
-| `GROQ_STT_MODEL` | No | STT model (default: `whisper-large-v3-turbo`) |
-| `GOOGLE_API_KEY` / `GEMINI_API_KEY` | For TTS | Google API key for Gemini TTS |
-| `GEMINI_TTS_MODEL` | No | TTS model (default: `gemini-2.5-flash-preview-tts`) |
-| `GEMINI_TTS_VOICE` | No | TTS voice name (default: `Kore`) |
+| `SARVAM_API_KEY` | Yes | Sarvam AI API key for chat, planner, judge, STT, and TTS |
+| `SARVAM_CHAT_MODEL` | No | Chat model (default: `sarvam-m`) |
+| `SARVAM_PLANNER_MODEL` | No | Planner model (default: `sarvam-m`) |
+| `SARVAM_JUDGE_MODEL` | No | Judge model (default: `sarvam-m`) |
+| `SARVAM_STT_MODEL` | No | STT model (default: `saaras:v3`) |
+| `SARVAM_TTS_MODEL` | No | TTS model (default: `bulbul:v2`) |
+| `SARVAM_TTS_SPEAKER` | No | TTS speaker voice (default: `anushka`) |
+| `SARVAM_TTS_LANG` | No | TTS language code (default: `en-IN`) |
 | `PINECONE_API_KEY` | Yes | Pinecone API key |
 | `PINECONE_INDEX` | Yes | Pinecone index name |
 | `PINECONE_HOST` | No | Pinecone host URL (optional override) |
@@ -513,7 +507,6 @@ Response:
 | `ENABLE_AGENTIC_PLANNER` | No | Enable LLM planner (default: `true`) |
 | `ENABLE_LLM_JUDGE` | No | Enable LLM judge (default: `false`) |
 | `NAVBOT_BROWSER_CRAWL` | No | Browser crawl mode: `auto`, `on`, `off` (default: `auto`) |
-| `NAVBOT_IMAGE_OCR` | No | Enable image OCR (default: off) |
 
 ### Auth Service (`navbot-auth`)
 
@@ -542,7 +535,7 @@ Response:
 
 ```bash
 # 1. Set environment variables
-export GROQ_API_KEY="your-key"
+export SARVAM_API_KEY="your-key"
 export PINECONE_API_KEY="your-key"
 export PINECONE_INDEX="your-index"
 # DATABASE_URL not required — eval scripts run without DB
