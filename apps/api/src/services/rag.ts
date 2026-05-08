@@ -6,20 +6,20 @@ import { isExhaustiveListQuestion, sortDocsForExhaustiveAnswer } from "./multipa
 import type { ChatHistoryItem } from "./chat-types";
 import {
   withRetry,
-  getGroqApiKey,
-  getGroqClient,
-  getGoogleGenAI,
-  GROQ_MODELS,
-  GEMINI_MODELS,
+  getSarvamApiKey,
+  getSarvamClient,
+  SARVAM_MODELS,
+  SARVAM_TTS_SPEAKER,
+  SARVAM_TTS_LANG,
   generateContentText,
   llmJudgeEnabled,
 } from "./gemini-client";
 
 export type { ChatHistoryItem } from "./chat-types";
 
-if (!getGroqApiKey()) {
+if (!getSarvamApiKey()) {
   console.warn(
-    "GROQ_API_KEY is not set. Chat and STT will not work."
+    "SARVAM_API_KEY is not set. Chat, STT, and TTS will not work."
   );
 }
 
@@ -239,7 +239,7 @@ async function judgeAnswer(params: {
   docs: RetrievedDoc[];
   draftAnswer: string;
 }): Promise<string> {
-  if (!llmJudgeEnabled() || !getGroqApiKey()) return params.draftAnswer;
+  if (!llmJudgeEnabled() || !getSarvamApiKey()) return params.draftAnswer;
   if (params.docs.length === 0) return params.draftAnswer;
 
   const prompt = `You evaluate a website chatbot answer (NavBot). Return JSON only.
@@ -268,7 +268,7 @@ Rules:
 
   try {
     const raw = await generateContentText({
-      model: GROQ_MODELS.judge,
+      model: SARVAM_MODELS.judge,
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       config: {
         temperature: 0.1,
@@ -289,44 +289,6 @@ Rules:
     console.warn("[judge] skipped:", e);
     return params.draftAnswer;
   }
-}
-
-function pcm16MonoToWavBase64(pcm: Buffer, sampleRate: number): string {
-  const bitsPerSample = 16;
-  const numChannels = 1;
-  const blockAlign = (numChannels * bitsPerSample) / 8;
-  const byteRate = sampleRate * blockAlign;
-  const dataSize = pcm.length;
-  const header = Buffer.alloc(44);
-  header.write("RIFF", 0);
-  header.writeUInt32LE(36 + dataSize, 4);
-  header.write("WAVE", 8);
-  header.write("fmt ", 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(numChannels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  header.write("data", 36);
-  header.writeUInt32LE(dataSize, 40);
-  return Buffer.concat([header, pcm]).toString("base64");
-}
-
-function parseSampleRateFromMime(mime: string): number {
-  const m = /rate=(\d+)/i.exec(mime);
-  if (m) return parseInt(m[1]!, 10);
-  return 24000;
-}
-
-function audioPartToWavBase64(mimeType: string, dataB64: string): string {
-  const buf = Buffer.from(dataB64, "base64");
-  if (buf.length >= 4 && buf.toString("ascii", 0, 4) === "RIFF") {
-    return dataB64;
-  }
-  const rate = parseSampleRateFromMime(mimeType || "");
-  return pcm16MonoToWavBase64(buf, rate);
 }
 
 // ---------------------------------------------------------------------------
@@ -406,7 +368,6 @@ RESPONSE STYLE — this is a chatbot, not an essay writer:
 12. Give the SPECIFIC DATA the user asked for. Never give generic steps like "fill form", "submit documents", "pay fee" — give the actual dates, actual amounts, actual names.
 13. Lead with the answer. No preamble ("Based on...", "According to...", "To answer your question...").
 14. Use bullet points (•) for 2+ items. One fact per line. Keep bullets short.
-15. For single-fact questions: keep it accurate and direct.
 16. STOP as soon as you have answered the question. Do not fill remaining space with extra info the user did not ask for. Shorter is better.
 17. Never repeat information. Never pad with filler or generic advice.
 18. At the end of your answer, ask ONE short follow-up question to guide the user (e.g., "Would you like to know about fees or eligibility?"). Keep it under 15 words.
@@ -434,7 +395,7 @@ CONSTRAINTS:
   ];
 
   const rawAnswer = await generateContentText({
-    model: GROQ_MODELS.chat,
+    model: SARVAM_MODELS.chat,
     contents,
     config: {
       systemInstruction: combinedSystemPrompt,
@@ -470,10 +431,14 @@ CONSTRAINTS:
 }
 
 // ---------------------------------------------------------------------------
-// Speech-to-text (Groq Whisper)
+// Speech-to-text (Sarvam Saaras)
 // ---------------------------------------------------------------------------
 async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<string> {
-  const groq = getGroqClient();
+  const client = getSarvamClient();
+
+  console.log(
+    `[STT] Sending ${(audioBuffer.length / 1024).toFixed(1)} KB of ${mimeType} to Sarvam ${SARVAM_MODELS.stt}`
+  );
 
   const ext = mimeType.includes("wav") ? "wav"
     : mimeType.includes("mp3") || mimeType.includes("mpeg") ? "mp3"
@@ -481,25 +446,23 @@ async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<s
     : mimeType.includes("webm") ? "webm"
     : "wav";
 
-  console.log(
-    `[STT] Sending ${(audioBuffer.length / 1024).toFixed(1)} KB of ${mimeType} to Groq ${GROQ_MODELS.stt}`
-  );
-
-  const file = new File([audioBuffer], `audio.${ext}`, { type: mimeType });
+  const blob = new Blob([audioBuffer], { type: mimeType });
+  const file = new File([blob], `audio.${ext}`, { type: mimeType });
 
   const response = await withRetry(
     () =>
-      groq.audio.transcriptions.create({
+      client.speechToText.transcribe({
         file,
-        model: GROQ_MODELS.stt,
-        response_format: "text",
+        model: SARVAM_MODELS.stt as "saaras:v3" | "saarika:v2.5",
+        language_code: "unknown" as never,
       }),
     { maxAttempts: 3, baseDelayMs: 800, label: "STT" }
   );
 
-  const transcript = (typeof response === "string" ? response : response.text ?? "").trim();
+  const result = response as unknown as { transcript?: string; text?: string };
+  const transcript = (result.transcript ?? result.text ?? "").trim();
   if (!transcript) {
-    throw new Error("Groq Whisper returned an empty transcript.");
+    throw new Error("Sarvam STT returned an empty transcript.");
   }
   console.log(`[STT] Transcript: "${transcript}"`);
   return transcript;
@@ -524,7 +487,7 @@ export async function transcribeAndAnswer(params: {
       transcript: null,
       answer:
         "Sorry, I couldn't transcribe your voice message. " +
-        "Please check that GROQ_API_KEY is set and try WAV, MP3, OGG, or WebM audio. " +
+        "Please check that SARVAM_API_KEY is set and try WAV, MP3, OGG, or WebM audio. " +
         "You can also type your question instead.",
       sources: [],
       error: msg,
@@ -549,7 +512,7 @@ export async function transcribeAndAnswer(params: {
 const MAX_TTS_CHARS = 1000;
 
 export async function synthesizeSpeech(text: string): Promise<string> {
-  const ai = getGoogleGenAI();
+  const client = getSarvamClient();
   const truncated =
     text.length > MAX_TTS_CHARS ? text.slice(0, MAX_TTS_CHARS) + "…" : text;
 
@@ -557,42 +520,19 @@ export async function synthesizeSpeech(text: string): Promise<string> {
 
   const response = await withRetry(
     () =>
-      ai.models.generateContent({
-        model: GEMINI_MODELS.tts,
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: `Say in a clear, friendly tone: ${truncated}` }],
-          },
-        ],
-        config: {
-          responseModalities: ["AUDIO"],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: process.env.GEMINI_TTS_VOICE?.trim() || "Kore",
-              },
-            },
-          },
-        },
+      client.textToSpeech.convert({
+        text: truncated,
+        target_language_code: SARVAM_TTS_LANG as "en-IN",
+        speaker: SARVAM_TTS_SPEAKER as "anushka",
+        model: SARVAM_MODELS.tts as "bulbul:v2",
       }),
     { maxAttempts: 3, baseDelayMs: 1000, label: "TTS" }
   );
 
-  const parts = response.candidates?.[0]?.content?.parts ?? [];
-  for (const part of parts) {
-    const inline = (part as { inlineData?: { mimeType?: string; data?: string } }).inlineData;
-    if (inline?.data && inline.mimeType) {
-      const wavB64 = audioPartToWavBase64(inline.mimeType, inline.data);
-      console.log(`[TTS] Audio generated (${wavB64.length} chars base64)`);
-      return wavB64;
-    }
-  }
+  const result = response as unknown as { audios?: string[] };
+  const wavB64 = result.audios?.[0];
+  if (!wavB64) throw new Error("Sarvam TTS returned no audio.");
 
-  const fallback = response.data;
-  if (fallback) {
-    return audioPartToWavBase64("audio/L16;rate=24000", fallback);
-  }
-
-  throw new Error("Gemini TTS returned no audio.");
+  console.log(`[TTS] Audio generated (${wavB64.length} chars base64)`);
+  return wavB64;
 }

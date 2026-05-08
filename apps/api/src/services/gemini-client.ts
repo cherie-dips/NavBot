@@ -1,57 +1,53 @@
-import Groq from "groq-sdk";
+import { SarvamAIClient } from "sarvamai";
+
+type SarvamModelIds = "sarvam-105b" | "sarvam-30b" | "sarvam-m";
 
 // ---------------------------------------------------------------------------
-// API keys
+// API key
 // ---------------------------------------------------------------------------
-export function getGroqApiKey(): string {
-  return process.env.GROQ_API_KEY?.trim() ?? "";
+export function getSarvamApiKey(): string {
+  return process.env.SARVAM_API_KEY?.trim() ?? "";
 }
 
-/** Kept for TTS (Gemini-only) */
-export function getGeminiApiKey(): string {
-  const k = process.env.GOOGLE_API_KEY?.trim() || process.env.GEMINI_API_KEY?.trim();
-  return k ?? "";
-}
+// Backward-compat aliases used across codebase
+export const getGroqApiKey = getSarvamApiKey;
+export function getGeminiApiKey(): string { return ""; }
 
 // ---------------------------------------------------------------------------
-// Groq client singleton
+// Sarvam client singleton
 // ---------------------------------------------------------------------------
-let _groqClient: Groq | null = null;
+let _sarvamClient: SarvamAIClient | null = null;
 
-export function getGroqClient(): Groq {
-  if (!_groqClient) {
-    _groqClient = new Groq({ apiKey: getGroqApiKey() || undefined });
+export function getSarvamClient(): SarvamAIClient {
+  if (!_sarvamClient) {
+    _sarvamClient = new SarvamAIClient({
+      apiSubscriptionKey: getSarvamApiKey() || undefined,
+    });
   }
-  return _groqClient;
+  return _sarvamClient;
 }
 
-// ---------------------------------------------------------------------------
-// Gemini client singleton — kept ONLY for TTS
-// ---------------------------------------------------------------------------
-let _geminiClient: import("@google/genai").GoogleGenAI | null = null;
-
-export function getGoogleGenAI(): import("@google/genai").GoogleGenAI {
-  if (!_geminiClient) {
-    const { GoogleGenAI } = require("@google/genai") as typeof import("@google/genai");
-    const apiKey = getGeminiApiKey();
-    _geminiClient = new GoogleGenAI({ apiKey: apiKey || undefined });
-  }
-  return _geminiClient;
-}
+// Backward-compat aliases
+export const getGroqClient = getSarvamClient as unknown as () => unknown;
+export function getGoogleGenAI(): unknown { return null; }
 
 // ---------------------------------------------------------------------------
 // Model IDs
 // ---------------------------------------------------------------------------
-export const GROQ_MODELS = {
-  chat: process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.3-70b-versatile",
-  planner: process.env.GROQ_PLANNER_MODEL?.trim() || "llama-3.3-70b-versatile",
-  judge: process.env.GROQ_JUDGE_MODEL?.trim() || "llama-3.3-70b-versatile",
-  stt: process.env.GROQ_STT_MODEL?.trim() || "whisper-large-v3-turbo",
+export const SARVAM_MODELS = {
+  chat: (process.env.SARVAM_CHAT_MODEL?.trim() || "sarvam-m") as SarvamModelIds,
+  planner: (process.env.SARVAM_PLANNER_MODEL?.trim() || "sarvam-m") as SarvamModelIds,
+  judge: (process.env.SARVAM_JUDGE_MODEL?.trim() || "sarvam-m") as SarvamModelIds,
+  stt: process.env.SARVAM_STT_MODEL?.trim() || "saaras:v3",
+  tts: process.env.SARVAM_TTS_MODEL?.trim() || "bulbul:v2",
 } as const;
 
-export const GEMINI_MODELS = {
-  tts: process.env.GEMINI_TTS_MODEL?.trim() || "gemini-2.5-flash-preview-tts",
-} as const;
+// Backward-compat aliases
+export const GROQ_MODELS = SARVAM_MODELS;
+export const GEMINI_MODELS = { tts: SARVAM_MODELS.tts } as const;
+
+export const SARVAM_TTS_SPEAKER = process.env.SARVAM_TTS_SPEAKER?.trim() || "anushka";
+export const SARVAM_TTS_LANG = process.env.SARVAM_TTS_LANG?.trim() || "en-IN";
 
 /** Max refiner retries when retrieval looks weak. */
 export function agenticRagMaxRounds(): number {
@@ -118,7 +114,7 @@ export async function withRetry<T>(fn: () => Promise<T>, options?: RetryOptions)
   throw lastErr;
 }
 
-// Keep old names as aliases for backward compatibility in eval scripts
+// Backward-compat aliases for eval scripts
 export const geminiWithRetry = withRetry;
 export type GeminiRetryOptions = RetryOptions;
 export function parseGemini429RetryDelayMs(_err: unknown): number | null {
@@ -126,7 +122,7 @@ export function parseGemini429RetryDelayMs(_err: unknown): number | null {
 }
 
 // ---------------------------------------------------------------------------
-// Groq chat completion — replaces generateContentText
+// Sarvam chat completion
 // ---------------------------------------------------------------------------
 export async function generateContentText(params: {
   model: string;
@@ -138,7 +134,7 @@ export async function generateContentText(params: {
     responseMimeType?: string;
   };
 }): Promise<string> {
-  const groq = getGroqClient();
+  const client = getSarvamClient();
 
   const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
 
@@ -178,15 +174,15 @@ export async function generateContentText(params: {
 
   const response = await withRetry(
     () =>
-      groq.chat.completions.create({
-        model: params.model,
+      client.chat.completions({
+        model: params.model as SarvamModelIds,
         messages,
         temperature: params.config?.temperature ?? 0.2,
         max_tokens: params.config?.maxOutputTokens ?? 1024,
-        ...(isJsonMode ? { response_format: { type: "json_object" } } : {}),
       }),
-    { maxAttempts: 3, baseDelayMs: 800, label: "Groq" }
+    { maxAttempts: 3, baseDelayMs: 800, label: "Sarvam" }
   );
 
-  return response.choices[0]?.message?.content?.trim() ?? "";
+  const resp = response as unknown as { choices?: Array<{ message?: { content?: string } }> };
+  return resp.choices?.[0]?.message?.content?.trim() ?? "";
 }
