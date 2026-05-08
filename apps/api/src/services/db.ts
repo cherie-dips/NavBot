@@ -10,9 +10,11 @@ export function getPool(): pg.Pool {
     }
     _pool = new pg.Pool({
       connectionString: connectionString || "postgresql://localhost:5432/unused",
-      max: 5,
-      idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 10_000,
+      max: 2,
+      idleTimeoutMillis: 20_000,
+      connectionTimeoutMillis: 15_000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10_000,
     });
   }
   return _pool;

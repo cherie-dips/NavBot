@@ -133,23 +133,28 @@ function indexErrorResponse(err: unknown): { status: number; body: Record<string
 
 /* ── List all sites for a user ─────────────────────────────────────────── */
 router.get("/", async (req: Request, res: Response) => {
-  const userId = req.query.userId as string | undefined;
-  if (!userId) {
-    return res.status(400).json({ error: "userId query param is required" });
+  try {
+    const userId = req.query.userId as string | undefined;
+    if (!userId) {
+      return res.status(400).json({ error: "userId query param is required" });
+    }
+    const sites = await getSitesByUser(userId);
+    res.json(
+      sites.map((s) => ({
+        id: s.site_id,
+        url: s.url,
+        hostname: s.hostname,
+        status: s.status,
+        pagesIndexed: s.pages_indexed,
+        lastCrawled: s.last_crawled,
+        addedAt: s.added_at,
+        widgetTheme: s.widget_theme ? JSON.parse(s.widget_theme) : null,
+      }))
+    );
+  } catch (err) {
+    console.error("[sites-list]", err);
+    res.status(500).json({ error: "failed_to_load_sites" });
   }
-  const sites = await getSitesByUser(userId);
-  res.json(
-    sites.map((s) => ({
-      id: s.site_id,
-      url: s.url,
-      hostname: s.hostname,
-      status: s.status,
-      pagesIndexed: s.pages_indexed,
-      lastCrawled: s.last_crawled,
-      addedAt: s.added_at,
-      widgetTheme: s.widget_theme ? JSON.parse(s.widget_theme) : null,
-    }))
-  );
 });
 
 /* ── Dashboard analytics (conversations, volume, top queries) ──────────── */
