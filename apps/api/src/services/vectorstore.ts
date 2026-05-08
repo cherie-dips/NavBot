@@ -96,8 +96,12 @@ function getPinecone(): Pinecone {
   return _pinecone;
 }
 
+const PINECONE_HOST = process.env.PINECONE_HOST?.trim() ?? "";
+
 function index() {
-  return getPinecone().index(PINECONE_INDEX);
+  return PINECONE_HOST
+    ? getPinecone().index(PINECONE_INDEX, PINECONE_HOST)
+    : getPinecone().index(PINECONE_INDEX);
 }
 
 function siteNamespace(siteId: string): string {
@@ -114,7 +118,7 @@ export async function pineconeSiteNamespaceRecordCount(
 ): Promise<number> {
   try {
     requirePineconeConfig();
-    const stats = await getPinecone().index(PINECONE_INDEX).describeIndexStats();
+    const stats = await index().describeIndexStats();
     const ns = siteNamespace(siteId);
     const raw = stats.namespaces?.[ns]?.recordCount;
     if (typeof raw === "number" && Number.isFinite(raw)) return raw;
@@ -510,7 +514,7 @@ export interface RetrievedDoc {
 export async function deleteSiteCollection(siteId: string): Promise<boolean> {
   const name = siteNamespace(siteId);
   try {
-    await getPinecone().index(PINECONE_INDEX).deleteNamespace(name);
+    await index().deleteNamespace(name);
     console.log(`Deleted Pinecone namespace: ${name}`);
     return true;
   } catch (err) {

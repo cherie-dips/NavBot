@@ -35,9 +35,9 @@ export function getGoogleGenAI(): unknown { return null; }
 // Model IDs
 // ---------------------------------------------------------------------------
 export const SARVAM_MODELS = {
-  chat: (process.env.SARVAM_CHAT_MODEL?.trim() || "sarvam-m") as SarvamModelIds,
-  planner: (process.env.SARVAM_PLANNER_MODEL?.trim() || "sarvam-m") as SarvamModelIds,
-  judge: (process.env.SARVAM_JUDGE_MODEL?.trim() || "sarvam-m") as SarvamModelIds,
+  chat: (process.env.SARVAM_CHAT_MODEL?.trim() || "sarvam-30b") as SarvamModelIds,
+  planner: (process.env.SARVAM_PLANNER_MODEL?.trim() || "sarvam-30b") as SarvamModelIds,
+  judge: (process.env.SARVAM_JUDGE_MODEL?.trim() || "sarvam-30b") as SarvamModelIds,
   stt: process.env.SARVAM_STT_MODEL?.trim() || "saaras:v3",
   tts: process.env.SARVAM_TTS_MODEL?.trim() || "bulbul:v2",
 } as const;
@@ -163,10 +163,29 @@ export async function generateContentText(params: {
     }
   }
 
+  // Sarvam requires strict alternation (user/assistant) starting with user.
+  // Drop leading assistant messages, then merge consecutive same-role messages.
+  while (messages.length > 0 && messages[0]!.role === "system") {
+    // keep system messages at the front — skip past them
+    break;
+  }
+  const cleaned: typeof messages = [];
+  for (const msg of messages) {
+    const prev = cleaned[cleaned.length - 1];
+    if (prev && msg.role !== "system" && prev.role === msg.role) {
+      prev.content += "\n\n" + msg.content;
+    } else if (msg.role !== "system" && cleaned.every((m) => m.role === "system") && msg.role === "assistant") {
+      // skip assistant messages before any user message
+      continue;
+    } else {
+      cleaned.push({ ...msg });
+    }
+  }
+
   const isJsonMode = params.config?.responseMimeType === "application/json";
 
   if (isJsonMode) {
-    const lastMsg = messages[messages.length - 1];
+    const lastMsg = cleaned[cleaned.length - 1];
     if (lastMsg && lastMsg.role === "user" && !lastMsg.content.includes("JSON")) {
       lastMsg.content += "\n\nRespond with valid JSON only.";
     }
@@ -176,7 +195,7 @@ export async function generateContentText(params: {
     () =>
       client.chat.completions({
         model: params.model as SarvamModelIds,
-        messages,
+        messages: cleaned,
         temperature: params.config?.temperature ?? 0.2,
         max_tokens: params.config?.maxOutputTokens ?? 1024,
       }),

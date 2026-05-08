@@ -8,11 +8,12 @@ export function getPool(): pg.Pool {
     if (!connectionString) {
       console.warn("DATABASE_URL is not set — DB queries will fail gracefully.");
     }
+    const isLocal = !connectionString || connectionString.includes("localhost");
     _pool = new pg.Pool({
       connectionString: connectionString || "postgresql://localhost:5432/unused",
-      max: 2,
-      idleTimeoutMillis: 20_000,
-      connectionTimeoutMillis: 15_000,
+      max: isLocal ? 10 : 2,
+      idleTimeoutMillis: isLocal ? 30_000 : 20_000,
+      connectionTimeoutMillis: isLocal ? 5_000 : 15_000,
       keepAlive: true,
       keepAliveInitialDelayMillis: 10_000,
     });
