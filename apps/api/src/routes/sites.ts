@@ -453,9 +453,14 @@ router.get("/:siteId/theme", async (req: Request, res: Response) => {
 
 /* ── Get widget config (public — called by widget itself) ──────────────── */
 router.get("/:siteId/widget-config", async (req: Request, res: Response) => {
-  const { siteId } = req.params;
-  const theme = (await getSiteThemePublic(siteId)) ?? DEFAULT_THEME;
-  res.json({ siteId, theme });
+  try {
+    const { siteId } = req.params;
+    const theme = (await getSiteThemePublic(siteId)) ?? DEFAULT_THEME;
+    res.json({ siteId, theme });
+  } catch (err) {
+    console.error("[widget-config]", err);
+    res.status(500).json({ error: "failed_to_load_config" });
+  }
 });
 
 /* ── Get FAQs for a site (public — called by the widget) ───────────────── */

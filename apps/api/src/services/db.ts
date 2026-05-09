@@ -11,7 +11,7 @@ export function getPool(): pg.Pool {
     const isLocal = !connectionString || connectionString.includes("localhost");
     _pool = new pg.Pool({
       connectionString: connectionString || "postgresql://localhost:5432/unused",
-      max: isLocal ? 10 : 2,
+      max: isLocal ? 10 : 8,
       idleTimeoutMillis: isLocal ? 30_000 : 20_000,
       connectionTimeoutMillis: isLocal ? 5_000 : 15_000,
       keepAlive: true,
@@ -811,7 +811,13 @@ export interface SocialHandles {
   facebook?: string;
 }
 
+const _socialHandlesCache = new Map<string, { handles: SocialHandles; ts: number }>();
+const SOCIAL_HANDLES_TTL_MS = 5 * 60 * 1000;
+
 export async function getSocialHandles(siteId: string): Promise<SocialHandles> {
+  const cached = _socialHandlesCache.get(siteId);
+  if (cached && Date.now() - cached.ts < SOCIAL_HANDLES_TTL_MS) return cached.handles;
+
   const { rows } = await pool.query(
     `SELECT social_handles FROM site
      WHERE site_id = $1 AND social_handles IS NOT NULL AND social_handles <> ''
@@ -819,12 +825,12 @@ export async function getSocialHandles(siteId: string): Promise<SocialHandles> {
     [siteId]
   );
   const row = rows[0] as { social_handles: string | null } | undefined;
-  if (!row?.social_handles) return {};
-  try {
-    return JSON.parse(row.social_handles) as SocialHandles;
-  } catch {
-    return {};
-  }
+  const handles: SocialHandles = (() => {
+    if (!row?.social_handles) return {};
+    try { return JSON.parse(row.social_handles) as SocialHandles; } catch { return {}; }
+  })();
+  _socialHandlesCache.set(siteId, { handles, ts: Date.now() });
+  return handles;
 }
 
 export async function upsertSocialHandles(
@@ -836,5 +842,6 @@ export async function upsertSocialHandles(
     `UPDATE site SET social_handles = $1 WHERE site_id = $2 AND user_id = $3`,
     [JSON.stringify(handles), siteId, userId]
   );
+  _socialHandlesCache.delete(siteId);
   return (result.rowCount ?? 0) > 0;
 }

@@ -1,20 +1,34 @@
+import Groq from "groq-sdk";
 import { SarvamAIClient } from "sarvamai";
 
-type SarvamModelIds = "sarvam-105b" | "sarvam-30b" | "sarvam-m";
+// ---------------------------------------------------------------------------
+// API keys
+// ---------------------------------------------------------------------------
+export function getGroqApiKey(): string {
+  return process.env.GROQ_API_KEY?.trim() ?? "";
+}
 
-// ---------------------------------------------------------------------------
-// API key
-// ---------------------------------------------------------------------------
 export function getSarvamApiKey(): string {
   return process.env.SARVAM_API_KEY?.trim() ?? "";
 }
 
-// Backward-compat aliases used across codebase
-export const getGroqApiKey = getSarvamApiKey;
+/** @deprecated kept for compat */
 export function getGeminiApiKey(): string { return ""; }
 
 // ---------------------------------------------------------------------------
-// Sarvam client singleton
+// Groq client singleton — used for chat, planner, judge
+// ---------------------------------------------------------------------------
+let _groqClient: Groq | null = null;
+
+export function getGroqClient(): Groq {
+  if (!_groqClient) {
+    _groqClient = new Groq({ apiKey: getGroqApiKey() || undefined });
+  }
+  return _groqClient;
+}
+
+// ---------------------------------------------------------------------------
+// Sarvam client singleton — used ONLY for TTS and STT
 // ---------------------------------------------------------------------------
 let _sarvamClient: SarvamAIClient | null = null;
 
@@ -27,23 +41,25 @@ export function getSarvamClient(): SarvamAIClient {
   return _sarvamClient;
 }
 
-// Backward-compat aliases
-export const getGroqClient = getSarvamClient as unknown as () => unknown;
+/** @deprecated kept for compat */
 export function getGoogleGenAI(): unknown { return null; }
 
 // ---------------------------------------------------------------------------
 // Model IDs
 // ---------------------------------------------------------------------------
+export const GROQ_MODELS = {
+  chat: process.env.GROQ_CHAT_MODEL?.trim() || "llama-3.3-70b-versatile",
+  planner: process.env.GROQ_PLANNER_MODEL?.trim() || "llama-3.3-70b-versatile",
+  judge: process.env.GROQ_JUDGE_MODEL?.trim() || "llama-3.3-70b-versatile",
+  stt: process.env.GROQ_STT_MODEL?.trim() || "whisper-large-v3-turbo",
+} as const;
+
 export const SARVAM_MODELS = {
-  chat: (process.env.SARVAM_CHAT_MODEL?.trim() || "sarvam-30b") as SarvamModelIds,
-  planner: (process.env.SARVAM_PLANNER_MODEL?.trim() || "sarvam-30b") as SarvamModelIds,
-  judge: (process.env.SARVAM_JUDGE_MODEL?.trim() || "sarvam-30b") as SarvamModelIds,
   stt: process.env.SARVAM_STT_MODEL?.trim() || "saaras:v3",
   tts: process.env.SARVAM_TTS_MODEL?.trim() || "bulbul:v2",
 } as const;
 
-// Backward-compat aliases
-export const GROQ_MODELS = SARVAM_MODELS;
+/** @deprecated use GROQ_MODELS instead */
 export const GEMINI_MODELS = { tts: SARVAM_MODELS.tts } as const;
 
 export const SARVAM_TTS_SPEAKER = process.env.SARVAM_TTS_SPEAKER?.trim() || "anushka";
@@ -122,7 +138,7 @@ export function parseGemini429RetryDelayMs(_err: unknown): number | null {
 }
 
 // ---------------------------------------------------------------------------
-// Sarvam chat completion
+// Groq chat completion
 // ---------------------------------------------------------------------------
 export async function generateContentText(params: {
   model: string;
@@ -134,7 +150,7 @@ export async function generateContentText(params: {
     responseMimeType?: string;
   };
 }): Promise<string> {
-  const client = getSarvamClient();
+  const groq = getGroqClient();
 
   const messages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [];
 
@@ -163,29 +179,10 @@ export async function generateContentText(params: {
     }
   }
 
-  // Sarvam requires strict alternation (user/assistant) starting with user.
-  // Drop leading assistant messages, then merge consecutive same-role messages.
-  while (messages.length > 0 && messages[0]!.role === "system") {
-    // keep system messages at the front — skip past them
-    break;
-  }
-  const cleaned: typeof messages = [];
-  for (const msg of messages) {
-    const prev = cleaned[cleaned.length - 1];
-    if (prev && msg.role !== "system" && prev.role === msg.role) {
-      prev.content += "\n\n" + msg.content;
-    } else if (msg.role !== "system" && cleaned.every((m) => m.role === "system") && msg.role === "assistant") {
-      // skip assistant messages before any user message
-      continue;
-    } else {
-      cleaned.push({ ...msg });
-    }
-  }
-
   const isJsonMode = params.config?.responseMimeType === "application/json";
 
   if (isJsonMode) {
-    const lastMsg = cleaned[cleaned.length - 1];
+    const lastMsg = messages[messages.length - 1];
     if (lastMsg && lastMsg.role === "user" && !lastMsg.content.includes("JSON")) {
       lastMsg.content += "\n\nRespond with valid JSON only.";
     }
@@ -193,15 +190,15 @@ export async function generateContentText(params: {
 
   const response = await withRetry(
     () =>
-      client.chat.completions({
-        model: params.model as SarvamModelIds,
-        messages: cleaned,
+      groq.chat.completions.create({
+        model: params.model,
+        messages,
         temperature: params.config?.temperature ?? 0.2,
         max_tokens: params.config?.maxOutputTokens ?? 1024,
+        ...(isJsonMode ? { response_format: { type: "json_object" } } : {}),
       }),
-    { maxAttempts: 3, baseDelayMs: 800, label: "Sarvam" }
+    { maxAttempts: 3, baseDelayMs: 800, label: "Groq" }
   );
 
-  const resp = response as unknown as { choices?: Array<{ message?: { content?: string } }> };
-  return resp.choices?.[0]?.message?.content?.trim() ?? "";
+  return response.choices[0]?.message?.content?.trim() ?? "";
 }
