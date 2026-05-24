@@ -13,17 +13,9 @@ import {
 } from "./gemini-client";
 import type { ChatHistoryItem } from "./chat-types";
 
-const MAX_QUERIES_TOTAL = 12;
-const MAX_QUERIES_EXHAUSTIVE = 16;
+const MAX_QUERIES_TOTAL = 8;
+const MAX_QUERIES_EXHAUSTIVE = 14;
 const RETRIEVAL_TOP_K = 12;
-
-/** Cheap fixed strings so vector search hits section pages even when the planner is vague. */
-function eventSectionRetrievalBoosters(userMessage: string): string[] {
-  if (!/workshop|events?\b|seminar|talk|session|meetup|webinar|hackathon|bootcamp/i.test(userMessage)) {
-    return [];
-  }
-  return ["events", "all events", "workshop", "past events", "event schedule"];
-}
 
 export interface AgenticRetrievalParams {
   siteId: string;
@@ -269,8 +261,7 @@ export async function runAgenticRetrieval(
 
   // --- Phase 1: Run planner + initial vector search IN PARALLEL ---
   const immediateQueries = uniqueQueries(
-    [...baseQueries, ...lexicalFallbackQueries(userMessage),
-     ...eventSectionRetrievalBoosters(userMessage)],
+    [...baseQueries, ...lexicalFallbackQueries(userMessage)],
     queryCap
   );
 

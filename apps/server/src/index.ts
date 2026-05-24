@@ -5,6 +5,7 @@ import { toNodeHandler } from "better-auth/node";
 import { getMigrations } from "better-auth/db/migration";
 import { auth, authOptions } from "./auth.js";
 import { getTrustedOrigins } from "./cors-origins.js";
+import { sitesRouter } from "./sites.js";
 
 /** First entry of CORS_ORIGIN or WEB_APP_ORIGIN — used to send users back to the SPA on OAuth errors. */
 function getWebAppOriginForRedirect(): string | undefined {
@@ -40,6 +41,7 @@ async function main(): Promise<void> {
   );
 
   app.all("/api/auth/*", toNodeHandler(auth));
+  app.use(sitesRouter);
 
   const redirectOAuthErrorToWeb = (
     req: express.Request,

@@ -12,6 +12,7 @@ export interface SocialSearchResult {
   title: string;
   url: string;
   snippet: string;
+  profileUrl?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -43,11 +44,17 @@ function setCache(key: string, results: SocialSearchResult[]) {
 // ---------------------------------------------------------------------------
 // Intent detection — should we search social media for this query?
 // ---------------------------------------------------------------------------
-const SOCIAL_INTENT_PATTERN =
-  /\b(event|fest|festival|workshop|seminar|webinar|placement|recruit|hackathon|announcement|update|news|latest|upcoming|recent|happening|drive|talk|guest\s*lecture|conference|cultural|sports|competition|club|society|activity|activities|post|social\s*media)\b/i;
+const SOCIAL_INTENT_STRONG =
+  /\b(social\s*media|instagram|twitter|linkedin|facebook|posts?|reels?)\b/i;
+const SOCIAL_INTENT_WEAK =
+  /\b(events?|workshops?|happenings?|upcoming|latest|recent|news|announcements?|fests?|festivals?|hackathons?)\b/i;
+const FACTUAL_OVERRIDE =
+  /\b(admission|fee|tuition|eligib|program|course|curriculum|contact|email|phone|address|deadline|scholarship|placement|faculty|department|requirement|criteria)\b/i;
 
 export function hasSocialIntent(query: string): boolean {
-  return SOCIAL_INTENT_PATTERN.test(query);
+  if (SOCIAL_INTENT_STRONG.test(query)) return true;
+  if (SOCIAL_INTENT_WEAK.test(query) && !FACTUAL_OVERRIDE.test(query)) return true;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -60,29 +67,46 @@ const PLATFORM_SITES: Record<string, string> = {
   facebook: "site:facebook.com",
 };
 
+const PLATFORM_PROFILE_URL: Record<string, (handle: string) => string> = {
+  instagram: (h) => `https://instagram.com/${encodeURIComponent(h)}`,
+  twitter: (h) => `https://x.com/${encodeURIComponent(h)}`,
+  linkedin: (h) => `https://linkedin.com/company/${encodeURIComponent(h)}`,
+  facebook: (h) => `https://facebook.com/${encodeURIComponent(h)}`,
+};
+
 function buildSearchQueries(
   query: string,
   handles: SocialHandles
-): Array<{ platform: string; searchQuery: string }> {
-  const queries: Array<{ platform: string; searchQuery: string }> = [];
+): Array<{ platform: string; searchQuery: string; profileUrl: string }> {
+  const queries: Array<{ platform: string; searchQuery: string; profileUrl: string }> = [];
 
   for (const [platform, username] of Object.entries(handles)) {
     if (!username?.trim()) continue;
     const siteFilter = PLATFORM_SITES[platform];
     if (!siteFilter) continue;
 
-    let handle = username.replace(/^@/, "").trim();
-    // Extract slug from full URLs (e.g. "https://linkedin.com/school/plakshauniversity/...")
+    const raw = username.trim();
+    let handle = raw.replace(/^@/, "");
+    let profileUrl = "";
+
     try {
       const parsed = new URL(handle);
+      parsed.search = "";
+      parsed.hash = "";
+      parsed.pathname = parsed.pathname.replace(/\/(posts|feed|about|videos|photos)\/?$/, "");
+      profileUrl = parsed.toString().replace(/\/+$/, "");
       const segments = parsed.pathname.split("/").filter(Boolean);
       const slug = segments.find((s) => s !== "in" && s !== "company" && s !== "school" && s !== "posts");
       if (slug) handle = slug;
-    } catch { /* not a URL, use as-is */ }
+    } catch {
+      const buildUrl = PLATFORM_PROFILE_URL[platform];
+      profileUrl = buildUrl ? buildUrl(handle) : "";
+    }
 
     queries.push({
       platform,
       searchQuery: `${siteFilter} "${handle}" ${query}`,
+      profileUrl,
     });
   }
 
@@ -129,6 +153,18 @@ async function serperSearch(
 }
 
 // ---------------------------------------------------------------------------
+// Filter out results that are not real posts (profile pages, generic uploads)
+// ---------------------------------------------------------------------------
+function isUselessSocialResult(r: SocialSearchResult): boolean {
+  const title = r.title.toLowerCase();
+  if (/added a new (photo|video)\b/i.test(title)) return true;
+  if (/\bmentions\b/i.test(title)) return true;
+  // Title is just "OrgName | Location" — a profile page title, not a post
+  if (/^[^|]+\|[^|]+$/.test(r.title.trim()) && !/event|workshop|seminar|talk|conference|hackathon/i.test(title)) return true;
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Main entry point — search social media for a site's configured handles
 // ---------------------------------------------------------------------------
 export async function searchSocialMedia(
@@ -161,20 +197,36 @@ export async function searchSocialMedia(
 
   // Run all platform searches in parallel
   const allResults = await Promise.all(
-    searchQueries.map(async ({ platform, searchQuery }) => {
+    searchQueries.map(async ({ platform, searchQuery, profileUrl }) => {
       const raw = await serperSearch(searchQuery);
       return raw.map((r) => ({
         platform,
         title: r.title,
         url: r.link,
         snippet: r.snippet,
+        profileUrl,
       }));
     })
   );
 
-  const results = allResults.flat();
+  const raw = allResults.flat();
+  const results = raw
+    .filter((r) => {
+      if (!r.profileUrl) return true;
+      try {
+        const postPath = new URL(r.url).pathname.replace(/\/+$/, "");
+        const profilePath = new URL(r.profileUrl).pathname.replace(/\/+$/, "");
+        if (postPath === profilePath) return false;
+        const NON_POST_SUBPATHS = /\/(mentions|about|reviews|community|groups|likes|followers|following|reels_tab)\/?$/i;
+        if (NON_POST_SUBPATHS.test(postPath)) return false;
+        return true;
+      } catch {
+        return true;
+      }
+    })
+    .filter((r) => !isUselessSocialResult(r));
   setCache(cacheKey, results);
-  console.log(`[social-search] Found ${results.length} total results across platforms`);
+  console.log(`[social-search] Found ${results.length} results (${raw.length - results.length} junk filtered)`);
 
   return results;
 }
@@ -185,10 +237,24 @@ export async function searchSocialMedia(
 export function buildSocialContextString(results: SocialSearchResult[]): string {
   if (results.length === 0) return "";
 
-  return results
-    .map(
-      (r, idx) =>
-        `[Social Media - ${r.platform} #${idx + 1}]\nTitle: ${r.title}\nURL: ${r.url}\n\n${r.snippet}`
-    )
-    .join("\n\n---\n\n");
+  const byPlatform = new Map<string, { profileUrl: string; items: SocialSearchResult[] }>();
+  for (const r of results) {
+    const entry = byPlatform.get(r.platform) ?? { profileUrl: r.profileUrl ?? "", items: [] };
+    entry.items.push(r);
+    if (!entry.profileUrl && r.profileUrl) entry.profileUrl = r.profileUrl;
+    byPlatform.set(r.platform, entry);
+  }
+
+  const blocks: string[] = [];
+  for (const [platform, { profileUrl, items }] of byPlatform) {
+    const header = profileUrl
+      ? `[Social Media - ${platform}]\nProfile: ${profileUrl}`
+      : `[Social Media - ${platform}]`;
+    const posts = items
+      .map((r, i) => `  ${i + 1}. ${r.title}\n     Post URL: ${r.url}\n     ${r.snippet}`)
+      .join("\n");
+    blocks.push(`${header}\n${posts}`);
+  }
+
+  return blocks.join("\n\n---\n\n");
 }

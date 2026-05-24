@@ -28,7 +28,34 @@ function renderBotText(raw: string): React.ReactNode {
       .split("|")
       .map((c) => c.trim());
 
+  let subListItems: React.ReactNode[] | null = null;
+
+  const flushSubList = () => {
+    if (!subListItems || subListItems.length === 0) return;
+    const subUl = (
+      <ul
+        key={`sub-ul-${elements.length}-${listItems.length}`}
+        style={{ margin: "2px 0 2px 0", paddingLeft: "18px", listStyleType: "circle", fontFamily: "inherit" }}
+      >
+        {subListItems}
+      </ul>
+    );
+    if (listItems.length > 0) {
+      const lastLi = listItems[listItems.length - 1] as React.ReactElement<{ children: React.ReactNode }>;
+      listItems[listItems.length - 1] = (
+        <li key={lastLi.key} style={{ marginBottom: "2px", fontFamily: "inherit" }}>
+          {lastLi.props.children}
+          {subUl}
+        </li>
+      );
+    } else {
+      listItems.push(subUl);
+    }
+    subListItems = null;
+  };
+
   const flushList = () => {
+    flushSubList();
     if (listItems.length === 0) return;
     if (listType === "ol") {
       elements.push(
@@ -234,17 +261,30 @@ function renderBotText(raw: string): React.ReactNode {
       );
       continue;
     }
+    const indent = line.search(/\S/);
     const bulletMatch = trimmed.match(/^[-•*]\s+(.+)/);
     const numberMatch = trimmed.match(/^\d+[.)]\s+(.+)/);
     if (bulletMatch) {
-      if (listType !== "ul") flushList();
-      listType = "ul";
-      listItems.push(
-        <li key={`li-${i}`} style={{ marginBottom: "2px", fontFamily: "inherit" }}>
-          {formatInline(bulletMatch[1]!)}
-        </li>
-      );
+      const isNested = indent >= 2;
+      if (isNested && listType === "ul" && listItems.length > 0) {
+        if (!subListItems) subListItems = [];
+        subListItems.push(
+          <li key={`sli-${i}`} style={{ marginBottom: "2px", fontFamily: "inherit" }}>
+            {formatInline(bulletMatch[1]!)}
+          </li>
+        );
+      } else {
+        flushSubList();
+        if (listType !== "ul") flushList();
+        listType = "ul";
+        listItems.push(
+          <li key={`li-${i}`} style={{ marginBottom: "2px", fontFamily: "inherit" }}>
+            {formatInline(bulletMatch[1]!)}
+          </li>
+        );
+      }
     } else if (numberMatch) {
+      flushSubList();
       if (listType !== "ol") flushList();
       listType = "ol";
       listItems.push(
@@ -253,6 +293,7 @@ function renderBotText(raw: string): React.ReactNode {
         </li>
       );
     } else {
+      flushSubList();
       flushList();
       const sourceNode = renderSourcesLine(trimmed, i);
       if (sourceNode) {
@@ -266,6 +307,7 @@ function renderBotText(raw: string): React.ReactNode {
       );
     }
   }
+  flushSubList();
   flushList();
   return <>{elements}</>;
 }
@@ -424,16 +466,16 @@ function clearHistory(siteId: string) {
 
 function getUiStateKey(siteId: string) { return `navbot_ui_${siteId}`; }
 
-function loadUiState(siteId: string): { open: boolean; faqDismissed: boolean } {
+function loadUiState(siteId: string): { open: boolean; faqDismissed: boolean; width: number } {
   try {
     var raw = sessionStorage.getItem(getUiStateKey(siteId));
-    if (!raw) return { open: false, faqDismissed: false };
+    if (!raw) return { open: false, faqDismissed: false, width: 360 };
     var parsed = JSON.parse(raw);
-    return { open: !!parsed.open, faqDismissed: !!parsed.faqDismissed };
-  } catch { return { open: false, faqDismissed: false }; }
+    return { open: !!parsed.open, faqDismissed: !!parsed.faqDismissed, width: typeof parsed.width === "number" ? parsed.width : 360 };
+  } catch { return { open: false, faqDismissed: false, width: 360 }; }
 }
 
-function saveUiState(siteId: string, state: { open: boolean; faqDismissed: boolean }) {
+function saveUiState(siteId: string, state: { open: boolean; faqDismissed: boolean; width: number }) {
   try { sessionStorage.setItem(getUiStateKey(siteId), JSON.stringify(state)); }
   catch { /* quota exceeded */ }
 }
@@ -450,8 +492,9 @@ export const ChatWidget: React.FC = () => {
   const { apiBase, siteId, theme: initialTheme } = getConfig();
   const [theme, setTheme] = useState<ResolvedWidgetTheme>(initialTheme);
 
-  const savedUi = typeof window !== "undefined" ? loadUiState(siteId) : { open: false, faqDismissed: false };
+  const savedUi = typeof window !== "undefined" ? loadUiState(siteId) : { open: false, faqDismissed: false, width: 360 };
   const [isOpen, _setIsOpen] = useState(savedUi.open);
+  const [widgetWidth, _setWidgetWidth] = useState(savedUi.width);
   const [mounted, setMounted] = useState(false);
   const [messages, setMessages] = useState<Message[]>(() => {
     if (typeof window === "undefined") return [WELCOME_MESSAGE];
@@ -469,17 +512,26 @@ export const ChatWidget: React.FC = () => {
 
   const faqDismissedRef = useRef(savedUi.faqDismissed);
   const isOpenRef = useRef(savedUi.open);
+  const widgetWidthRef = useRef(savedUi.width);
+  const isResizingRef = useRef(false);
 
   const setIsOpen = (v: boolean) => {
     _setIsOpen(v);
     isOpenRef.current = v;
-    saveUiState(siteId, { open: v, faqDismissed: faqDismissedRef.current });
+    saveUiState(siteId, { open: v, faqDismissed: faqDismissedRef.current, width: widgetWidthRef.current });
   };
 
   const setFaqDismissed = (v: boolean) => {
     _setFaqDismissed(v);
     faqDismissedRef.current = v;
-    saveUiState(siteId, { open: isOpenRef.current, faqDismissed: v });
+    saveUiState(siteId, { open: isOpenRef.current, faqDismissed: v, width: widgetWidthRef.current });
+  };
+
+  const setWidgetWidth = (w: number) => {
+    const clamped = Math.min(600, Math.max(300, w));
+    _setWidgetWidth(clamped);
+    widgetWidthRef.current = clamped;
+    saveUiState(siteId, { open: isOpenRef.current, faqDismissed: faqDismissedRef.current, width: clamped });
   };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -513,6 +565,39 @@ export const ChatWidget: React.FC = () => {
   }, [apiBase, siteId]);
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
   useEffect(() => { return () => { if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current); }; }, []);
+
+  const resizeStartX = useRef(0);
+  const resizeStartWidth = useRef(360);
+
+  const onResizeMove = useRef((e: MouseEvent | TouchEvent) => {
+    const clientX = "touches" in e ? e.touches[0]!.clientX : e.clientX;
+    const delta = resizeStartX.current - clientX;
+    setWidgetWidth(resizeStartWidth.current + delta);
+  }).current;
+
+  const onResizeEnd = useRef(() => {
+    isResizingRef.current = false;
+    document.removeEventListener("mousemove", onResizeMove);
+    document.removeEventListener("mouseup", onResizeEnd);
+    document.removeEventListener("touchmove", onResizeMove);
+    document.removeEventListener("touchend", onResizeEnd);
+    document.body.style.cursor = "";
+    document.body.style.userSelect = "";
+  }).current;
+
+  const onResizeStart = (e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    const clientX = "touches" in e ? e.touches[0]!.clientX : e.clientX;
+    resizeStartX.current = clientX;
+    resizeStartWidth.current = widgetWidthRef.current;
+    document.addEventListener("mousemove", onResizeMove);
+    document.addEventListener("mouseup", onResizeEnd);
+    document.addEventListener("touchmove", onResizeMove);
+    document.addEventListener("touchend", onResizeEnd);
+    document.body.style.cursor = "ew-resize";
+    document.body.style.userSelect = "none";
+  };
 
   // Fetch FAQs from the API on mount
   useEffect(() => {
@@ -703,7 +788,7 @@ export const ChatWidget: React.FC = () => {
         style={{
           display: "flex",
           flexDirection: "column",
-          width: "360px",
+          width: `${widgetWidth}px`,
           height: isOpen ? "520px" : "0px",
           background: panelBg,
           backdropFilter: "blur(40px)",
@@ -712,14 +797,42 @@ export const ChatWidget: React.FC = () => {
           borderRadius: "24px",
           boxShadow: "0 25px 50px -12px rgba(0,0,0,0.12)",
           overflow: "hidden",
-          transition: "all 0.4s cubic-bezier(0.34,1.56,0.64,1)",
+          transition: isResizingRef.current ? "none" : "all 0.4s cubic-bezier(0.34,1.56,0.64,1)",
           transformOrigin: "bottom right",
           marginBottom: "12px",
           opacity: isOpen ? 1 : 0,
           transform: isOpen ? "translateY(0) scale(1)" : "translateY(8px) scale(0.95)",
           pointerEvents: isOpen ? "auto" : "none",
+          position: "relative",
         }}
       >
+        {/* Resize Handle (left edge) */}
+        {isOpen && (
+          <div
+            onMouseDown={onResizeStart}
+            onTouchStart={onResizeStart}
+            style={{
+              position: "absolute",
+              top: "0",
+              left: "0",
+              width: "6px",
+              height: "100%",
+              cursor: "ew-resize",
+              zIndex: 10,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <div style={{
+              width: "3px",
+              height: "40px",
+              borderRadius: "2px",
+              background: "rgba(0,0,0,0.12)",
+              transition: "background 0.2s",
+            }} />
+          </div>
+        )}
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", flexShrink: 0, borderBottom: "1px solid rgba(0,0,0,0.04)" }}>
           <span style={{ fontWeight: 600, fontSize: "14px", fontStyle: "italic", color: theme.headerTextColor, letterSpacing: "-0.02em", fontFamily: "inherit" }}>
