@@ -11,7 +11,11 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { PricingPage } from "./pages/PricingPage";
 import { authClient } from "./lib/auth-client";
 import { SiteOption } from "./components/SiteSelector";
+import { normalizeApiBase } from "./lib/api-base";
 import "./style.css";
+
+const API_BASE = normalizeApiBase((import.meta as any).env?.VITE_API_URL);
+(window as any).NAVBOT_CONFIG = { ...((window as any).NAVBOT_CONFIG || {}), apiBase: API_BASE };
 
 const App = () => {
   const [currentView, setCurrentView] = useState("home");
