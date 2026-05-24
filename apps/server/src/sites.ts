@@ -1,7 +1,7 @@
-import { Router } from "express";
+import { Router, type Router as RouterType } from "express";
 import { authPool } from "./auth.js";
 
-export const sitesRouter = Router();
+export const sitesRouter: RouterType = Router();
 
 sitesRouter.get("/api/sites", async (req, res) => {
   const userId = req.query.userId as string | undefined;
