@@ -416,7 +416,9 @@ const getConfig = (): { apiBase: string; siteId: string; theme: ResolvedWidgetTh
   const apiBase =
     globalConfig.apiBase ??
     (typeof window !== "undefined"
-      ? `${window.location.protocol}//${window.location.hostname}:3001`
+      ? window.location.protocol === "https:"
+        ? window.location.origin
+        : `${window.location.protocol}//${window.location.hostname}:3001`
       : "http://localhost:3001");
   const siteId =
     globalConfig.siteId ??
