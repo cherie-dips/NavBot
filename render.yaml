@@ -19,12 +19,6 @@
 # - API uses Docker (apps/api/Dockerfile) with Playwright + Chromium for SPA crawling.
 # - NAVBOT_BROWSER_CRAWL=auto by default — uses Playwright for detected SPAs (React, Vue, Angular, etc.).
 
-databases:
-  - name: navbot-db
-    databaseName: navbot
-    user: navbot
-    plan: free
-
 services:
   - type: web
     name: navbot-auth
@@ -37,9 +31,7 @@ services:
       - key: NODE_VERSION
         value: "20"
       - key: DATABASE_URL
-        fromDatabase:
-          name: navbot-db
-          property: connectionString
+        sync: false
       - key: CORS_ORIGIN
         sync: false
       # Optional: explicit static site URL for OAuth error redirects (defaults to first CORS_ORIGIN).
@@ -68,9 +60,7 @@ services:
     plan: free
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: navbot-db
-          property: connectionString
+        sync: false
       - key: NAVBOT_BROWSER_CRAWL
         value: "auto"
       - key: PINECONE_API_KEY
