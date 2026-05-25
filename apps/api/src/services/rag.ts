@@ -140,7 +140,7 @@ function deduplicateSources(
 // Select up to 2 most-relevant page links (excludes social URLs)
 // ---------------------------------------------------------------------------
 const SOCIAL_URL_PATTERN = /\b(instagram\.com|twitter\.com|x\.com|linkedin\.com|facebook\.com)\b/i;
-const PAGE_LINK_DISTANCE_THRESHOLD = 0.55;
+const PAGE_LINK_DISTANCE_THRESHOLD = 0.2;
 const MAX_PAGE_LINKS = 2;
 
 function selectRelevantPageLinks(
