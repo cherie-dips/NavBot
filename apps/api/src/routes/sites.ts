@@ -408,54 +408,74 @@ router.post("/:siteId/reindex", async (req: Request, res: Response) => {
 
 /* ── Delete a site ─────────────────────────────────────────────────────── */
 router.delete("/:siteId", async (req: Request, res: Response) => {
-  const { siteId } = req.params;
-  const userId = req.query.userId as string | undefined;
-  if (!userId) return res.status(400).json({ error: "userId query param is required" });
+  try {
+    const { siteId } = req.params;
+    const userId = req.query.userId as string | undefined;
+    if (!userId) return res.status(400).json({ error: "userId query param is required" });
 
-  const dbDeleted = await deleteSite(siteId, userId);
+    const dbDeleted = await deleteSite(siteId, userId);
 
-  // Only delete Pinecone namespace + hashes if no other user references this site
-  const remainingUsers = await getSiteCountBySiteId(siteId);
-  let vectorDeleted = false;
+    // Only delete Pinecone namespace + hashes if no other user references this site
+    const remainingUsers = await getSiteCountBySiteId(siteId);
+    let vectorDeleted = false;
 
-  if (remainingUsers === 0) {
-    vectorDeleted = await deleteSiteCollection(siteId);
-    await deletePageHashes(siteId);
-    await purgeSiteDerivedData(siteId);
+    if (remainingUsers === 0) {
+      vectorDeleted = await deleteSiteCollection(siteId);
+      await deletePageHashes(siteId);
+      await purgeSiteDerivedData(siteId);
+    }
+
+    res.json({ deleted: dbDeleted, vectorStoreCleared: vectorDeleted });
+  } catch (err) {
+    console.error("[delete site] error:", err);
+    res.status(500).json({ error: "internal_error" });
   }
-
-  res.json({ deleted: dbDeleted, vectorStoreCleared: vectorDeleted });
 });
 
 /* ── Save widget theme ─────────────────────────────────────────────────── */
 router.put("/:siteId/theme", async (req: Request, res: Response) => {
-  const { siteId } = req.params;
-  const userId = req.query.userId as string | undefined;
-  if (!userId) return res.status(400).json({ error: "userId query param is required" });
+  try {
+    const { siteId } = req.params;
+    const userId = req.query.userId as string | undefined;
+    if (!userId) return res.status(400).json({ error: "userId query param is required" });
 
-  const theme = req.body as WidgetTheme;
-  if (!theme?.primary) return res.status(400).json({ error: "theme.primary is required" });
+    const theme = req.body as WidgetTheme;
+    if (!theme?.primary) return res.status(400).json({ error: "theme.primary is required" });
 
-  const saved = await upsertSiteTheme(siteId, userId, theme);
-  if (!saved) return res.status(404).json({ error: "site not found" });
-  res.json({ ok: true, theme });
+    const saved = await upsertSiteTheme(siteId, userId, theme);
+    if (!saved) return res.status(404).json({ error: "site not found" });
+    res.json({ ok: true, theme });
+  } catch (err) {
+    console.error("[put theme] error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
 });
 
 /* ── Get widget theme (dashboard) ──────────────────────────────────────── */
 router.get("/:siteId/theme", async (req: Request, res: Response) => {
-  const { siteId } = req.params;
-  const userId = req.query.userId as string | undefined;
-  if (!userId) return res.status(400).json({ error: "userId query param is required" });
+  try {
+    const { siteId } = req.params;
+    const userId = req.query.userId as string | undefined;
+    if (!userId) return res.status(400).json({ error: "userId query param is required" });
 
-  const theme = (await getSiteTheme(siteId, userId)) ?? DEFAULT_THEME;
-  res.json(theme);
+    const theme = (await getSiteTheme(siteId, userId)) ?? DEFAULT_THEME;
+    res.json(theme);
+  } catch (err) {
+    console.error("[get theme] error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
 });
 
 /* ── Get widget config (public — called by widget itself) ──────────────── */
 router.get("/:siteId/widget-config", async (req: Request, res: Response) => {
-  const { siteId } = req.params;
-  const theme = (await getSiteThemePublic(siteId)) ?? DEFAULT_THEME;
-  res.json({ siteId, theme });
+  try {
+    const { siteId } = req.params;
+    const theme = (await getSiteThemePublic(siteId)) ?? DEFAULT_THEME;
+    res.json({ siteId, theme });
+  } catch (err) {
+    console.error("[widget-config] error:", err);
+    res.json({ siteId: req.params.siteId, theme: DEFAULT_THEME });
+  }
 });
 
 /* ── Get FAQs for a site (public — called by the widget) ───────────────── */
@@ -486,37 +506,52 @@ router.post("/:siteId/faqs/refresh", async (req: Request, res: Response) => {
 
 /* ── Get social handles ───────────────────────────────────────────────── */
 router.get("/:siteId/social", async (req: Request, res: Response) => {
-  const { siteId } = req.params;
-  const handles = await getSocialHandles(siteId);
-  res.json(handles);
+  try {
+    const { siteId } = req.params;
+    const handles = await getSocialHandles(siteId);
+    res.json(handles);
+  } catch (err) {
+    console.error("[get social] error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
 });
 
 /* ── Save / update social handles ─────────────────────────────────────── */
 router.patch("/:siteId/social", async (req: Request, res: Response) => {
-  const { siteId } = req.params;
-  const userId = req.query.userId as string | undefined;
-  if (!userId) return res.status(400).json({ error: "userId query param is required" });
+  try {
+    const { siteId } = req.params;
+    const userId = req.query.userId as string | undefined;
+    if (!userId) return res.status(400).json({ error: "userId query param is required" });
 
-  const handles = req.body as SocialHandles;
-  const saved = await upsertSocialHandles(siteId, userId, handles);
-  if (!saved) return res.status(404).json({ error: "site not found" });
-  res.json({ ok: true, handles });
+    const handles = req.body as SocialHandles;
+    const saved = await upsertSocialHandles(siteId, userId, handles);
+    if (!saved) return res.status(404).json({ error: "site not found" });
+    res.json({ ok: true, handles });
+  } catch (err) {
+    console.error("[patch social] error:", err);
+    res.status(500).json({ error: "internal_error" });
+  }
 });
 
 /* ── Save user-edited FAQ answer (dashboard) ───────────────────────────── */
 router.patch("/:siteId/faqs/:faqId", async (req: Request, res: Response) => {
-  const { siteId, faqId } = req.params;
-  const { answer } = req.body as { answer?: string };
-  if (!answer?.trim()) {
-    return res.status(400).json({ error: "answer is required" });
+  try {
+    const { siteId, faqId } = req.params;
+    const { answer } = req.body as { answer?: string };
+    if (!answer?.trim()) {
+      return res.status(400).json({ error: "answer is required" });
+    }
+    const id = Number(faqId);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: "invalid faqId" });
+    }
+    const ok = await saveFaqUserAnswer(siteId, id, answer);
+    if (!ok) return res.status(404).json({ error: "faq not found" });
+    res.json({ ok: true, siteId, faqId: id });
+  } catch (err) {
+    console.error("[patch faq] error:", err);
+    res.status(500).json({ error: "internal_error" });
   }
-  const id = Number(faqId);
-  if (!Number.isFinite(id) || id <= 0) {
-    return res.status(400).json({ error: "invalid faqId" });
-  }
-  const ok = await saveFaqUserAnswer(siteId, id, answer);
-  if (!ok) return res.status(404).json({ error: "faq not found" });
-  res.json({ ok: true, siteId, faqId: id });
 });
 
 /* ── Ping — widget calls this on load to trigger a background sync ───── */

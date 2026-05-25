@@ -77,3 +77,6 @@ async function gracefulShutdown(signal: string) {
 
 process.once("SIGTERM", () => void gracefulShutdown("SIGTERM"));
 process.once("SIGINT", () => void gracefulShutdown("SIGINT"));
+process.on("unhandledRejection", (err) => {
+  console.error("[api] unhandledRejection:", err);
+});
