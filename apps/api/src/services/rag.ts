@@ -4,7 +4,7 @@ import { hasSocialIntent, searchSocialMedia, buildSocialContextString, type Soci
 import { getFaqUserAnswerForQuestion } from "./db";
 import { runAgenticRetrieval } from "./agentic-retrieval";
 import { isExhaustiveListQuestion, sortDocsForExhaustiveAnswer } from "./multipage-retrieval";
-import type { ChatHistoryItem } from "./chat-types";
+import type { ChatHistoryItem, PageLink } from "./chat-types";
 import {
   withRetry,
   getSarvamApiKey,
@@ -137,6 +137,24 @@ function deduplicateSources(
 }
 
 // ---------------------------------------------------------------------------
+// Select up to 2 most-relevant page links (excludes social URLs)
+// ---------------------------------------------------------------------------
+const SOCIAL_URL_PATTERN = /\b(instagram\.com|twitter\.com|x\.com|linkedin\.com|facebook\.com)\b/i;
+const PAGE_LINK_DISTANCE_THRESHOLD = 0.55;
+const MAX_PAGE_LINKS = 2;
+
+function selectRelevantPageLinks(
+  sources: Array<{ url: string; title: string; distance?: number }>
+): PageLink[] {
+  return sources
+    .filter((s) => s.url && !SOCIAL_URL_PATTERN.test(s.url))
+    .filter((s) => (s.distance ?? 1) <= PAGE_LINK_DISTANCE_THRESHOLD)
+    .sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1))
+    .slice(0, MAX_PAGE_LINKS)
+    .map((s) => ({ url: s.url, title: s.title }));
+}
+
+// ---------------------------------------------------------------------------
 // Minimal output cleaner — no aggressive URL stripping
 // ---------------------------------------------------------------------------
 function cleanModelOutput(raw: string): string {
@@ -185,50 +203,17 @@ const PLATFORM_PRIORITY: Record<string, number> = {
   facebook: 3,
 };
 
-function formatSocialLinksBlock(results: SocialSearchResult[]): string {
-  const byPlatform = new Map<string, { profileUrl: string; posts: Array<{ title: string; url: string }> }>();
-  for (const r of results) {
-    const entry = byPlatform.get(r.platform) ?? { profileUrl: r.profileUrl ?? "", posts: [] };
-    if (!entry.profileUrl && r.profileUrl) entry.profileUrl = r.profileUrl;
-    entry.posts.push({ title: r.title, url: r.url });
-    byPlatform.set(r.platform, entry);
-  }
+function formatSocialLinksInline(results: SocialSearchResult[]): string {
+  if (results.length === 0) return "";
 
-  const sorted = [...byPlatform.entries()].sort((a, b) =>
-    (PLATFORM_PRIORITY[a[0]] ?? 9) - (PLATFORM_PRIORITY[b[0]] ?? 9)
+  const sorted = [...results].sort(
+    (a, b) => (PLATFORM_PRIORITY[a.platform] ?? 9) - (PLATFORM_PRIORITY[b.platform] ?? 9)
   );
 
-  const lines: string[] = ["\n\n📌 From our social media:"];
-  const MAX_POSTS = 6;
-  const MAX_PER_PLATFORM = 2;
-  let postCount = 0;
-  const platformsWithPosts = new Set<string>();
-
-  for (const [platform, { posts }] of sorted) {
-    let platformCount = 0;
-    for (const post of posts) {
-      if (postCount >= MAX_POSTS || platformCount >= MAX_PER_PLATFORM) break;
-      lines.push(`• ${cleanSocialTitle(post.title)} → ${post.url}`);
-      platformsWithPosts.add(platform);
-      postCount++;
-      platformCount++;
-    }
-    if (postCount >= MAX_POSTS) break;
-  }
-
-  const followLines: string[] = [];
-  for (const [platform, { profileUrl }] of sorted) {
-    if (profileUrl && platformsWithPosts.has(platform)) {
-      const label = platform.charAt(0).toUpperCase() + platform.slice(1);
-      followLines.push(`Follow us on ${label} for updates: ${profileUrl}`);
-    }
-  }
-  if (followLines.length > 0) {
-    lines.push("");
-    lines.push(followLines.join("\n"));
-  }
-
-  return lines.join("\n");
+  const MAX_INLINE = 3;
+  const posts = sorted.slice(0, MAX_INLINE);
+  const lines = posts.map((r) => `• ${cleanSocialTitle(r.title)} → ${r.url}`);
+  return "\n\n" + lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------
@@ -245,6 +230,7 @@ export async function answerQuestionWithRag(params: {
     return {
       answer: faqUserAnswer.answer.trim(),
       sources: [],
+      pageLinks: [] as PageLink[],
     };
   }
 
@@ -278,6 +264,7 @@ export async function answerQuestionWithRag(params: {
         "I couldn't find relevant information to answer that question. " +
         "Please try rephrasing, or contact the site owner directly.",
       sources: [],
+      pageLinks: [] as PageLink[],
     };
   }
 
@@ -298,13 +285,13 @@ INSTRUCTIONS:
 Be thorough — include all relevant items from the context.
 3. When data has multiple columns (e.g. dates with rounds, fees with categories, deadlines with stages), format as a markdown table with headers.
 4. If the context has no information about the topic, say: "I don't have that information on our website."
-5. Do not include URLs, links, or source references in your answer.
+5. Do not include URLs, links, source references, or "For More Info" sections in your answer. The system adds relevant links automatically.
 6. For greetings, reply warmly in one sentence.`;
 
   let fullPrompt = `${systemPrompt}\n\nWEBSITE CONTENT:\n\n${contextString}`;
 
   if (socialContextString) {
-    fullPrompt += `\n\n---\n\nSOCIAL MEDIA (use for recent events/updates only, do NOT include URLs):\n\n${socialContextString}`;
+    fullPrompt += `\n\n---\n\nSOCIAL MEDIA (reference specific posts by name when relevant — URLs will be appended automatically, so do NOT include URLs):\n\n${socialContextString}`;
   }
 
   const recentHistory = history.slice(-6);
@@ -342,12 +329,15 @@ Be thorough — include all relevant items from the context.
   }
 
   if (socialResults.length > 0) {
-    answer += formatSocialLinksBlock(socialResults);
+    answer += formatSocialLinksInline(socialResults);
   }
+
+  const pageLinks = selectRelevantPageLinks(sources);
 
   return {
     answer,
     sources,
+    pageLinks,
   };
 }
 

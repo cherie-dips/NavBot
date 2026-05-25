@@ -9,6 +9,7 @@ interface Message {
   timestamp: string;
   isVoice?: boolean;
   voiceReply?: boolean;
+  pageLinks?: Array<{ url: string; title: string }>;
 }
 
 function renderBotText(raw: string): React.ReactNode {
@@ -310,6 +311,43 @@ function renderBotText(raw: string): React.ReactNode {
   flushSubList();
   flushList();
   return <>{elements}</>;
+}
+
+function renderPageLinks(links: Array<{ url: string; title: string }>) {
+  if (!links || links.length === 0) return null;
+  return (
+    <div style={{
+      marginTop: "8px",
+      paddingTop: "6px",
+      borderTop: "1px solid rgba(0,0,0,0.06)",
+      fontSize: "12px",
+      fontFamily: "inherit",
+    }}>
+      <span style={{ fontWeight: 600, color: "#475569", fontSize: "11px" }}>
+        For More Info →
+      </span>
+      {links.map((link, i) => (
+        <div key={`pl-${i}`} style={{ marginTop: "4px" }}>
+          <a
+            href={link.url}
+            target="_self"
+            rel="noopener noreferrer"
+            style={{
+              color: "#2563eb",
+              textDecoration: "underline",
+              textUnderlineOffset: "2px",
+              fontFamily: "inherit",
+              cursor: "pointer",
+              pointerEvents: "auto",
+              fontSize: "12px",
+            }}
+          >
+            {link.title || link.url}
+          </a>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 type WidgetTheme = {
@@ -686,8 +724,8 @@ export const ChatWidget: React.FC = () => {
     xhr.onload = () => {
       try {
         if (xhr.status < 200 || xhr.status >= 300) throw new Error(`Chat request failed with status ${xhr.status}`);
-        const data = JSON.parse(xhr.responseText) as { answer: string };
-        addMessage({ id: Date.now() + 1, text: data.answer || "Sorry, I couldn't generate a response.", sender: "bot", timestamp: new Date().toISOString() });
+        const data = JSON.parse(xhr.responseText) as { answer: string; pageLinks?: Array<{ url: string; title: string }> };
+        addMessage({ id: Date.now() + 1, text: data.answer || "Sorry, I couldn't generate a response.", sender: "bot", timestamp: new Date().toISOString(), pageLinks: data.pageLinks });
       } catch (e) {
         console.error("Chat error:", e);
         setError("Something went wrong talking to the assistant. Please try again.");
@@ -725,9 +763,9 @@ export const ChatWidget: React.FC = () => {
         xhr.onload = () => {
           try {
             if (xhr.status < 200 || xhr.status >= 300) throw new Error(`Voice request failed with status ${xhr.status}`);
-            const data = JSON.parse(xhr.responseText) as { answer: string; transcript?: string | null; error?: string };
+            const data = JSON.parse(xhr.responseText) as { answer: string; transcript?: string | null; error?: string; pageLinks?: Array<{ url: string; title: string }> };
             setMessages((prev) => prev.map((m) => m.id === placeholderId ? { ...m, text: data.transcript ? `🎤 "${data.transcript}"` : `🎤 Voice message (${recordingTime}s)` } : m));
-            addMessage({ id: Date.now() + 1, text: data.answer || "I received your voice message.", sender: "bot", timestamp: new Date().toISOString(), voiceReply: true });
+            addMessage({ id: Date.now() + 1, text: data.answer || "I received your voice message.", sender: "bot", timestamp: new Date().toISOString(), voiceReply: true, pageLinks: data.pageLinks });
           } catch (err) {
             console.error("Voice chat error:", err);
             setError("Could not process voice message. Please try typing instead.");
@@ -875,6 +913,7 @@ export const ChatWidget: React.FC = () => {
                 fontFamily: "inherit",
               }}>
                 {message.sender === "bot" && !message.isVoice ? renderBotText(message.text) : message.text}
+                {message.sender === "bot" && message.pageLinks && renderPageLinks(message.pageLinks)}
               </div>
               {/* Play audio button for voice-triggered bot replies */}
               {message.voiceReply && message.sender === "bot" && (
