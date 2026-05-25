@@ -16,6 +16,7 @@ export function getPool(): pg.Pool {
       connectionTimeoutMillis: isLocal ? 5_000 : 15_000,
       keepAlive: true,
       keepAliveInitialDelayMillis: 10_000,
+      ...(isLocal ? {} : { ssl: { rejectUnauthorized: false } }),
     });
   }
   return _pool;

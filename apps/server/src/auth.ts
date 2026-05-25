@@ -41,9 +41,10 @@ const authBaseUrl = normalizeAuthBaseUrl(authBaseUrlRaw);
 
 export const authPool = new Pool({
   connectionString,
-  max: 10,
-  idleTimeoutMillis: 30_000,
-  connectionTimeoutMillis: 10_000,
+  max: isProd ? 2 : 10,
+  idleTimeoutMillis: isProd ? 20_000 : 30_000,
+  connectionTimeoutMillis: isProd ? 15_000 : 10_000,
+  ...(isProd ? { ssl: { rejectUnauthorized: false } } : {}),
 });
 
 const hasGoogle = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
