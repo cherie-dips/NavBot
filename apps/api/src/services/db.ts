@@ -11,11 +11,10 @@ export function getPool(): pg.Pool {
     const isLocal = !connectionString || connectionString.includes("localhost");
     _pool = new pg.Pool({
       connectionString: connectionString || "postgresql://localhost:5432/unused",
-      max: isLocal ? 10 : 5,
-      idleTimeoutMillis: isLocal ? 30_000 : 30_000,
-      connectionTimeoutMillis: isLocal ? 5_000 : 30_000,
-      keepAlive: true,
-      keepAliveInitialDelayMillis: 10_000,
+      max: isLocal ? 10 : 10,
+      idleTimeoutMillis: isLocal ? 30_000 : 10_000,
+      connectionTimeoutMillis: isLocal ? 5_000 : 10_000,
+      allowExitOnIdle: !isLocal,
       ...(isLocal ? {} : { ssl: { rejectUnauthorized: false } }),
     });
     _pool.on("error", (err) => {
