@@ -2,6 +2,12 @@ import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { MdOutlineRefresh } from "react-icons/md";
 
+interface SocialLink {
+  platform: string;
+  title: string;
+  url: string;
+}
+
 interface Message {
   id: number;
   text: string;
@@ -10,6 +16,7 @@ interface Message {
   isVoice?: boolean;
   voiceReply?: boolean;
   pageLinks?: Array<{ url: string; title: string }>;
+  socialLinks?: SocialLink[];
 }
 
 function renderBotText(raw: string): React.ReactNode {
@@ -350,6 +357,247 @@ function renderPageLinks(links: Array<{ url: string; title: string }>) {
   );
 }
 
+function getSocialEmbedUrl(url: string, platform: string): string | null {
+  try {
+    const parsed = new URL(url);
+    switch (platform) {
+      case "instagram": {
+        const match = parsed.pathname.match(/\/(p|reel|tv)\/([A-Za-z0-9_-]+)/);
+        if (match) return `https://www.instagram.com/${match[1]}/${match[2]}/embed/`;
+        return null;
+      }
+      case "twitter": {
+        const match = parsed.pathname.match(/\/\w+\/status\/(\d+)/);
+        if (match) return `https://twitframe.com/show?url=${encodeURIComponent(url)}`;
+        return null;
+      }
+      case "facebook": {
+        if (parsed.pathname.indexOf("/posts/") !== -1 || parsed.pathname.indexOf("/videos/") !== -1 || parsed.pathname.indexOf("/photos/") !== -1) {
+          return `https://www.facebook.com/plugins/post.php?href=${encodeURIComponent(url)}&width=350&show_text=true`;
+        }
+        return null;
+      }
+      default:
+        return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+const PLATFORM_COLORS: Record<string, string> = {
+  instagram: "#E4405F",
+  twitter: "#1DA1F2",
+  linkedin: "#0A66C2",
+  facebook: "#1877F2",
+};
+
+function SocialEmbedModal({ url, platform, title, onClose, fontFamily }: {
+  url: string;
+  platform: string;
+  title: string;
+  onClose: () => void;
+  fontFamily: string;
+}) {
+  const embedUrl = getSocialEmbedUrl(url, platform);
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handler);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener("keydown", handler);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        top: 0, left: 0, right: 0, bottom: 0,
+        background: "rgba(0,0,0,0.6)",
+        backdropFilter: "blur(4px)",
+        WebkitBackdropFilter: "blur(4px)",
+        zIndex: 10001,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#ffffff",
+          borderRadius: "16px",
+          width: "min(380px, 90vw)",
+          maxHeight: "85vh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          boxShadow: "0 25px 50px rgba(0,0,0,0.3)",
+        }}
+      >
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "12px 16px",
+          borderBottom: "1px solid #e2e8f0",
+          flexShrink: 0,
+        }}>
+          <span style={{
+            fontSize: "13px",
+            fontWeight: 600,
+            color: "#334155",
+            textTransform: "capitalize" as const,
+          }}>
+            {platform}
+          </span>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none", border: "none", cursor: "pointer",
+              padding: "4px", borderRadius: "50%", color: "#64748b",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}
+          >
+            <svg width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {embedUrl ? (
+          <iframe
+            src={embedUrl}
+            style={{ width: "100%", height: "min(520px, 70vh)", border: "none", flexGrow: 1 }}
+            allow="encrypted-media"
+            loading="lazy"
+            sandbox="allow-scripts allow-same-origin allow-popups"
+          />
+        ) : (
+          <div style={{
+            padding: "32px 24px",
+            textAlign: "center" as const,
+            display: "flex",
+            flexDirection: "column" as const,
+            alignItems: "center",
+            gap: "12px",
+          }}>
+            <p style={{ fontSize: "13px", color: "#64748b", margin: 0 }}>{title}</p>
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+                padding: "10px 20px",
+                borderRadius: "10px",
+                background: "#2563eb",
+                color: "#ffffff",
+                fontSize: "13px",
+                fontWeight: 600,
+                textDecoration: "none",
+                cursor: "pointer",
+              }}
+            >
+              Open on {platform}
+              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+            </a>
+          </div>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function stripInlineSocialLinks(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !(/^•\s+.+→\s+https?:\/\/(www\.)?(instagram\.com|twitter\.com|x\.com|facebook\.com|linkedin\.com)\//i.test(line.trim())))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function renderSocialLinks(
+  links: SocialLink[],
+  onEmbedClick: (link: SocialLink) => void,
+) {
+  if (!links || links.length === 0) return null;
+  return (
+    <div style={{
+      marginTop: "8px",
+      paddingTop: "6px",
+      borderTop: "1px solid rgba(0,0,0,0.06)",
+      fontSize: "12px",
+      fontFamily: "inherit",
+    }}>
+      <span style={{ fontWeight: 600, color: "#475569", fontSize: "11px" }}>
+        Related Posts
+      </span>
+      {links.map((link, i) => {
+        const canEmbed = getSocialEmbedUrl(link.url, link.platform) !== null;
+        return (
+          <div key={`sl-${i}`} style={{ marginTop: "6px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{
+              width: "6px", height: "6px", borderRadius: "50%",
+              background: PLATFORM_COLORS[link.platform] || "#64748b",
+              flexShrink: 0,
+            }} />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                if (canEmbed) {
+                  onEmbedClick(link);
+                } else {
+                  window.open(link.url, "_blank", "noopener,noreferrer");
+                }
+              }}
+              style={{
+                all: "unset",
+                cursor: "pointer",
+                color: "#2563eb",
+                fontSize: "12px",
+                fontFamily: "inherit",
+                textDecoration: "underline",
+                textUnderlineOffset: "2px",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap" as const,
+              }}
+            >
+              {link.title}
+            </button>
+            {canEmbed && (
+              <span style={{
+                fontSize: "9px",
+                color: "#94a3b8",
+                background: "rgba(0,0,0,0.04)",
+                padding: "1px 5px",
+                borderRadius: "4px",
+                flexShrink: 0,
+              }}>
+                preview
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 type WidgetTheme = {
   primary?: string;
   launcherBg?: string;
@@ -549,6 +797,7 @@ export const ChatWidget: React.FC = () => {
   const [faqs, setFaqs] = useState<Array<{ label: string; question: string }>>([]);
   const [faqsLoading, setFaqsLoading] = useState(false);
   const [faqDismissed, _setFaqDismissed] = useState(savedUi.faqDismissed);
+  const [socialEmbed, setSocialEmbed] = useState<SocialLink | null>(null);
 
   const faqDismissedRef = useRef(savedUi.faqDismissed);
   const isOpenRef = useRef(savedUi.open);
@@ -724,8 +973,8 @@ export const ChatWidget: React.FC = () => {
     xhr.onload = () => {
       try {
         if (xhr.status < 200 || xhr.status >= 300) throw new Error(`Chat request failed with status ${xhr.status}`);
-        const data = JSON.parse(xhr.responseText) as { answer: string; pageLinks?: Array<{ url: string; title: string }> };
-        addMessage({ id: Date.now() + 1, text: data.answer || "Sorry, I couldn't generate a response.", sender: "bot", timestamp: new Date().toISOString(), pageLinks: data.pageLinks });
+        const data = JSON.parse(xhr.responseText) as { answer: string; pageLinks?: Array<{ url: string; title: string }>; socialLinks?: SocialLink[] };
+        addMessage({ id: Date.now() + 1, text: data.answer || "Sorry, I couldn't generate a response.", sender: "bot", timestamp: new Date().toISOString(), pageLinks: data.pageLinks, socialLinks: data.socialLinks });
       } catch (e) {
         console.error("Chat error:", e);
         setError("Something went wrong talking to the assistant. Please try again.");
@@ -763,9 +1012,9 @@ export const ChatWidget: React.FC = () => {
         xhr.onload = () => {
           try {
             if (xhr.status < 200 || xhr.status >= 300) throw new Error(`Voice request failed with status ${xhr.status}`);
-            const data = JSON.parse(xhr.responseText) as { answer: string; transcript?: string | null; error?: string; pageLinks?: Array<{ url: string; title: string }> };
+            const data = JSON.parse(xhr.responseText) as { answer: string; transcript?: string | null; error?: string; pageLinks?: Array<{ url: string; title: string }>; socialLinks?: SocialLink[] };
             setMessages((prev) => prev.map((m) => m.id === placeholderId ? { ...m, text: data.transcript ? `🎤 "${data.transcript}"` : `🎤 Voice message (${recordingTime}s)` } : m));
-            addMessage({ id: Date.now() + 1, text: data.answer || "I received your voice message.", sender: "bot", timestamp: new Date().toISOString(), voiceReply: true, pageLinks: data.pageLinks });
+            addMessage({ id: Date.now() + 1, text: data.answer || "I received your voice message.", sender: "bot", timestamp: new Date().toISOString(), voiceReply: true, pageLinks: data.pageLinks, socialLinks: data.socialLinks });
           } catch (err) {
             console.error("Voice chat error:", err);
             setError("Could not process voice message. Please try typing instead.");
@@ -912,7 +1161,10 @@ export const ChatWidget: React.FC = () => {
                 whiteSpace: "pre-wrap",
                 fontFamily: "inherit",
               }}>
-                {message.sender === "bot" && !message.isVoice ? renderBotText(message.text) : message.text}
+                {message.sender === "bot" && !message.isVoice
+                  ? renderBotText(message.socialLinks?.length ? stripInlineSocialLinks(message.text) : message.text)
+                  : message.text}
+                {message.sender === "bot" && message.socialLinks && renderSocialLinks(message.socialLinks, setSocialEmbed)}
                 {message.sender === "bot" && message.pageLinks && renderPageLinks(message.pageLinks)}
               </div>
               {/* Play audio button for voice-triggered bot replies */}
@@ -1105,6 +1357,15 @@ export const ChatWidget: React.FC = () => {
           <span style={{ position: "absolute", top: "-2px", right: "-2px", width: "10px", height: "10px", borderRadius: "50%", background: "#22c55e", border: "2px solid white" }} />
         </button>
       </div>
+      {socialEmbed && (
+        <SocialEmbedModal
+          url={socialEmbed.url}
+          platform={socialEmbed.platform}
+          title={socialEmbed.title}
+          onClose={() => setSocialEmbed(null)}
+          fontFamily={theme.fontFamily}
+        />
+      )}
     </div>,
     document.body
   );

@@ -4,7 +4,7 @@ import { hasSocialIntent, searchSocialMedia, buildSocialContextString, type Soci
 import { getFaqUserAnswerForQuestion } from "./db";
 import { runAgenticRetrieval } from "./agentic-retrieval";
 import { isExhaustiveListQuestion, sortDocsForExhaustiveAnswer } from "./multipage-retrieval";
-import type { ChatHistoryItem, PageLink } from "./chat-types";
+import type { ChatHistoryItem, PageLink, SocialLink } from "./chat-types";
 import {
   withRetry,
   getSarvamApiKey,
@@ -231,6 +231,7 @@ export async function answerQuestionWithRag(params: {
       answer: faqUserAnswer.answer.trim(),
       sources: [],
       pageLinks: [] as PageLink[],
+      socialLinks: [] as SocialLink[],
     };
   }
 
@@ -265,6 +266,7 @@ export async function answerQuestionWithRag(params: {
         "Please try rephrasing, or contact the site owner directly.",
       sources: [],
       pageLinks: [] as PageLink[],
+      socialLinks: [] as SocialLink[],
     };
   }
 
@@ -328,6 +330,12 @@ Be thorough — include all relevant items from the context.
     }
   }
 
+  const socialLinks: SocialLink[] = socialResults.slice(0, 3).map((r) => ({
+    platform: r.platform,
+    title: cleanSocialTitle(r.title),
+    url: r.url,
+  }));
+
   if (socialResults.length > 0) {
     answer += formatSocialLinksInline(socialResults);
   }
@@ -338,6 +346,7 @@ Be thorough — include all relevant items from the context.
     answer,
     sources,
     pageLinks,
+    socialLinks,
   };
 }
 
