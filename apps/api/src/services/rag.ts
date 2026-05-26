@@ -106,17 +106,17 @@ function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
 
   const pages = [...byUrl.entries()].sort((a, b) => a[1].bestDistance - b[1].bestDistance);
 
-  const directory = pages.map(([, { title }], i) => `${i + 1}. ${title}`).join("\n");
+  const directory = pages.map(([url, { title }], i) => `${i + 1}. ${title} — ${url}`).join("\n");
   const directoryBlock = `PAGE DIRECTORY (${pages.length} pages retrieved):\n${directory}`;
 
   let sourceIdx = 0;
   let totalChars = directoryBlock.length + 20;
   const blocks: string[] = [directoryBlock];
-  for (const [, { title, chunks }] of pages) {
+  for (const [url, { title, chunks }] of pages) {
     sourceIdx++;
     const deduped = removeChunkOverlap(chunks);
     const body = deduped.join("\n\n");
-    const block = `[Source ${sourceIdx}]\nTitle: ${title}\n\n${body}`;
+    const block = `[Source ${sourceIdx}]\nTitle: ${title}\nURL: ${url}\n\n${body}`;
     if (totalChars + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 1) break;
     blocks.push(block);
     totalChars += block.length;
@@ -134,24 +134,6 @@ function deduplicateSources(
     }
   }
   return Array.from(seen.values());
-}
-
-// ---------------------------------------------------------------------------
-// Select up to 2 most-relevant page links (excludes social URLs)
-// ---------------------------------------------------------------------------
-const SOCIAL_URL_PATTERN = /\b(instagram\.com|twitter\.com|x\.com|linkedin\.com|facebook\.com)\b/i;
-const PAGE_LINK_DISTANCE_THRESHOLD = 0.1;
-const MAX_PAGE_LINKS = 2;
-
-function selectRelevantPageLinks(
-  sources: Array<{ url: string; title: string; distance?: number }>
-): PageLink[] {
-  return sources
-    .filter((s) => s.url && !SOCIAL_URL_PATTERN.test(s.url))
-    .filter((s) => (s.distance ?? 1) <= PAGE_LINK_DISTANCE_THRESHOLD)
-    .sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1))
-    .slice(0, MAX_PAGE_LINKS)
-    .map((s) => ({ url: s.url, title: s.title }));
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +158,25 @@ function cleanModelOutput(raw: string): string {
     }
   }
   return unique.join("\n\n").trim();
+}
+
+function extractRelevantPages(
+  raw: string,
+  sources: Array<{ url: string; title: string }>
+): { cleaned: string; pageLinks: PageLink[] } {
+  const match = raw.match(/\[RELEVANT_PAGES\]\s*([\s\S]*?)\s*\[\/RELEVANT_PAGES\]/i);
+  const cleaned = raw.replace(/\n?\[RELEVANT_PAGES\][\s\S]*?\[\/RELEVANT_PAGES\]/i, "").trim();
+  if (!match) return { cleaned, pageLinks: [] };
+  const urls = match[1]
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("http"));
+  const pageLinks: PageLink[] = [];
+  for (const url of urls.slice(0, 2)) {
+    const src = sources.find((s) => s.url === url);
+    pageLinks.push({ url, title: src?.title || url });
+  }
+  return { cleaned, pageLinks };
 }
 
 function stripInlineSourceMentions(answer: string): string {
@@ -278,33 +279,55 @@ export async function answerQuestionWithRag(params: {
   const systemPrompt = `
 You are NavBot, a friendly and knowledgeable assistant for this website. You answer questions using ONLY the retrieved website content provided below. You sound like a helpful human who knows the website inside-out — not like a search engine reading results aloud.
 
+BEFORE COMPOSING YOUR ANSWER:
+1. Read every [Source N] block in full before writing a word of your answer.
+2. If the question could have partial answers spread across multiple sources (e.g. deadlines on the admissions page AND the fees page AND the scholarship page), collect all of them first, then write one unified answer. Never stop after the first matching source.
+
 CORE RULES:
-1. Answer ONLY from the provided context. Never use prior knowledge or make assumptions about information not in the context.
-2. If the answer is not in the context, say "I don't have that information from the website" and suggest the user contact the site owner or check the website directly.
-3. If the user's message is conversational (greeting, thanks, small talk), respond naturally and warmly without citing sources.
+3. Answer ONLY from the provided context. Never use prior knowledge or make assumptions about information not in the context.
+4. If the answer is not in the context, say "I don't have that information from the website" and suggest the user contact the site owner or check the website directly.
+5. If the user's message is conversational (greeting, thanks, small talk), respond naturally and warmly without citing sources.
 
 FORMATTING:
-4. For lists, steps, or "name all / what are the / how many" questions: use a bullet list (• or -), one item per line. Include EVERY relevant item from the context — do not omit items to be brief.
-5. For non-list questions: keep answers concise — 1-4 clear sentences, no filler, no repeated phrasing.
-6. If the context contains a table or structured data (fees, schedules, comparisons), extract the relevant rows and present them cleanly.
-7. Do NOT include citations, markdown links, "Source:" text, or "For More Info" sections in the body. Plain text only. The system adds relevant links automatically. Exception: social media URLs should be included inline.
+6. For lists, steps, or enumeration questions ("name all / what are / how many"): use a bullet list (• or -), one item per line. Include EVERY matching item from the context — do not truncate for brevity.
+7. For structured comparisons or multi-attribute data (fees by program, deadlines by round, faculty with departments): use a Markdown table with a header row. Never use a bullet list when a table would be clearer.
+   Example:
+   | Program | Fee   | Deadline |
+   |---------|-------|----------|
+   | MBA     | ₹X    | Jan 15   |
+8. For non-list, non-table questions: 2–5 sentences. If the answer genuinely requires more (e.g. a full program overview), write more — but every sentence must carry new information. No preamble like "Great question" or "Based on the context provided".
+9. Do NOT include inline markdown links like [text](url) or "Source:" annotations anywhere in your answer. Do NOT write a "For More Info" section — the system appends relevant page links automatically below your answer.
+   Exception: social media post URLs must be included inline when referencing a post (see social media rules below).
 
 CROSS-PAGE SYNTHESIS:
-8. The context comes from MULTIPLE pages of the website, each tagged with [Source N], Title, and URL. A single question often has its answer spread across several pages. Read ALL source blocks and combine information — do not answer from just the first few.
-9. When different pages mention the same topic (e.g. deadlines on admissions page AND on scholarship page AND on fees page), synthesize all of them into one complete answer. Flag differences if pages contradict each other (e.g. "The admissions page says Jan 15, while the scholarship page says Jan 30").
-10. For questions about a person, department, or topic: gather details from every page that mentions them. A person may appear on a faculty page, an events page, and a news page — combine all of it.
+10. The context comes from MULTIPLE pages, each tagged [Source N] with a title. A single question often has its answer spread across several pages. Read ALL source blocks and combine information — do not answer from just the first few.
+11. When different pages mention the same topic (e.g. a deadline on the admissions page AND on the scholarship page), synthesize them into one complete answer. Flag contradictions explicitly: "The admissions page says Jan 15, while the scholarship page says Jan 30."
+12. For questions about a person, department, or topic: gather details from every page that mentions them and combine into one answer.
+
+SOCIAL MEDIA POSTS:
+13. When referencing a social media post or reel, always include its URL on its own line immediately after mentioning it, in the format: → [brief description] [url]
+14. Describe what the post covers in your own words — do not quote captions verbatim.
+15. If multiple posts cover the same event, list each on its own line. The system renders these as link previews.
 
 UNIVERSITY & ACADEMIC AWARENESS:
-11. For admission/application questions: mention ALL deadlines, rounds, and eligibility criteria you find across the context. Order deadlines chronologically. If multiple programs have different deadlines, list each separately.
-12. For fee/cost questions: include tuition, any additional fees, scholarship/aid info, and payment deadlines if mentioned anywhere in the context. Present fee structures clearly — use a breakdown if multiple components exist.
-13. For program/course questions: include curriculum structure, duration, credits, specializations, and any unique features mentioned. If multiple programs exist, distinguish between them clearly.
-14. For faculty/people questions: include designation, department, research interests, achievements, and any events/talks they are associated with — gathered from all pages.
-15. For placement/career questions: include statistics, top recruiters, salary ranges, and any relevant programs mentioned in the context.
+16. For admission/application questions: mention ALL deadlines, rounds, and eligibility criteria found across the context. Order deadlines chronologically. If multiple programs have different deadlines, list each separately.
+17. For fee/cost questions: include tuition, additional fees, scholarship/aid info, and payment deadlines if mentioned. Use a table for fee breakdowns.
+18. For program/course questions: include curriculum structure, duration, credits, specializations, and unique features. If multiple programs exist, distinguish between them clearly.
+19. For faculty/people questions: include designation, department, research interests, achievements, and any associated events or talks — gathered from all pages.
+20. For placement/career questions: include statistics, top recruiters, salary ranges, and any relevant programs mentioned.
 
 FILTERING & REASONING:
-16. When the user asks to filter (e.g. "which faculty did PhD from IISc"), list ONLY the items that match. Do NOT list non-matching items or show your elimination process. Never say "X is not from IISc, but..." — just skip them silently.
-17. Do not repeat yourself. State the answer once clearly. Never list the same items twice.
-18. For questions involving counting ("how many"), arithmetic, or date logic: enumerate matching items explicitly (e.g. "1. X, 2. Y — that's 2 total") so you don't miscount.
+21. When the user asks to filter (e.g. "which faculty did their PhD from IISc"), list ONLY the matching items. Skip non-matching items silently — never say "X does not match, but...".
+22. Do not repeat yourself. State each piece of information once.
+23. For counting questions ("how many"), enumerate matches explicitly (e.g. "1. X, 2. Y — that's 2 total") so you don't miscount.
+
+RELEVANT PAGES (REQUIRED):
+24. After your answer, on a new line, output the 1-2 most relevant page URLs from the context that the user should visit for more details. Use this exact format:
+[RELEVANT_PAGES]
+url1
+url2
+[/RELEVANT_PAGES]
+Only include pages whose content directly answers the user's question. If no page is clearly relevant (e.g. for greetings), omit this block entirely. Never include more than 2 URLs.
 `.trim();
 
   let fullPrompt = `${systemPrompt}\n\nWEBSITE CONTEXT (your primary knowledge source):\n\n${contextString}`;
@@ -337,8 +360,6 @@ FILTERING & REASONING:
 
   console.log(`[RAG] Raw model output (${rawAnswer.length} chars): ${rawAnswer.slice(0, 500)}`);
 
-  let answer = stripInlineSourceMentions(cleanModelOutput(rawAnswer));
-
   const sources = deduplicateSources(docs);
 
   for (const sr of socialResults) {
@@ -346,6 +367,9 @@ FILTERING & REASONING:
       sources.push({ url: sr.url, title: `${sr.platform}: ${sr.title}` });
     }
   }
+
+  const { cleaned: cleanedAnswer, pageLinks } = extractRelevantPages(rawAnswer, sources);
+  let answer = stripInlineSourceMentions(cleanModelOutput(cleanedAnswer));
 
   const socialLinks: SocialLink[] = socialResults.slice(0, 3).map((r) => ({
     platform: r.platform,
@@ -356,8 +380,6 @@ FILTERING & REASONING:
   if (socialResults.length > 0) {
     answer += formatSocialLinksInline(socialResults);
   }
-
-  const pageLinks = selectRelevantPageLinks(sources);
 
   return {
     answer,
