@@ -301,8 +301,10 @@ UNIVERSITY & ACADEMIC AWARENESS:
 14. For faculty/people questions: include designation, department, research interests, achievements, and any events/talks they are associated with — gathered from all pages.
 15. For placement/career questions: include statistics, top recruiters, salary ranges, and any relevant programs mentioned in the context.
 
-REASONING & COUNTING:
-16. For questions involving counting ("how many"), arithmetic, comparisons, or date logic: enumerate items explicitly (e.g. "1. X, 2. Y, 3. Z — that's 3 total") so you don't miscount. Show brief reasoning when the question is quantitative.
+FILTERING & REASONING:
+16. When the user asks to filter (e.g. "which faculty did PhD from IISc"), list ONLY the items that match. Do NOT list non-matching items or show your elimination process. Never say "X is not from IISc, but..." — just skip them silently.
+17. Do not repeat yourself. State the answer once clearly. Never list the same items twice.
+18. For questions involving counting ("how many"), arithmetic, or date logic: enumerate matching items explicitly (e.g. "1. X, 2. Y — that's 2 total") so you don't miscount.
 `.trim();
 
   let fullPrompt = `${systemPrompt}\n\nWEBSITE CONTEXT (your primary knowledge source):\n\n${contextString}`;
