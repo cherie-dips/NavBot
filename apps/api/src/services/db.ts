@@ -13,7 +13,7 @@ export function getPool(): pg.Pool {
       connectionString: connectionString || "postgresql://localhost:5432/unused",
       max: isLocal ? 10 : 10,
       idleTimeoutMillis: isLocal ? 30_000 : 10_000,
-      connectionTimeoutMillis: isLocal ? 5_000 : 10_000,
+      connectionTimeoutMillis: isLocal ? 5_000 : 20_000,
       allowExitOnIdle: !isLocal,
       ...(isLocal ? {} : { ssl: { rejectUnauthorized: false } }),
     });
