@@ -11,9 +11,9 @@ export function getPool(): pg.Pool {
     const isLocal = !connectionString || connectionString.includes("localhost");
     _pool = new pg.Pool({
       connectionString: connectionString || "postgresql://localhost:5432/unused",
-      max: isLocal ? 10 : 10,
-      idleTimeoutMillis: isLocal ? 30_000 : 10_000,
-      connectionTimeoutMillis: isLocal ? 5_000 : 20_000,
+      max: isLocal ? 10 : 20,
+      idleTimeoutMillis: isLocal ? 30_000 : 5_000,
+      connectionTimeoutMillis: isLocal ? 5_000 : 30_000,
       allowExitOnIdle: !isLocal,
       ...(isLocal ? {} : { ssl: { rejectUnauthorized: false } }),
     });
@@ -274,25 +274,24 @@ export async function upsertPageHashes(
   pages: Array<{ url: string; hash: string }>
 ): Promise<void> {
   if (pages.length === 0) return;
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const stmt = `
-      INSERT INTO page_lastmod (site_id, url, content_hash, indexed_at)
-      VALUES ($1, $2, $3, NOW())
-      ON CONFLICT (site_id, url) DO UPDATE SET
-        content_hash = EXCLUDED.content_hash,
-        indexed_at = NOW()
-    `;
-    for (const p of pages) {
-      await client.query(stmt, [siteId, p.url, p.hash]);
+  const BATCH = 50;
+  for (let i = 0; i < pages.length; i += BATCH) {
+    const batch = pages.slice(i, i + BATCH);
+    const values: unknown[] = [];
+    const placeholders: string[] = [];
+    for (let j = 0; j < batch.length; j++) {
+      const off = j * 3;
+      placeholders.push(`($${off + 1}, $${off + 2}, $${off + 3}, NOW())`);
+      values.push(siteId, batch[j]!.url, batch[j]!.hash);
     }
-    await client.query("COMMIT");
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
-  } finally {
-    client.release();
+    await pool.query(
+      `INSERT INTO page_lastmod (site_id, url, content_hash, indexed_at)
+       VALUES ${placeholders.join(", ")}
+       ON CONFLICT (site_id, url) DO UPDATE SET
+         content_hash = EXCLUDED.content_hash,
+         indexed_at = NOW()`,
+      values
+    );
   }
 }
 

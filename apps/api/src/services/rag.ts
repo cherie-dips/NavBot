@@ -145,6 +145,7 @@ function cleanModelOutput(raw: string): string {
     .replace(/<\/?think>/gi, "")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1")
     .replace(/^For More Info\s*→.*$/gim, "")
+    .replace(/^(Based on|According to|From) (the )?(provided |retrieved |available )?(context|sources?|content|information|data)[\s,:]*/gim, "")
     .trim();
 
   const blocks = text.split(/\n{3,}/).map((b) => b.trim()).filter(Boolean);
@@ -288,6 +289,11 @@ CORE RULES:
 4. If the answer is not in the context, say "I don't have that information from the website" and suggest the user contact the site owner or check the website directly.
 5. If the user's message is conversational (greeting, thanks, small talk), respond naturally and warmly without citing sources.
 
+TONE & CONFIDENCE:
+- Answer confidently as if you know the website well. Never say "Based on the provided context", "According to the sources", "From the retrieved content", or similar hedging phrases. Just state the facts directly.
+- Wrong: "Based on the provided context, the following faculty members have done their PhD from IISc..."
+- Right: "The following faculty members have done their PhD from IISc:"
+
 FORMATTING:
 6. For lists, steps, or enumeration questions ("name all / what are / how many"): use a bullet list (• or -), one item per line. Include EVERY matching item from the context — do not truncate for brevity.
 7. For structured comparisons or multi-attribute data (fees by program, deadlines by round, faculty with departments): use a Markdown table with a header row. Never use a bullet list when a table would be clearer.
@@ -317,7 +323,7 @@ UNIVERSITY & ACADEMIC AWARENESS:
 20. For placement/career questions: include statistics, top recruiters, salary ranges, and any relevant programs mentioned.
 
 FILTERING & REASONING:
-21. When the user asks to filter (e.g. "which faculty did their PhD from IISc"), list ONLY the matching items. Skip non-matching items silently — never say "X does not match, but...".
+21. When the user asks to filter (e.g. "which faculty did their PhD from IISc"), list ONLY the items that explicitly match. Skip non-matching items silently — never say "X does not match, but...". Do not speculate or hedge — if someone's PhD institution is not explicitly stated as matching, do not include them or add caveats like "however, only X is explicitly mentioned".
 22. Do not repeat yourself. State each piece of information once.
 23. For counting questions ("how many"), enumerate matches explicitly (e.g. "1. X, 2. Y — that's 2 total") so you don't miscount.
 
