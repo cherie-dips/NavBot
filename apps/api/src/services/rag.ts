@@ -124,10 +124,10 @@ function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
     : [...docs].sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
   const slice = ordered.slice(0, maxSources);
 
-  const byUrl = new Map<string, { title: string; bestDistance: number; chunks: string[] }>();
+  const byUrl = new Map<string, { title: string; url: string; bestDistance: number; chunks: string[] }>();
   for (const d of slice) {
     const key = d.url || `_untitled_${d.id}`;
-    const entry = byUrl.get(key) ?? { title: d.title, bestDistance: d.distance ?? 1, chunks: [] };
+    const entry = byUrl.get(key) ?? { title: d.title, url: d.url, bestDistance: d.distance ?? 1, chunks: [] };
     entry.chunks.push(d.content.slice(0, maxCharsPerChunk).trim());
     if ((d.distance ?? 1) < entry.bestDistance) entry.bestDistance = d.distance ?? 1;
     byUrl.set(key, entry);
@@ -135,21 +135,20 @@ function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
 
   const pages = [...byUrl.entries()].sort((a, b) => a[1].bestDistance - b[1].bestDistance);
 
-  const directory = pages.map(([url, { title }], i) => `${i + 1}. ${title} — ${url}`).join("\n");
-  const directoryBlock = `PAGE DIRECTORY (${pages.length} pages retrieved):\n${directory}`;
-
-  let sourceIdx = 0;
-  let totalChars = directoryBlock.length + 20;
-  const blocks: string[] = [directoryBlock];
-  for (const [url, { title, chunks }] of pages) {
-    sourceIdx++;
+  let totalChars = 0;
+  const blocks: string[] = [];
+  for (const [, { title, chunks }] of pages) {
     const deduped = removeChunkOverlap(chunks);
     const body = deduped.join("\n\n");
-    const block = `[Source ${sourceIdx}]\nTitle: ${title}\nURL: ${url}\n\n${body}`;
-    if (totalChars + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 1) break;
+    const block = `${title}\n${body}`;
+    if (totalChars + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 0) break;
     blocks.push(block);
     totalChars += block.length;
   }
+
+  const urlDirectory = pages.map(([, { title, url }]) => `${title} — ${url}`).join("\n");
+  blocks.push(`Pages:\n${urlDirectory}`);
+
   return blocks.join("\n\n---\n\n");
 }
 
@@ -166,24 +165,39 @@ function deduplicateSources(
 }
 
 // ---------------------------------------------------------------------------
-// Minimal output cleaner — no aggressive URL stripping
+// Structural output cleaner — 3-pass approach instead of pattern whack-a-mole
 // ---------------------------------------------------------------------------
+const META_WORDS = /\b(context|sources?|retrieved|provided|mentioned|found|checked|reviewed|re-?checked|searched|looking at|appears?|seems?|explicitly|stated)\b/i;
+
 function cleanModelOutput(raw: string): string {
   let text = raw
     .replace(/<redacted_thinking>[\s\S]*?<\/think>/gi, "")
     .replace(/<\/?think>/gi, "")
     .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1")
-    .replace(/^For More Info\s*→.*$/gim, "")
-    .replace(/^(Based on|According to|From) (the )?(provided |retrieved |available )?(context|sources?|content|information|data)[\s,:]*/gim, "")
-    .replace(/^(After |Upon |I |Having )(re-?)?check(ing|ed)?.*?(,|:)\s*/gim, "")
-    .replace(/^(After |Upon )(re-?)?review(ing|ed)?.*?(,|:)\s*/gim, "")
-    .replace(/^(I found that|I can see that|It (appears|seems) that|Let me)\s*/gim, "")
-    .replace(/^(The following|These)\s+\w+\s+(are |is |were |was )?(explicitly |clearly )?(mentioned|listed|found|stated|identified).*?[.:]\s*/gim, "")
-    .replace(/^(Here (are|is)|Below (are|is)).*?[.:]\s*/gim, "")
-    .replace(/\bhowever[,;]?\s*(the )?(context|source|page|data|information)\s+(does not|doesn't|is not|isn't)\s+[^.]*\./gi, "")
-    .replace(/\b,?\s*but\s+(the )?(specialization|detail|information|context)\s+(is not|isn't|was not|wasn't)\s+[^.]*\./gi, "")
     .trim();
 
+  // Pass 1: Strip leading preamble if first sentence is meta-commentary
+  const firstBreak = text.search(/[.!:]\s/);
+  if (firstBreak > 0 && firstBreak < 250) {
+    const firstSentence = text.slice(0, firstBreak + 1);
+    if (META_WORDS.test(firstSentence) && !/\d/.test(firstSentence.slice(0, 10))) {
+      text = text.slice(firstBreak + 1).replace(/^[,:;\s]+/, "").trim();
+    }
+  }
+
+  // Pass 2: Remove trailing meta-commentary sentences
+  const lines = text.split("\n");
+  while (lines.length > 1) {
+    const last = lines[lines.length - 1]!.trim();
+    if (last && META_WORDS.test(last) && last.length < 180 && !/\b\d+\b/.test(last)) {
+      lines.pop();
+    } else {
+      break;
+    }
+  }
+  text = lines.join("\n").trim();
+
+  // Pass 3: Deduplicate blocks
   const blocks = text.split(/\n{3,}/).map((b) => b.trim()).filter(Boolean);
   const seen = new Set<string>();
   const unique: string[] = [];
@@ -218,6 +232,7 @@ function extractRelevantPages(
 
 function stripInlineSourceMentions(answer: string): string {
   return answer
+    .replace(/\(?\s*(?:as (?:per|mentioned in|stated in|noted in) )?Source\s*\d+\s*(?:and\s*(?:Source\s*)?\d+)*\s*\)?[.,;]?\s*/gi, "")
     .replace(/\(\s*Source\s*:[^)]+\)/gi, "")
     .replace(/^source\s*:[\s\S]*$/gim, "")
     .replace(/\n{3,}/g, "\n\n")
@@ -370,61 +385,34 @@ export async function answerQuestionWithRag(params: {
   const contextString = buildContextString(docs, message);
   const socialContextString = buildSocialContextString(socialResults);
 
-  const systemPrompt = `
-You are NavBot, a helpful assistant for this website. Answer questions using ONLY the retrieved content below.
+  const systemPrompt = `You are NavBot, a website assistant. Answer using ONLY the provided page content.
 
-OUTPUT FORMAT — STRICT:
-Your response must contain ONLY the direct answer. No preamble, no narration, no meta-commentary.
-FORBIDDEN patterns (never write these):
-- "After checking/reviewing/re-checking..."
-- "I found that..." / "I can see that..."
-- "The following X are mentioned..." / "These X are explicitly mentioned..."
-- "Based on the context/sources/data..."
-- "However, it is mentioned that..." / "but the context says..."
-- Any sentence describing your own process or what you checked
+ANSWER FORMAT:
+- Start directly with the answer. First word must be content, not commentary.
+- Lists: bullet points (•), one per line. Include every match from the pages.
+- Tables: use Markdown tables for multi-column data (fees, schedules, comparisons).
+- Prose: 2-5 sentences. Every sentence adds new information.
 
-WRONG: "After re-checking the faculty page, I found that the following faculty members have done their PhD from IISc:"
-RIGHT: "Faculty members with PhDs from IISc:"
+RULES:
+- Unknown answer: reply "I don't have that information — please contact the site or check directly."
+- Only state facts you are certain about. Omit uncertain items silently.
+- Combine information from all pages into one unified answer.
+- If pages contradict each other, state both versions with their page names.
+- Filter questions ("which X did Y"): list only explicit matches. Skip non-matches silently.
+- Counting questions: enumerate items then state the total.
+- Greetings and small talk: respond naturally.
+- Social media posts: include post URLs inline when referencing them.
 
-CORE RULES:
-1. Use only the provided context. No prior knowledge, no assumptions.
-2. If the answer isn't in the context: "I don't have that information — please contact the site or check directly."
-3. For greetings or small talk, respond naturally without citing anything.
-
-CONFIDENCE — INCLUDE OR SKIP:
-4. Only include items you are CERTAIN about from the context. If a detail is ambiguous, unclear, or only partially mentioned — skip it entirely. Never hedge with "however", "but it's not clear", "the specialization is not mentioned", etc. Either state a fact or omit it.
-
-FORMATTING:
-5. Lists/enumerations: bullet points (•), one item per line. Include every matching item — never truncate.
-6. Multi-column data (comparisons, fee tables, schedules, specs): Markdown table with header row.
-7. Everything else: plain prose, 2–5 sentences. Every sentence must add new information.
-8. No markdown links, no "Source:" labels, no "For More Info" sections. The system handles links automatically.
-
-SYNTHESIS:
-9. Answers often span multiple pages. Combine information from all relevant sources into one complete answer.
-10. If two sources contradict each other, flag it: "The admissions page says Jan 15, while the fees page says Jan 30."
-
-SOCIAL MEDIA:
-11. When referencing a post or reel, add its URL on its own line right after: → [what the post is about] [url]
-
-FILTERING:
-12. Filter questions ("which X did Y"): list only explicit matches. Skip non-matches silently — no "X doesn't qualify, but...".
-13. Counting questions ("how many"): enumerate items (1. X, 2. Y — total: 2) to avoid miscounting.
-14. Never repeat the same information twice.
-
-RELEVANT PAGES (required):
-After your answer, output the 1–2 page URLs most directly relevant to the question:
+After your answer, on a new line output 1-2 most relevant page URLs:
 [RELEVANT_PAGES]
 url1
 url2
 [/RELEVANT_PAGES]
-Omit entirely for greetings. Max 2 URLs.
-`.trim();
+Omit for greetings.`;
 
-  let fullPrompt = `${systemPrompt}\n\nWEBSITE CONTEXT (your primary knowledge source):\n\n${contextString}`;
-
+  let contextMessage = `Page content:\n\n${contextString}`;
   if (socialContextString) {
-    fullPrompt += `\n\n---\n\nSOCIAL MEDIA POSTS (supplementary — include post URLs when referencing):\n\n${socialContextString}`;
+    contextMessage += `\n\n---\n\nRecent social media posts (include post URLs when referencing):\n\n${socialContextString}`;
   }
 
   const recentHistory = history.slice(-6);
@@ -432,6 +420,8 @@ Omit entirely for greetings. Max 2 URLs.
     recentHistory.shift();
   }
   const contents = [
+    { role: "user" as const, parts: [{ text: contextMessage }] },
+    { role: "model" as const, parts: [{ text: "Ready." }] },
     ...recentHistory.map((h) => ({
       role: h.role === "user" ? "user" : "model",
       parts: [{ text: h.content }],
@@ -443,7 +433,7 @@ Omit entirely for greetings. Max 2 URLs.
     model: SARVAM_MODELS.chat,
     contents,
     config: {
-      systemInstruction: fullPrompt,
+      systemInstruction: systemPrompt,
       temperature: 0.2,
       maxOutputTokens: 2048,
     },
@@ -457,18 +447,18 @@ Omit entirely for greetings. Max 2 URLs.
       if (!verdict.pass && verdict.feedback) {
         console.log(`[RAG judge] FAIL — refining. Feedback: ${verdict.feedback}`);
         const refinedContents = [
-          ...contents,
-          { role: "model" as const, parts: [{ text: rawAnswer }] },
+          { role: "user" as const, parts: [{ text: contextMessage }] },
+          { role: "model" as const, parts: [{ text: "Ready." }] },
           {
             role: "user" as const,
-            parts: [{ text: `Your previous answer was incomplete or inaccurate. ${verdict.feedback}\n\nPlease rewrite your answer addressing this feedback. Use the same context provided earlier.` }],
+            parts: [{ text: `${message}\n\nImportant: ${verdict.feedback}` }],
           },
         ];
         rawAnswer = await generateContentText({
           model: SARVAM_MODELS.chat,
           contents: refinedContents,
           config: {
-            systemInstruction: fullPrompt,
+            systemInstruction: systemPrompt,
             temperature: 0.2,
             maxOutputTokens: 2048,
           },
