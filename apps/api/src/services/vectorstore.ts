@@ -594,10 +594,10 @@ export async function querySiteDocs(params: {
   }
 
   docs.sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
-  const rawPoolLimit = exhaustive ? 260 : 150;
+  const rawPoolLimit = exhaustive ? 320 : 150;
   const pool = docs.slice(0, rawPoolLimit);
-  const maxPerUrl = exhaustive ? 4 : 4;
-  const maxTotal = exhaustive ? 68 : 44;
+  const maxPerUrl = exhaustive ? 5 : 4;
+  const maxTotal = exhaustive ? 96 : 52;
   return selectWithUrlSpread(pool, maxPerUrl, maxTotal);
 }
 

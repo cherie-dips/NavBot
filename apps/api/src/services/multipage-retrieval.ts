@@ -4,10 +4,8 @@ import { getDocsForUrls, type RetrievedDoc } from "./vectorstore";
 /**
  * Questions that need breadth across many URLs (not just the single best-matching page).
  */
-export function isExhaustiveListQuestion(message: string): boolean {
-  return /\b(list|all|every|enumerate|complete|entire|full list|name all|count (all |the )?|how many\b|each\b|what are (all|the)\b|gather\b|catalog\b)\b/i.test(
-    message
-  );
+export function isExhaustiveListQuestion(_message: string): boolean {
+  return true;
 }
 
 interface PathPrefix {
@@ -56,6 +54,15 @@ export function pickTrackedUrlsForExpansion(
     userMessage
   );
   const wantsProjects = /\bprojects?\b/i.test(userMessage);
+  const wantsFaculty = /\b(faculty|professor|teacher|researcher|staff|phd|supervisor|academic|instructor)\b/i.test(
+    userMessage
+  );
+  const wantsPlacements = /\b(placement|recruit|hiring|company|companies|career|job)\b/i.test(
+    userMessage
+  );
+  const wantsAlumni = /\b(alumni|alumnus|alumna|graduate|passed out|batch)\b/i.test(
+    userMessage
+  );
 
   const candidates: string[] = [];
   for (const t of tracked) {
@@ -73,6 +80,9 @@ export function pickTrackedUrlsForExpansion(
       }
       if (!add && wantsEvents && /\/events(\/|$)/i.test(path)) add = true;
       if (!add && wantsProjects && /\/projects?(\/|$)/i.test(path)) add = true;
+      if (!add && wantsFaculty && /\/faculty(\/|$)/i.test(path)) add = true;
+      if (!add && wantsPlacements && /\/placement/i.test(path)) add = true;
+      if (!add && wantsAlumni && /\/alumni/i.test(path)) add = true;
     } catch {
       /* skip bad URL */
     }
@@ -103,11 +113,23 @@ export function sortDocsForExhaustiveAnswer(docs: RetrievedDoc[], userMessage: s
     userMessage
   );
   const wantsProjects = /\bprojects?\b/i.test(userMessage);
+  const wantsFaculty = /\b(faculty|professor|teacher|researcher|staff|phd|supervisor|academic|instructor)\b/i.test(
+    userMessage
+  );
+  const wantsPlacements = /\b(placement|recruit|hiring|company|companies|career|job)\b/i.test(
+    userMessage
+  );
+  const wantsAlumni = /\b(alumni|alumnus|alumna|graduate|passed out|batch)\b/i.test(
+    userMessage
+  );
 
   const sectionTier = (d: RetrievedDoc): number => {
     const u = d.url || "";
     if (wantsEvents && /\/events(\/|$)/i.test(u)) return 0;
     if (wantsProjects && /\/projects?(\/|$)/i.test(u)) return 0;
+    if (wantsFaculty && /\/faculty(\/|$)/i.test(u)) return 0;
+    if (wantsPlacements && /\/placement/i.test(u)) return 0;
+    if (wantsAlumni && /\/alumni/i.test(u)) return 0;
     return 1;
   };
 

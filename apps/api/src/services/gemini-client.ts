@@ -63,7 +63,7 @@ export const SARVAM_TTS_LANG = process.env.SARVAM_TTS_LANG?.trim() || "en-IN";
 
 /** Max refiner retries when retrieval looks weak. */
 export function agenticRagMaxRounds(): number {
-  const n = parseInt(process.env.AGENTIC_RAG_MAX_ROUNDS ?? "0", 10);
+  const n = parseInt(process.env.AGENTIC_RAG_MAX_ROUNDS ?? "1", 10);
   return Number.isFinite(n) && n >= 0 ? Math.min(n, 3) : 0;
 }
 
@@ -73,7 +73,7 @@ export function agenticPlannerEnabled(): boolean {
 }
 
 export function llmJudgeEnabled(): boolean {
-  const v = (process.env.ENABLE_LLM_JUDGE ?? "false").toLowerCase();
+  const v = (process.env.ENABLE_LLM_JUDGE ?? "true").toLowerCase();
   return v !== "false" && v !== "0";
 }
 

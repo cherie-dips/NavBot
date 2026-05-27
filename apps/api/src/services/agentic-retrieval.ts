@@ -15,7 +15,7 @@ import type { ChatHistoryItem } from "./chat-types";
 
 const MAX_QUERIES_TOTAL = 8;
 const MAX_QUERIES_EXHAUSTIVE = 14;
-const RETRIEVAL_TOP_K = 12;
+const RETRIEVAL_TOP_K = 18;
 
 export interface AgenticRetrievalParams {
   siteId: string;
@@ -152,6 +152,11 @@ CRITICAL: Information about a topic is often spread across MULTIPLE different pa
 - "programs" → academics page, individual department pages, placement page
 
 Think about which DIFFERENT sections of a website would mention the topic, and generate queries targeting each section separately.
+
+For FILTER questions ("which X did Y", "who has Z from W"), the answer likely spans MANY individual pages (e.g., each faculty member has a separate profile page). Generate queries that would match EACH individual page, not just a summary page. Include:
+- The exact term and its full form (e.g., "IISc" AND "Indian Institute of Science")
+- Related terms (e.g., "PhD" AND "doctorate")
+- Section-specific queries (e.g., "faculty profile", "research interests", "education background")
 ${listHint}
 User message: ${JSON.stringify(userMessage)}
 Recent history:

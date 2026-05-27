@@ -12,7 +12,9 @@ import {
   SARVAM_MODELS,
   SARVAM_TTS_SPEAKER,
   SARVAM_TTS_LANG,
+  GROQ_MODELS,
   generateContentText,
+  llmJudgeEnabled,
 } from "./gemini-client";
 
 export type { ChatHistoryItem } from "./chat-types";
@@ -31,6 +33,15 @@ interface ExpansionRule {
   expansion: (original: string) => string;
 }
 
+const INSTITUTION_SYNONYMS: Record<string, string> = {
+  iisc: "IISc Indian Institute of Science Bangalore Bengaluru",
+  iit: "IIT Indian Institute of Technology",
+  nit: "NIT National Institute of Technology",
+  iiit: "IIIT International Institute of Information Technology",
+  iiser: "IISER Indian Institute of Science Education and Research",
+  bits: "BITS Birla Institute of Technology and Science",
+};
+
 const QUERY_EXPANSION_RULES: ExpansionRule[] = [
   {
     pattern: /\b(deadline|date|when|admission|apply|round|open|close|submit)\b/i,
@@ -43,6 +54,24 @@ const QUERY_EXPANSION_RULES: ExpansionRule[] = [
   {
     pattern: /\b(contact|email|phone|address|location|campus|office)\b/i,
     expansion: (q) => `contact email phone address ${q}`,
+  },
+  {
+    pattern: /\b(faculty|professor|teacher|instructor|researcher|supervisor|mentor|phd|doctorate|academic staff)\b/i,
+    expansion: (q) => `faculty professor PhD academic research ${q}`,
+  },
+  {
+    pattern: /\b(placement|recruit|hiring|company|companies|career|job|package|ctc|salary)\b/i,
+    expansion: (q) => `placement recruiting companies career packages ${q}`,
+  },
+  {
+    pattern: /\b(IISc|IIT|NIT|IIIT|IISER|BITS)\b/i,
+    expansion: (q) => {
+      const lower = q.toLowerCase();
+      for (const [abbrev, full] of Object.entries(INSTITUTION_SYNONYMS)) {
+        if (lower.includes(abbrev)) return `${full} ${q}`;
+      }
+      return q;
+    },
   },
 ];
 
@@ -67,7 +96,7 @@ export function buildRetrievalQueries(message: string): string[] {
   return Array.from(queries);
 }
 
-const CONTEXT_BUDGET_CHARS = 24_000;
+const CONTEXT_BUDGET_CHARS = 32_000;
 
 function removeChunkOverlap(chunks: string[]): string[] {
   if (chunks.length <= 1) return chunks;
@@ -88,8 +117,8 @@ function removeChunkOverlap(chunks: string[]): string[] {
 
 function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
   const exhaustive = isExhaustiveListQuestion(userMessage);
-  const maxCharsPerChunk = exhaustive ? 1400 : 1800;
-  const maxSources = exhaustive ? 30 : 12;
+  const maxCharsPerChunk = exhaustive ? 1200 : 1600;
+  const maxSources = exhaustive ? 40 : 15;
   const ordered = exhaustive
     ? sortDocsForExhaustiveAnswer(docs, userMessage)
     : [...docs].sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
@@ -219,6 +248,65 @@ function formatSocialLinksInline(results: SocialSearchResult[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Inline LLM judge — checks answer completeness & groundedness
+// ---------------------------------------------------------------------------
+interface JudgeVerdict {
+  pass: boolean;
+  feedback: string;
+}
+
+function parseJudgeVerdict(raw: string): JudgeVerdict {
+  const cleaned = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) return { pass: true, feedback: "" };
+  try {
+    const parsed = JSON.parse(match[0]) as { pass?: boolean; feedback?: string };
+    return {
+      pass: parsed.pass !== false,
+      feedback: typeof parsed.feedback === "string" ? parsed.feedback : "",
+    };
+  } catch {
+    return { pass: true, feedback: "" };
+  }
+}
+
+async function runInlineJudge(
+  question: string,
+  answer: string,
+  context: string
+): Promise<JudgeVerdict> {
+  const prompt = `You are a quality judge for a RAG chatbot. Check if the answer is complete and grounded.
+
+QUESTION: ${JSON.stringify(question)}
+
+ANSWER TO CHECK: ${JSON.stringify(answer.slice(0, 2000))}
+
+CONTEXT (retrieved pages): ${context.slice(0, 8000)}
+
+Check these criteria:
+1. COMPLETENESS: Does the answer list ALL matching items from the context? For filter/list questions ("which faculty...", "what companies..."), count how many matches exist in the context vs how many the answer lists.
+2. GROUNDEDNESS: Is every claim in the answer supported by the context?
+3. RELEVANCE: Does it actually answer the question asked?
+
+If ALL criteria pass, return: {"pass": true, "feedback": ""}
+If any criterion fails, return: {"pass": false, "feedback": "Specific instruction to fix the answer, e.g. 'The context contains 5 faculty with PhDs from IISc but the answer only lists 2. Include: [names].'"}
+
+Return JSON only.`;
+
+  const raw = await generateContentText({
+    model: GROQ_MODELS.judge,
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    config: {
+      temperature: 0.1,
+      maxOutputTokens: 300,
+      responseMimeType: "application/json",
+    },
+  });
+
+  return parseJudgeVerdict(raw);
+}
+
+// ---------------------------------------------------------------------------
 // Main RAG
 // ---------------------------------------------------------------------------
 export async function answerQuestionWithRag(params: {
@@ -274,8 +362,6 @@ export async function answerQuestionWithRag(params: {
 
   const contextString = buildContextString(docs, message);
   const socialContextString = buildSocialContextString(socialResults);
-
-  const catalogQuestion = isExhaustiveListQuestion(message);
 
   const systemPrompt = `
 You are NavBot, a helpful assistant for this website. Answer questions using ONLY the retrieved content below. Sound like a knowledgeable human, not a search engine.
@@ -338,17 +424,48 @@ Omit entirely for greetings. Max 2 URLs.
     { role: "user" as const, parts: [{ text: message }] },
   ];
 
-  const rawAnswer = await generateContentText({
+  let rawAnswer = await generateContentText({
     model: SARVAM_MODELS.chat,
     contents,
     config: {
       systemInstruction: fullPrompt,
       temperature: 0.2,
-      maxOutputTokens: catalogQuestion ? 2048 : 700,
+      maxOutputTokens: 2048,
     },
   });
 
   console.log(`[RAG] Raw model output (${rawAnswer.length} chars): ${rawAnswer.slice(0, 500)}`);
+
+  if (llmJudgeEnabled()) {
+    try {
+      const verdict = await runInlineJudge(message, rawAnswer, contextString);
+      if (!verdict.pass && verdict.feedback) {
+        console.log(`[RAG judge] FAIL — refining. Feedback: ${verdict.feedback}`);
+        const refinedContents = [
+          ...contents,
+          { role: "model" as const, parts: [{ text: rawAnswer }] },
+          {
+            role: "user" as const,
+            parts: [{ text: `Your previous answer was incomplete or inaccurate. ${verdict.feedback}\n\nPlease rewrite your answer addressing this feedback. Use the same context provided earlier.` }],
+          },
+        ];
+        rawAnswer = await generateContentText({
+          model: SARVAM_MODELS.chat,
+          contents: refinedContents,
+          config: {
+            systemInstruction: fullPrompt,
+            temperature: 0.2,
+            maxOutputTokens: 2048,
+          },
+        });
+        console.log(`[RAG judge] Refined answer (${rawAnswer.length} chars)`);
+      } else {
+        console.log(`[RAG judge] PASS`);
+      }
+    } catch (err) {
+      console.warn(`[RAG judge] failed, using original answer:`, err instanceof Error ? err.message : err);
+    }
+  }
 
   const sources = deduplicateSources(docs);
 
