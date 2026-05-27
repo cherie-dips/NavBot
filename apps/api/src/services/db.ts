@@ -11,9 +11,9 @@ export function getPool(): pg.Pool {
     const isLocal = !connectionString || connectionString.includes("localhost");
     _pool = new pg.Pool({
       connectionString: connectionString || "postgresql://localhost:5432/unused",
-      max: isLocal ? 10 : 20,
-      idleTimeoutMillis: isLocal ? 30_000 : 5_000,
-      connectionTimeoutMillis: isLocal ? 5_000 : 30_000,
+      max: isLocal ? 10 : 5,
+      idleTimeoutMillis: isLocal ? 30_000 : 3_000,
+      connectionTimeoutMillis: isLocal ? 5_000 : 15_000,
       allowExitOnIdle: !isLocal,
       ...(isLocal ? {} : { ssl: { rejectUnauthorized: false } }),
     });

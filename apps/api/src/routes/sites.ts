@@ -158,6 +158,9 @@ router.get("/", async (req: Request, res: Response) => {
 });
 
 /* ── Dashboard analytics (conversations, volume, top queries) ──────────── */
+const statsCache = new Map<string, { data: unknown; ts: number }>();
+const STATS_CACHE_TTL = 60_000;
+
 router.get("/dashboard-stats", async (req: Request, res: Response) => {
   try {
     const userId = req.query.userId as string | undefined;
@@ -166,10 +169,16 @@ router.get("/dashboard-stats", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "userId query param is required" });
     }
     const filterSiteId = siteIdRaw?.trim() ? siteIdRaw.trim() : null;
+    const cacheKey = `${userId}:${filterSiteId ?? "all"}`;
+    const cached = statsCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < STATS_CACHE_TTL) {
+      return res.json(cached.data);
+    }
     const data = await getDashboardAnalytics(userId, filterSiteId);
     if (!data) {
       return res.status(403).json({ error: "site not found or access denied" });
     }
+    statsCache.set(cacheKey, { data, ts: Date.now() });
     res.json(data);
   } catch (err) {
     console.error("[dashboard-stats]", err);
