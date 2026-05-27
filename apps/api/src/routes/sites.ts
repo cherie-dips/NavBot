@@ -27,6 +27,7 @@ import {
   getSocialHandles,
   upsertSocialHandles,
   type SocialHandles,
+  setIndexingActive,
 } from "../services/db";
 import { getOrGenerateFaqs, refreshFaqs, saveFaqUserAnswer } from "../services/faq";
 
@@ -210,7 +211,8 @@ router.post("/", async (req: Request, res: Response) => {
     const siteId = explicitSiteId || siteUrl.hostname;
     const hostname = siteUrl.hostname;
 
-    // Skip crawl only if SQLite has hashes *and* Pinecone already has vectors for this site.
+    setIndexingActive(true);
+
     const existingHashes = await getPageHashes(siteId);
     const alreadyCrawled = Object.keys(existingHashes).length > 0;
 
@@ -333,6 +335,8 @@ router.post("/", async (req: Request, res: Response) => {
     console.error("[index]", err);
     const { status, body } = indexErrorResponse(err);
     res.status(status).json(body);
+  } finally {
+    setIndexingActive(false);
   }
 });
 
@@ -476,11 +480,20 @@ router.get("/:siteId/theme", async (req: Request, res: Response) => {
 });
 
 /* ── Get widget config (public — called by widget itself) ──────────────── */
+const widgetConfigCache = new Map<string, { data: unknown; ts: number }>();
+const WIDGET_CACHE_TTL = 120_000;
+
 router.get("/:siteId/widget-config", async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
+    const cached = widgetConfigCache.get(siteId);
+    if (cached && Date.now() - cached.ts < WIDGET_CACHE_TTL) {
+      return res.json(cached.data);
+    }
     const theme = (await getSiteThemePublic(siteId)) ?? DEFAULT_THEME;
-    res.json({ siteId, theme });
+    const data = { siteId, theme };
+    widgetConfigCache.set(siteId, { data, ts: Date.now() });
+    res.json(data);
   } catch (err) {
     console.error("[widget-config] error:", err);
     res.json({ siteId: req.params.siteId, theme: DEFAULT_THEME });
@@ -488,13 +501,23 @@ router.get("/:siteId/widget-config", async (req: Request, res: Response) => {
 });
 
 /* ── Get FAQs for a site (public — called by the widget) ───────────────── */
+const faqCache = new Map<string, { data: unknown; ts: number }>();
+const FAQ_CACHE_TTL = 120_000;
+
 router.get("/:siteId/faqs", async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
     const includeAnswers =
       req.query.includeAnswers === "1" || req.query.includeAnswers === "true";
+    const cacheKey = `${siteId}:${includeAnswers}`;
+    const cached = faqCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < FAQ_CACHE_TTL) {
+      return res.json(cached.data);
+    }
     const faqs = await getOrGenerateFaqs(siteId, { includeAnswers });
-    res.json({ siteId, faqs });
+    const data = { siteId, faqs };
+    faqCache.set(cacheKey, { data, ts: Date.now() });
+    res.json(data);
   } catch (err) {
     console.error("FAQ fetch error:", err);
     res.status(500).json({ error: "failed_to_get_faqs" });

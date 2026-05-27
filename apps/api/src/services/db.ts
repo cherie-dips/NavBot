@@ -2,6 +2,10 @@ import pg from "pg";
 
 let _pool: pg.Pool | null = null;
 
+let _indexingActive = false;
+export function isIndexingActive(): boolean { return _indexingActive; }
+export function setIndexingActive(v: boolean) { _indexingActive = v; }
+
 export function getPool(): pg.Pool {
   if (!_pool) {
     const connectionString = process.env.DATABASE_URL;
@@ -380,25 +384,24 @@ export async function upsertPageLastmods(
   pages: Array<{ url: string; lastmod: string | null }>
 ): Promise<void> {
   if (pages.length === 0) return;
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const stmt = `
-      INSERT INTO page_lastmod (site_id, url, lastmod, indexed_at)
-      VALUES ($1, $2, $3, NOW())
-      ON CONFLICT (site_id, url) DO UPDATE SET
-        lastmod = EXCLUDED.lastmod,
-        indexed_at = NOW()
-    `;
-    for (const p of pages) {
-      await client.query(stmt, [siteId, p.url, p.lastmod]);
+  const BATCH = 50;
+  for (let i = 0; i < pages.length; i += BATCH) {
+    const batch = pages.slice(i, i + BATCH);
+    const values: unknown[] = [];
+    const placeholders: string[] = [];
+    for (let j = 0; j < batch.length; j++) {
+      const off = j * 3;
+      placeholders.push(`($${off + 1}, $${off + 2}, $${off + 3}, NOW())`);
+      values.push(siteId, batch[j]!.url, batch[j]!.lastmod);
     }
-    await client.query("COMMIT");
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
-  } finally {
-    client.release();
+    await pool.query(
+      `INSERT INTO page_lastmod (site_id, url, lastmod, indexed_at)
+       VALUES ${placeholders.join(", ")}
+       ON CONFLICT (site_id, url) DO UPDATE SET
+         lastmod = EXCLUDED.lastmod,
+         indexed_at = NOW()`,
+      values
+    );
   }
 }
 
@@ -662,11 +665,12 @@ export async function getDashboardAnalytics(
     0
   );
 
-  let faqCount = 0;
-  for (const sid of siteIds) {
-    const { rows } = await pool.query(`SELECT COUNT(*)::int AS c FROM faq WHERE site_id = $1`, [sid]);
-    faqCount += (rows[0] as { c: number }).c;
-  }
+  const ph = siteIds.map((_, i) => `$${i + 1}`).join(", ");
+
+  const faqResult = siteIds.length > 0
+    ? await pool.query(`SELECT COUNT(*)::int AS c FROM faq WHERE site_id IN (${ph})`, siteIds)
+    : { rows: [{ c: 0 }] };
+  const faqCount = (faqResult.rows[0] as { c: number }).c;
 
   const empty: DashboardAnalytics = {
     totals: {
@@ -686,39 +690,19 @@ export async function getDashboardAnalytics(
 
   if (siteIds.length === 0) return empty;
 
-  const ph = siteIds.map((_, i) => `$${i + 1}`).join(", ");
+  const totalsRow = await pool.query(
+    `SELECT
+       COUNT(*)::int AS total_turns,
+       COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '7 days')::int AS last_7_days,
+       COUNT(*) FILTER (WHERE created_at >= date_trunc('month', CURRENT_TIMESTAMP))::int AS this_month,
+       AVG(latency_ms) FILTER (WHERE latency_ms IS NOT NULL) AS avg_ms,
+       COUNT(*) FILTER (WHERE COALESCE(source_count, 0) > 0)::int AS with_sources,
+       COUNT(*) FILTER (WHERE channel = 'voice')::int AS voice_turns,
+       COUNT(*) FILTER (WHERE channel = 'text')::int AS text_turns
+     FROM chat_query WHERE site_id IN (${ph})`,
+    siteIds
+  );
 
-  const totalTurns = await pool.query(
-    `SELECT COUNT(*)::int AS c FROM chat_query WHERE site_id IN (${ph})`,
-    siteIds
-  );
-  const last7 = await pool.query(
-    `SELECT COUNT(*)::int AS c FROM chat_query WHERE site_id IN (${ph})
-     AND created_at >= NOW() - INTERVAL '7 days'`,
-    siteIds
-  );
-  const thisMonth = await pool.query(
-    `SELECT COUNT(*)::int AS c FROM chat_query WHERE site_id IN (${ph})
-     AND created_at >= date_trunc('month', CURRENT_TIMESTAMP)`,
-    siteIds
-  );
-  const avgRow = await pool.query(
-    `SELECT AVG(latency_ms) AS avg_ms FROM chat_query WHERE site_id IN (${ph}) AND latency_ms IS NOT NULL`,
-    siteIds
-  );
-  const withSources = await pool.query(
-    `SELECT COUNT(*)::int AS c FROM chat_query WHERE site_id IN (${ph})
-     AND COALESCE(source_count, 0) > 0`,
-    siteIds
-  );
-  const voiceRow = await pool.query(
-    `SELECT COUNT(*)::int AS c FROM chat_query WHERE site_id IN (${ph}) AND channel = 'voice'`,
-    siteIds
-  );
-  const textRow = await pool.query(
-    `SELECT COUNT(*)::int AS c FROM chat_query WHERE site_id IN (${ph}) AND channel = 'text'`,
-    siteIds
-  );
   const volRows = await pool.query(
     `SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS d, COUNT(*)::int AS c
      FROM chat_query
@@ -758,24 +742,21 @@ export async function getDashboardAnalytics(
     siteIds
   );
 
-  const tt = totalTurns.rows[0] as { c: number };
-  const l7 = last7.rows[0] as { c: number };
-  const tm = thisMonth.rows[0] as { c: number };
-  const ar = avgRow.rows[0] as { avg_ms: string | null };
-  const ws = withSources.rows[0] as { c: number };
-  const vr = voiceRow.rows[0] as { c: number };
-  const tr = textRow.rows[0] as { c: number };
-  const avgMs = ar.avg_ms != null ? parseFloat(ar.avg_ms) : null;
+  const t = totalsRow.rows[0] as {
+    total_turns: number; last_7_days: number; this_month: number;
+    avg_ms: string | null; with_sources: number; voice_turns: number; text_turns: number;
+  };
+  const avgMs = t.avg_ms != null ? parseFloat(t.avg_ms) : null;
 
   return {
     totals: {
-      totalTurns: tt.c,
-      last7Days: l7.c,
-      thisCalendarMonth: tm.c,
+      totalTurns: t.total_turns,
+      last7Days: t.last_7_days,
+      thisCalendarMonth: t.this_month,
       avgLatencyMs: avgMs != null && !Number.isNaN(avgMs) ? Math.round(avgMs) : null,
-      turnsWithSources: ws.c,
-      voiceTurns: vr.c,
-      textTurns: tr.c,
+      turnsWithSources: t.with_sources,
+      voiceTurns: t.voice_turns,
+      textTurns: t.text_turns,
     },
     volumeByDay,
     topQueries: (topRows.rows as Array<{ query: string; cnt: number; max_src: number }>).map((r) => ({

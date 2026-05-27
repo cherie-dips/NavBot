@@ -23,6 +23,7 @@ import {
   upsertPageLastmods,
   upsertSite,
   deletePageHashesForUrls,
+  isIndexingActive,
 } from "./db";
 
 const SYNC_CRON = process.env.AUTO_SYNC_CRON || "0 */6 * * *"; // default: every 6 hours
@@ -182,19 +183,18 @@ const lastSyncTime = new Map<string, number>();
  * and the cooldown hasn't expired. Safe to call from a fire-and-forget context.
  */
 export async function trySitemapSync(siteId: string): Promise<void> {
-  // Skip if already running
+  if (isIndexingActive()) return;
+
   if (activeSyncs.has(siteId)) {
     console.log(`[ping-sync] Sync already in progress for ${siteId} — skipping`);
     return;
   }
 
-  // Skip if recently synced
   const last = lastSyncTime.get(siteId);
   if (last && Date.now() - last < COOLDOWN_MS) {
-    return; // silently skip — too recent
+    return;
   }
 
-  // Look up site info
   const sites = (await getAllActiveSites()).filter((s) => s.site_id === siteId);
   if (sites.length === 0) return;
 
