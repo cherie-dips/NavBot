@@ -6,20 +6,21 @@ let _indexingActive = false;
 export function isIndexingActive(): boolean { return _indexingActive; }
 export function setIndexingActive(v: boolean) { _indexingActive = v; }
 
+const IS_LOCAL = !(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("localhost"));
+
 export function getPool(): pg.Pool {
   if (!_pool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
       console.warn("DATABASE_URL is not set — DB queries will fail gracefully.");
     }
-    const isLocal = !connectionString || connectionString.includes("localhost");
     _pool = new pg.Pool({
       connectionString: connectionString || "postgresql://localhost:5432/unused",
-      max: isLocal ? 10 : 5,
-      idleTimeoutMillis: isLocal ? 30_000 : 3_000,
-      connectionTimeoutMillis: isLocal ? 5_000 : 15_000,
-      allowExitOnIdle: !isLocal,
-      ...(isLocal ? {} : { ssl: { rejectUnauthorized: false } }),
+      max: IS_LOCAL ? 10 : 5,
+      idleTimeoutMillis: IS_LOCAL ? 30_000 : 3_000,
+      connectionTimeoutMillis: IS_LOCAL ? 5_000 : 10_000,
+      allowExitOnIdle: !IS_LOCAL,
+      ...(!IS_LOCAL ? { ssl: { rejectUnauthorized: false } } : {}),
     });
     _pool.on("error", (err) => {
       console.error("[db pool] idle client error:", err.message);
@@ -28,8 +29,53 @@ export function getPool(): pg.Pool {
   return _pool;
 }
 
+async function queryWithRetry<T extends pg.QueryResultRow = Record<string, unknown>>(
+  text: string,
+  values?: unknown[]
+): Promise<pg.QueryResult<T>> {
+  const MAX = IS_LOCAL ? 1 : 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX; attempt++) {
+    try {
+      return await getPool().query<T>(text, values);
+    } catch (err: unknown) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const retryable = msg.includes("timeout") || msg.includes("ECONNRESET") ||
+        msg.includes("ECONNREFUSED") || msg.includes("Connection terminated");
+      if (!retryable || attempt === MAX) throw err;
+      const wait = 1000 * attempt + Math.floor(Math.random() * 500);
+      console.warn(`[db] query failed (attempt ${attempt}/${MAX}): ${msg.slice(0, 200)}. Retrying in ${wait}ms…`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw lastErr;
+}
+
+async function connectWithRetry(): Promise<pg.PoolClient> {
+  const MAX = IS_LOCAL ? 1 : 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX; attempt++) {
+    try {
+      return await getPool().connect();
+    } catch (err: unknown) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      const retryable = msg.includes("timeout") || msg.includes("ECONNRESET") ||
+        msg.includes("ECONNREFUSED") || msg.includes("Connection terminated");
+      if (!retryable || attempt === MAX) throw err;
+      const wait = 1000 * attempt + Math.floor(Math.random() * 500);
+      console.warn(`[db] connect failed (attempt ${attempt}/${MAX}): ${msg.slice(0, 200)}. Retrying in ${wait}ms…`);
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+  throw lastErr;
+}
+
 export const pool = new Proxy({} as pg.Pool, {
   get(_target, prop) {
+    if (prop === "query") return queryWithRetry;
+    if (prop === "connect") return connectWithRetry;
     return (getPool() as unknown as Record<string | symbol, unknown>)[prop];
   },
 });
