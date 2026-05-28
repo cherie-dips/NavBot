@@ -1,6 +1,10 @@
 import * as cheerio from "cheerio";
 import type { AnyNode, Element } from "domhandler";
 import crypto from "crypto";
+import { execFile } from "child_process";
+import { writeFile, unlink } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
 import { fetchRenderedHtml, detectFramework } from "./browser-render";
 
 export interface CrawledPage {
@@ -339,6 +343,86 @@ export function contentFingerprint(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Image OCR via system tesseract binary
+// ---------------------------------------------------------------------------
+const SKIP_IMAGE_PATTERNS = /logo|icon|favicon|sprite|arrow|chevron|spinner|loading|placeholder|spacer|pixel|tracking|badge/i;
+const MIN_IMAGE_DIMENSION = 80;
+
+function shouldOcrImage(src: string, alt: string, width?: number, height?: number): boolean {
+  if (!src || src.startsWith("data:")) return false;
+  if (/\.(svg|gif|ico)(\?|$)/i.test(src)) return false;
+  if (SKIP_IMAGE_PATTERNS.test(src) || SKIP_IMAGE_PATTERNS.test(alt)) return false;
+  if (width && width < MIN_IMAGE_DIMENSION) return false;
+  if (height && height < MIN_IMAGE_DIMENSION) return false;
+  return true;
+}
+
+async function ocrImageUrl(imageUrl: string): Promise<string> {
+  const res = await fetch(imageUrl, {
+    redirect: "follow",
+    headers: { "User-Agent": "NavBot/1.0 (site indexer)" },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) return "";
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.startsWith("image/")) return "";
+
+  const buf = Buffer.from(await res.arrayBuffer());
+  if (buf.length < 2000 || buf.length > 10 * 1024 * 1024) return "";
+
+  const tmpPath = join(tmpdir(), `navbot-ocr-${crypto.randomUUID()}.img`);
+  try {
+    await writeFile(tmpPath, buf);
+    const text = await new Promise<string>((resolve) => {
+      execFile("tesseract", [tmpPath, "stdout", "--psm", "6", "-l", "eng"], { timeout: 20_000 }, (err, stdout) => {
+        if (err) { resolve(""); return; }
+        resolve(stdout.trim());
+      });
+    });
+    return text
+      .split("\n")
+      .map((l) => l.trim())
+      .filter((l) => l.length > 2)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+  } finally {
+    unlink(tmpPath).catch(() => {});
+  }
+}
+
+export async function ocrImagesOnPage(
+  html: string,
+  pageUrl: string,
+  maxImages = 5,
+): Promise<string[]> {
+  const $ = cheerio.load(html);
+  $("script, style, noscript").remove();
+
+  const candidates: string[] = [];
+  $("img[src]").each((_, el) => {
+    const src = $(el).attr("src") || "";
+    const alt = $(el).attr("alt") || "";
+    const w = parseInt($(el).attr("width") || "0", 10) || undefined;
+    const h = parseInt($(el).attr("height") || "0", 10) || undefined;
+    if (!shouldOcrImage(src, alt, w, h)) return;
+    try {
+      const absolute = new URL(src, pageUrl).toString();
+      if (!candidates.includes(absolute)) candidates.push(absolute);
+    } catch {}
+  });
+
+  const results: string[] = [];
+  for (const url of candidates.slice(0, maxImages)) {
+    try {
+      const text = await ocrImageUrl(url);
+      if (text.length >= 5) results.push(`[Image text: ${text}]`);
+    } catch {}
+  }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // H: PDF extraction — pdfjs-dist for text PDFs, Gemini OCR for scanned PDFs
 // ---------------------------------------------------------------------------
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
@@ -403,10 +487,15 @@ async function fetchPdfText(url: string): Promise<{ title: string; content: stri
 function processHtmlPage(
   rawUrl: string,
   html: string,
+  ocrTexts?: string[],
 ): CrawledPage | null {
   const $ = cheerio.load(html);
   const title = $("title").first().text().replace(/\s+/g, " ").trim() || rawUrl;
-  const { text: content, sections } = extractStructuredContent($, rawUrl, title);
+  let { text: content, sections } = extractStructuredContent($, rawUrl, title);
+
+  if (ocrTexts && ocrTexts.length > 0) {
+    content += "\n\n" + ocrTexts.join("\n");
+  }
 
   if (content.length === 0) return null;
   if (SKIP_CONTENT_PATTERNS.some((p) => p.test(content))) return null;
@@ -415,14 +504,14 @@ function processHtmlPage(
   return { url: rawUrl, title, content, hash, sections };
 }
 
-export async function crawlPages(urls: string[]): Promise<CrawledPage[]> {
+export async function crawlPages(urls: string[], options?: { enableOcr?: boolean }): Promise<CrawledPage[]> {
   const pages: CrawledPage[] = [];
   const mode = parseBrowserCrawlMode();
+  const ocr = options?.enableOcr ?? false;
   logBrowserCrawlModeOnce(mode);
 
   for (const rawUrl of urls) {
     try {
-      // H: Handle PDFs
       if (PDF_PATTERN.test(rawUrl)) {
         const pdf = await fetchPdfText(rawUrl);
         if (pdf) {
@@ -435,7 +524,15 @@ export async function crawlPages(urls: string[]): Promise<CrawledPage[]> {
       const html = await resolvePageHtml(rawUrl, rawUrl, mode);
       if (!html) continue;
 
-      const page = processHtmlPage(rawUrl, html);
+      let ocrTexts: string[] | undefined;
+      if (ocr) {
+        ocrTexts = await ocrImagesOnPage(html, rawUrl).catch((e) => {
+          console.warn(`[crawler] OCR failed for ${rawUrl}:`, e);
+          return [];
+        });
+      }
+
+      const page = processHtmlPage(rawUrl, html, ocrTexts);
       if (page) pages.push(page);
     } catch (err) {
       console.error("Failed to crawl page", rawUrl, err);
@@ -453,7 +550,7 @@ export { shutdownBrowser } from "./browser-render";
 // ---------------------------------------------------------------------------
 export async function crawlSite(
   rootUrl: string,
-  options: CrawlOptions = {}
+  options: CrawlOptions & { enableOcr?: boolean } = {}
 ): Promise<CrawledPage[]> {
   const { maxPages, maxDepth } = { ...DEFAULT_OPTIONS, ...options };
   const origin = new URL(rootUrl).origin;
@@ -494,7 +591,15 @@ export async function crawlSite(
       const html = await resolvePageHtml(url, normalized, mode);
       if (!html) continue;
 
-      const page = processHtmlPage(normalized, html);
+      let ocrTexts: string[] | undefined;
+      if (options.enableOcr) {
+        ocrTexts = await ocrImagesOnPage(html, url).catch((e) => {
+          console.warn(`[crawler] OCR failed for ${url}:`, e);
+          return [];
+        });
+      }
+
+      const page = processHtmlPage(normalized, html, ocrTexts);
       if (!page) continue;
 
       const $ = cheerio.load(html);
