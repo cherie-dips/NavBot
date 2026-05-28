@@ -244,7 +244,7 @@ function extractStructuredContent(
   }
 
 
-  contentRoot.find("h1, h2, h3, h4, h5, h6, p, li, table, blockquote, img, figure, figcaption").each((_, el) => {
+  contentRoot.find("h1, h2, h3, h4, h5, h6, p, li, table, blockquote, img, figure, figcaption, span, div").each((_, el) => {
     const tag = (el as Element).tagName?.toLowerCase();
     if (!tag) return;
 
@@ -254,7 +254,6 @@ function extractStructuredContent(
       const prefix = "#".repeat(level);
       const text = $(el).text().replace(/\s+/g, " ").trim();
       if (text) {
-        // Update heading stack: pop deeper/same levels, push new
         while (headingStack.length >= level) headingStack.pop();
         headingStack.push(text);
         parts.push(`\n${prefix} ${text}`);
@@ -271,7 +270,6 @@ function extractStructuredContent(
       return;
     }
 
-    // A: Extract image alt text
     if (tag === "img") {
       const alt = $(el).attr("alt")?.trim();
       if (alt && alt.length > 5) {
@@ -281,7 +279,6 @@ function extractStructuredContent(
       return;
     }
 
-    // A: Extract figcaption text
     if (tag === "figcaption") {
       const text = $(el).text().replace(/\s+/g, " ").trim();
       if (text.length > 5) {
@@ -291,11 +288,24 @@ function extractStructuredContent(
       return;
     }
 
-    if (tag === "figure") return; // children handled individually
+    if (tag === "figure") return;
+
+    if (tag === "span" || tag === "div") {
+      const node = $(el);
+      if (node.children().filter((_i, c) => {
+        const ct = (c as Element).tagName?.toLowerCase();
+        return ct !== undefined && ct !== "br" && ct !== "strong" && ct !== "em" && ct !== "b" && ct !== "i" && ct !== "a";
+      }).length > 0) return;
+      const text = node.text().replace(/\s+/g, " ").trim();
+      if (text.length >= 4 && text.length <= 200) {
+        parts.push(text);
+        currentSectionParts.push(text);
+      }
+      return;
+    }
 
     if (tag === "p" || tag === "li" || tag === "blockquote") {
       const text = $(el).text().replace(/\s+/g, " ").trim();
-      // C: Lower minimum from 30 → 10
       if (text.length > 10) {
         parts.push(text);
         currentSectionParts.push(text);
