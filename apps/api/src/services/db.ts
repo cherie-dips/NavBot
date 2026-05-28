@@ -324,9 +324,12 @@ export async function upsertPageHashes(
   pages: Array<{ url: string; hash: string }>
 ): Promise<void> {
   if (pages.length === 0) return;
+  const deduped = new Map<string, { url: string; hash: string }>();
+  for (const p of pages) deduped.set(p.url, p);
+  const unique = [...deduped.values()];
   const BATCH = 50;
-  for (let i = 0; i < pages.length; i += BATCH) {
-    const batch = pages.slice(i, i + BATCH);
+  for (let i = 0; i < unique.length; i += BATCH) {
+    const batch = unique.slice(i, i + BATCH);
     const values: unknown[] = [];
     const placeholders: string[] = [];
     for (let j = 0; j < batch.length; j++) {
@@ -430,9 +433,12 @@ export async function upsertPageLastmods(
   pages: Array<{ url: string; lastmod: string | null }>
 ): Promise<void> {
   if (pages.length === 0) return;
+  const deduped = new Map<string, { url: string; lastmod: string | null }>();
+  for (const p of pages) deduped.set(p.url, p);
+  const unique = [...deduped.values()];
   const BATCH = 50;
-  for (let i = 0; i < pages.length; i += BATCH) {
-    const batch = pages.slice(i, i + BATCH);
+  for (let i = 0; i < unique.length; i += BATCH) {
+    const batch = unique.slice(i, i + BATCH);
     const values: unknown[] = [];
     const placeholders: string[] = [];
     for (let j = 0; j < batch.length; j++) {

@@ -11,16 +11,27 @@ const SITE_URL = "https://plaksha.edu.in/";
 const BATCH_SIZE = 10;
 const ENABLE_OCR = true;
 
+const RESUME = process.argv.includes("--resume");
+
+async function getIndexedUrls(): Promise<Set<string>> {
+  const { pool } = await import("../src/services/db");
+  const result = await pool.query(
+    "SELECT url FROM page_lastmod WHERE site_id = $1",
+    [SITE_ID]
+  );
+  return new Set(result.rows.map((r: { url: string }) => r.url));
+}
+
 async function main() {
   console.log("=== Full Plaksha Crawl ===");
   console.log(`Site: ${SITE_URL}`);
   console.log(`OCR: ${ENABLE_OCR ? "enabled" : "disabled"}`);
+  console.log(`Resume: ${RESUME}`);
   console.log("");
 
-  // Step 1: Get all URLs from sitemap
   console.log("[1/4] Fetching sitemap...");
   const entries = await getSitemapEntries(SITE_URL);
-  const urls = entries.map((e) => e.url);
+  let urls = entries.map((e) => e.url);
   console.log(`Found ${urls.length} URLs in sitemap`);
 
   if (urls.length === 0) {
@@ -28,15 +39,23 @@ async function main() {
     process.exit(1);
   }
 
-  // Step 2: Clear existing Pinecone namespace
-  console.log("\n[2/4] Clearing existing vectors...");
-  await deleteSiteCollection(SITE_ID);
-  console.log("Namespace cleared.");
+  if (RESUME) {
+    const already = await getIndexedUrls();
+    const before = urls.length;
+    urls = urls.filter((u) => !already.has(u));
+    console.log(`Resume mode: skipping ${before - urls.length} already-indexed URLs, ${urls.length} remaining`);
+  } else {
+    console.log("\n[2/4] Clearing existing vectors...");
+    try {
+      await deleteSiteCollection(SITE_ID);
+      console.log("Namespace cleared.");
+    } catch {
+      console.log("Namespace didn't exist, continuing.");
+    }
+  }
 
-  // Step 3: Crawl in batches and upsert
   console.log(`\n[3/4] Crawling ${urls.length} pages in batches of ${BATCH_SIZE}...`);
   let totalPages = 0;
-  let totalChunks = 0;
   let ocrHits = 0;
   const allHashes: Array<{ url: string; hash: string }> = [];
   const startTime = Date.now();
@@ -55,7 +74,6 @@ async function main() {
       const pages = await crawlPages(batch, { enableOcr: ENABLE_OCR });
 
       if (pages.length > 0) {
-        // Count OCR content
         for (const p of pages) {
           if (p.content.includes("[Image text:")) ocrHits++;
         }
@@ -66,28 +84,34 @@ async function main() {
         console.log(
           `  Crawled ${pages.length} pages, total so far: ${totalPages}`
         );
+
+        // Save hashes after each batch so resume works on crash
+        await upsertPageHashes(
+          SITE_ID,
+          pages.map((p) => ({ url: p.url, hash: p.hash }))
+        );
       }
     } catch (err) {
       console.error(`  Batch ${batchNum} failed:`, err);
     }
   }
 
-  // Step 4: Update page hashes in DB
-  console.log(`\n[4/4] Updating ${allHashes.length} page hashes in DB...`);
-  for (let i = 0; i < allHashes.length; i += 50) {
-    await upsertPageHashes(SITE_ID, allHashes.slice(i, i + 50));
-  }
-
   // Update pages_indexed count
   const { pool } = await import("../src/services/db");
+  const countResult = await pool.query(
+    "SELECT COUNT(*) as cnt FROM page_lastmod WHERE site_id = $1",
+    [SITE_ID]
+  );
+  const totalIndexed = parseInt(countResult.rows[0].cnt, 10);
   await pool.query("UPDATE site SET pages_indexed = $1 WHERE site_id = $2", [
-    totalPages,
+    totalIndexed,
     SITE_ID,
   ]);
 
   const totalTime = ((Date.now() - startTime) / 1000 / 60).toFixed(1);
   console.log("\n=== Crawl Complete ===");
-  console.log(`Pages crawled: ${totalPages} / ${urls.length}`);
+  console.log(`Pages crawled this run: ${totalPages}`);
+  console.log(`Total pages indexed: ${totalIndexed}`);
   console.log(`Pages with OCR text: ${ocrHits}`);
   console.log(`Time: ${totalTime} minutes`);
 
