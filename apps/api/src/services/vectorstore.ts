@@ -8,7 +8,7 @@ import type { CrawledPage } from "./crawler";
 const PINECONE_API_KEY = process.env.PINECONE_API_KEY?.trim() ?? "";
 const PINECONE_INDEX = process.env.PINECONE_INDEX?.trim() ?? "";
 const PINECONE_EMBEDDING_MODEL =
-  process.env.PINECONE_EMBEDDING_MODEL?.trim() || "llama-text-embed-v2";
+  process.env.PINECONE_EMBEDDING_MODEL?.trim() || "multilingual-e5-large";
 const PINECONE_EMBEDDING_DIMENSION = (() => {
   const n = parseInt(process.env.PINECONE_EMBEDDING_DIMENSION ?? "1024", 10);
   return Number.isFinite(n) && n > 0 ? n : 1024;
