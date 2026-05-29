@@ -123,7 +123,34 @@ function removeChunkOverlap(chunks: string[]): string[] {
   return out.filter((c) => c.length > 20);
 }
 
-function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
+function titleFromUrl(url: string): string {
+  try {
+    const path = new URL(url).pathname.replace(/\/+$/, "");
+    const last = path.split("/").filter(Boolean).pop();
+    if (!last) return url;
+    return last
+      .replace(/[-_]+/g, " ")
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  } catch {
+    return url;
+  }
+}
+
+function resolveTitle(title: string, url: string, siteId: string): string {
+  if (!title) return titleFromUrl(url);
+  const norm = title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const site = siteId.replace(/\./g, " ").toLowerCase();
+  const generic =
+    norm.length < 4 ||
+    norm === "home" ||
+    norm === "homepage" ||
+    norm.startsWith("welcome") ||
+    norm === site ||
+    norm === `welcome to ${site}`;
+  return generic ? titleFromUrl(url) : title;
+}
+
+function buildContextString(docs: RetrievedDoc[], userMessage: string, siteId: string): string {
   const exhaustive = isExhaustiveListQuestion(userMessage);
   const maxCharsPerChunk = exhaustive ? 1200 : 1600;
   const maxSources = exhaustive ? 40 : 20;
@@ -135,7 +162,8 @@ function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
   const byUrl = new Map<string, { title: string; url: string; bestDistance: number; chunks: string[] }>();
   for (const d of slice) {
     const key = d.url || `_untitled_${d.id}`;
-    const entry = byUrl.get(key) ?? { title: d.title, url: d.url, bestDistance: d.distance ?? 1, chunks: [] };
+    const title = resolveTitle(d.title, d.url, siteId);
+    const entry = byUrl.get(key) ?? { title, url: d.url, bestDistance: d.distance ?? 1, chunks: [] };
     entry.chunks.push(d.content.slice(0, maxCharsPerChunk).trim());
     if ((d.distance ?? 1) < entry.bestDistance) entry.bestDistance = d.distance ?? 1;
     byUrl.set(key, entry);
@@ -166,12 +194,13 @@ function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
 }
 
 function deduplicateSources(
-  docs: RetrievedDoc[]
+  docs: RetrievedDoc[],
+  siteId: string
 ): Array<{ url: string; title: string; distance?: number }> {
   const seen = new Map<string, { url: string; title: string; distance?: number }>();
   for (const d of docs) {
     if (!seen.has(d.url)) {
-      seen.set(d.url, { url: d.url, title: d.title, distance: d.distance });
+      seen.set(d.url, { url: d.url, title: resolveTitle(d.title, d.url, siteId), distance: d.distance });
     }
   }
   return Array.from(seen.values());
@@ -340,7 +369,7 @@ export async function answerQuestionWithRag(params: {
 
   const lowConfidence = bestDist >= LOW_QUALITY_THRESHOLD;
 
-  const contextString = buildContextString(docs, message);
+  const contextString = buildContextString(docs, message, siteId);
   const socialContextString = buildSocialContextString(socialResults);
 
   const systemPrompt = `You are NavBot, a navigation chatbot for the website ${siteId}. You help users find information on the website by answering questions. Use ONLY the provided page content for factual answers. For greetings, small talk, and thank-yous, respond naturally without needing page content.
@@ -405,7 +434,7 @@ Only include pages whose content you actually used in your answer. Omit for gree
 
   console.log(`[RAG] Raw model output (${rawAnswer.length} chars): ${rawAnswer.slice(0, 500)}`);
 
-  const sources = deduplicateSources(docs);
+  const sources = deduplicateSources(docs, siteId);
 
   for (const sr of socialResults) {
     if (!sources.find((s) => s.url === sr.url)) {
