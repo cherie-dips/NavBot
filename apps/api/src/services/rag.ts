@@ -356,26 +356,26 @@ ANSWER FORMAT:
 RULES:
 - Unknown answer: reply "I don't have that information — please check ${siteId} or contact them directly."
 - Only state facts you are certain about. If your answer may be incomplete, add "For the full list, check the relevant page below."
+- Carefully scan ALL provided page content before answering. Information about the same topic may be spread across multiple pages — do not stop after finding a partial answer on one page.
 - Combine information from all pages into one unified answer.
 - If pages contradict each other, state both versions with their page names.
 - Counting questions: enumerate items then state the total.
 - Greetings: respond naturally and introduce yourself as the chatbot for this website.
 - Follow-up questions: use the conversation history to resolve pronouns and references (e.g. "tell me more", "what about the fees for that").
 - Respond in the same language the user writes in.
+- When social media posts are provided, include their URLs inline in your answer so users can click through to the original post.
 
-After your answer, on a new line output 1-2 most relevant page URLs the user can visit for more details:
+After your answer, on a new line output 1-2 page URLs that directly answer the question:
 [RELEVANT_PAGES]
 url1
 url2
 [/RELEVANT_PAGES]
-Omit for greetings.`;
-
-  const strongSocialIntent = /\b(social\s*media|instagram|twitter|linkedin|facebook|posts?|reels?)\b/i.test(message);
+Only include pages whose content you actually used in your answer. Omit for greetings.`;
 
   let contextMessage = lowConfidence
     ? `Note: the retrieved pages may not be closely related to the question. Only answer if you find a clear match; otherwise say you don't have that information.\n\nPage content:\n\n${contextString}`
     : `Page content:\n\n${contextString}`;
-  if (socialContextString && strongSocialIntent) {
+  if (socialContextString) {
     contextMessage += `\n\n---\n\nRecent social media posts:\n\n${socialContextString}`;
   }
 
