@@ -29,8 +29,12 @@ let activeEmbedTextField = ENV_EMBED_TEXT_FIELD;
 let _upsertConfigCache: { mode: "vectors" | "records"; textField: string } | null =
   null;
 
+/** Resolved index dimension — updated by resolveUpsertConfig from describeIndex. */
+let resolvedDimension = PINECONE_EMBEDDING_DIMENSION;
+
 /**
  * Pick vector upsert vs integrated upsertRecords and the text field name on records.
+ * Also detects the actual index dimension for query-time embedding.
  */
 async function resolveUpsertConfig(): Promise<{
   mode: "vectors" | "records";
@@ -41,19 +45,30 @@ async function resolveUpsertConfig(): Promise<{
     return _upsertConfigCache;
   }
 
+  // Always call describeIndex to detect the real dimension
+  const desc = await getPinecone().describeIndex(PINECONE_INDEX);
+  if (typeof desc.dimension === "number" && desc.dimension > 0) {
+    resolvedDimension = desc.dimension;
+  }
+
   if (PINECONE_UPSERT_MODE_ENV === "records") {
     _upsertConfigCache = { mode: "records", textField: ENV_EMBED_TEXT_FIELD };
     activeEmbedTextField = ENV_EMBED_TEXT_FIELD;
+    console.log(
+      `[vectorstore] Index "${PINECONE_INDEX}" dimension=${resolvedDimension}, upsert mode="records"`
+    );
     return _upsertConfigCache;
   }
   if (PINECONE_UPSERT_MODE_ENV === "vectors") {
     _upsertConfigCache = { mode: "vectors", textField: ENV_EMBED_TEXT_FIELD };
     activeEmbedTextField = ENV_EMBED_TEXT_FIELD;
+    console.log(
+      `[vectorstore] Index "${PINECONE_INDEX}" dimension=${resolvedDimension}, upsert mode="vectors"`
+    );
     return _upsertConfigCache;
   }
 
   // auto (default when unset or "auto")
-  const desc = await getPinecone().describeIndex(PINECONE_INDEX);
   let mode: "vectors" | "records" = desc.embed ? "records" : "vectors";
   let textField = ENV_EMBED_TEXT_FIELD;
 
@@ -68,7 +83,7 @@ async function resolveUpsertConfig(): Promise<{
   _upsertConfigCache = { mode, textField };
   activeEmbedTextField = textField;
   console.log(
-    `[vectorstore] Index "${PINECONE_INDEX}" describeIndex → upsert mode="${mode}"` +
+    `[vectorstore] Index "${PINECONE_INDEX}" describeIndex → dimension=${resolvedDimension}, upsert mode="${mode}"` +
       (mode === "records" ? `, embed text field="${textField}"` : "") +
       (desc.embed?.model ? `, index model=${desc.embed.model}` : "")
   );
@@ -156,38 +171,53 @@ async function embedTexts(
     inputType,
     truncate: "END",
   };
+  (params as Record<string, unknown>).dimension = resolvedDimension;
 
-  const res = await getPinecone().inference.embed(
-    PINECONE_EMBEDDING_MODEL,
-    texts,
-    params
-  );
-
-  const data = res.data ?? [];
-  if (data.length !== texts.length) {
-    throw new Error(
-      `Pinecone embed: expected ${texts.length} vectors, got ${data.length}`
-    );
-  }
-
-  const out: number[][] = [];
-  for (let i = 0; i < data.length; i++) {
-    const row = data[i];
-    if (!row || row.vectorType !== "dense" || !("values" in row)) {
-      throw new Error(`Pinecone embed: expected dense vector at index ${i}`);
-    }
-    const values = row.values;
-    if (!values?.length) {
-      throw new Error(`Pinecone embed: empty vector at index ${i}`);
-    }
-    if (values.length !== PINECONE_EMBEDDING_DIMENSION) {
-      console.warn(
-        `[vectorstore] embedding dim ${values.length} !== PINECONE_EMBEDDING_DIMENSION (${PINECONE_EMBEDDING_DIMENSION}); check index + model config`
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await getPinecone().inference.embed(
+        PINECONE_EMBEDDING_MODEL,
+        texts,
+        params
       );
+
+      const data = res.data ?? [];
+      if (data.length !== texts.length) {
+        throw new Error(
+          `Pinecone embed: expected ${texts.length} vectors, got ${data.length}`
+        );
+      }
+
+      const out: number[][] = [];
+      for (let i = 0; i < data.length; i++) {
+        const row = data[i];
+        if (!row || row.vectorType !== "dense" || !("values" in row)) {
+          throw new Error(`Pinecone embed: expected dense vector at index ${i}`);
+        }
+        const values = row.values;
+        if (!values?.length) {
+          throw new Error(`Pinecone embed: empty vector at index ${i}`);
+        }
+        if (values.length !== resolvedDimension) {
+          console.warn(
+            `[vectorstore] embedding dim ${values.length} !== index dimension (${resolvedDimension}); check index + model config`
+          );
+        }
+        out.push([...values]);
+      }
+      return out;
+    } catch (err) {
+      lastErr = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/expected.*vector|expected.*dense|empty vector/i.test(msg)) throw err;
+      if (attempt < 3) {
+        console.warn(`[vectorstore] embed failed (attempt ${attempt}/3): ${msg.slice(0, 200)}. Retrying...`);
+        await new Promise((r) => setTimeout(r, 1000 * attempt));
+      }
     }
-    out.push([...values]);
   }
-  return out;
+  throw lastErr;
 }
 
 /** Pinecone cosine scores are similarity (higher = closer). Chroma used distance (lower = closer). */
@@ -212,11 +242,9 @@ function chunkTextFromMetadata(
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const COLLECTION_PREFIX = "site_";
-
 const CHUNK_SIZE = 1500;
 const CHUNK_OVERLAP = 300;
-const MAX_PAGE_CONTENT_LENGTH = 24000;
+const MAX_PAGE_CONTENT_LENGTH = 48000;
 const MAX_TITLE_LENGTH = 500;
 const EMBED_BATCH_SIZE = 32;
 const UPSERT_BATCH_SIZE = 100;
@@ -273,24 +301,23 @@ interface EnrichedChunk {
   totalChunks: number;
 }
 
-function findSectionHeading(
-  sections: Array<{ heading: string; content: string }> | undefined,
-  chunkText: string
-): string {
-  if (!sections || sections.length === 0) return "";
-  // Find the section whose content best overlaps with this chunk
-  const preview = chunkText.slice(0, 200);
-  for (const s of sections) {
-    if (s.content && preview.includes(s.content.slice(0, 80))) return s.heading;
-  }
-  // Fallback: check which section contains any of the chunk's first line
-  const firstLine = chunkText.split("\n")[0]?.trim() || "";
-  if (firstLine.length > 15) {
-    for (const s of sections) {
-      if (s.content.includes(firstLine)) return s.heading;
+function findSectionHeading(fullContent: string, chunkText: string): string {
+  const searchKey = chunkText.split("\n").find((l) => l.trim().length > 20)?.trim();
+  if (!searchKey) return "";
+  const pos = fullContent.indexOf(searchKey);
+  if (pos < 0) return "";
+
+  const before = fullContent.slice(0, pos);
+  const headingStack: string[] = [];
+  for (const line of before.split("\n")) {
+    const match = line.match(/^(#{1,6})\s+(.+)/);
+    if (match) {
+      const level = match[1]!.length;
+      while (headingStack.length >= level) headingStack.pop();
+      headingStack.push(match[2]!.trim());
     }
   }
-  return "";
+  return headingStack.join(" > ");
 }
 
 function buildEnrichedChunks(page: CrawledPage): EnrichedChunk[] {
@@ -305,8 +332,7 @@ function buildEnrichedChunks(page: CrawledPage): EnrichedChunk[] {
   if (rawChunks.length === 0) return [];
 
   return rawChunks.map((chunk, i) => {
-    // B: Find heading breadcrumb for this chunk
-    const heading = findSectionHeading(page.sections, chunk);
+    const heading = findSectionHeading(content, chunk);
     const enrichedDocument = [
       `Page: ${title}`,
       `URL: ${url}`,
@@ -596,7 +622,7 @@ export async function querySiteDocs(params: {
   docs.sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
   const rawPoolLimit = exhaustive ? 320 : 150;
   const pool = docs.slice(0, rawPoolLimit);
-  const maxPerUrl = exhaustive ? 5 : 4;
+  const maxPerUrl = exhaustive ? 5 : 6;
   const maxTotal = exhaustive ? 96 : 52;
   return selectWithUrlSpread(pool, maxPerUrl, maxTotal);
 }

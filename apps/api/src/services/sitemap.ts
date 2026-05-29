@@ -54,40 +54,96 @@ async function parseSitemapIndex(url: string): Promise<string[]> {
   return urls;
 }
 
+// ---------------------------------------------------------------------------
+// robots.txt parsing — respect Disallow rules
+// ---------------------------------------------------------------------------
+interface RobotsRules {
+  disallow: string[];
+  sitemapUrls: string[];
+}
+
+const ROBOTS_CACHE_MAX = 200;
+const robotsCache = new Map<string, RobotsRules>();
+
+async function fetchRobotsRules(origin: string): Promise<RobotsRules> {
+  const cached = robotsCache.get(origin);
+  if (cached) return cached;
+
+  if (robotsCache.size >= ROBOTS_CACHE_MAX) {
+    const firstKey = robotsCache.keys().next().value;
+    if (firstKey) robotsCache.delete(firstKey);
+  }
+
+  const rules: RobotsRules = { disallow: [], sitemapUrls: [] };
+
+  try {
+    const res = await fetch(`${origin}/robots.txt`, {
+      headers: { "User-Agent": "NavBot/1.0 (sitemap reader)" },
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) { robotsCache.set(origin, rules); return rules; }
+
+    const text = await res.text();
+    let inRelevantBlock = false;
+
+    for (const raw of text.split("\n")) {
+      const line = raw.trim();
+      if (/^user-agent:\s*(\*|navbot)/i.test(line)) {
+        inRelevantBlock = true;
+        continue;
+      }
+      if (/^user-agent:/i.test(line)) {
+        inRelevantBlock = false;
+        continue;
+      }
+      if (/^sitemap:/i.test(line)) {
+        const url = line.replace(/^sitemap:\s*/i, "").trim();
+        if (url) rules.sitemapUrls.push(url);
+        continue;
+      }
+      if (inRelevantBlock && /^disallow:\s*\S/i.test(line)) {
+        const path = line.replace(/^disallow:\s*/i, "").trim();
+        if (path) rules.disallow.push(path);
+      }
+    }
+  } catch { /* ignore */ }
+
+  robotsCache.set(origin, rules);
+  return rules;
+}
+
+export function isUrlAllowedByRobots(url: string, rules: RobotsRules): boolean {
+  try {
+    const { pathname } = new URL(url);
+    return !rules.disallow.some((d) => {
+      if (d.endsWith("*")) return pathname.startsWith(d.slice(0, -1));
+      return pathname.startsWith(d);
+    });
+  } catch {
+    return true;
+  }
+}
+
+export { fetchRobotsRules };
+
 async function discoverSitemapUrl(siteUrl: string): Promise<string | null> {
   const base = new URL(siteUrl).origin;
+  const robots = await fetchRobotsRules(base);
 
   const candidates = [
+    ...robots.sitemapUrls,
     `${base}/sitemap.xml`,
     `${base}/sitemap_index.xml`,
     `${base}/sitemap-index.xml`,
     `${base}/sitemaps/sitemap.xml`,
   ];
 
-  // Also check robots.txt for Sitemap: directive
-  try {
-    const robotsRes = await fetch(`${base}/robots.txt`, {
-      headers: { "User-Agent": "NavBot/1.0 (sitemap reader)" },
-    });
-    if (robotsRes.ok) {
-      const robots = await robotsRes.text();
-      const sitemapLines = robots
-        .split("\n")
-        .filter((l) => /^sitemap:/i.test(l.trim()));
-      for (const line of sitemapLines) {
-        const sitemapUrl = line.replace(/^sitemap:\s*/i, "").trim();
-        if (sitemapUrl) candidates.unshift(sitemapUrl); // robots.txt wins
-      }
-    }
-  } catch {
-    // ignore robots.txt failures
-  }
-
   for (const candidate of candidates) {
     try {
       const res = await fetch(candidate, {
         method: "HEAD",
         headers: { "User-Agent": "NavBot/1.0 (sitemap reader)" },
+        signal: AbortSignal.timeout(10_000),
       });
       if (res.ok) return candidate;
     } catch {
@@ -130,7 +186,7 @@ export async function getSitemapEntries(siteUrl: string): Promise<SitemapEntry[]
 
   if (childUrls.length > 0) {
     const all: SitemapEntry[] = [];
-    for (const childUrl of childUrls.slice(0, 10)) {
+    for (const childUrl of childUrls) {
       try {
         const entries = await parseSitemapXml(childUrl);
         all.push(...entries);

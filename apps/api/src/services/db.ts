@@ -20,7 +20,7 @@ export function getPool(): pg.Pool {
       idleTimeoutMillis: IS_LOCAL ? 30_000 : 3_000,
       connectionTimeoutMillis: IS_LOCAL ? 5_000 : 10_000,
       allowExitOnIdle: !IS_LOCAL,
-      ...(!IS_LOCAL ? { ssl: { rejectUnauthorized: false } } : {}),
+      ...(!IS_LOCAL ? { ssl: { rejectUnauthorized: process.env.DB_SSL_REJECT_UNAUTHORIZED !== "false" } } : {}),
     });
     _pool.on("error", (err) => {
       console.error("[db pool] idle client error:", err.message);
@@ -376,19 +376,10 @@ export async function getTrackedUrls(siteId: string): Promise<Set<string>> {
 
 export async function deletePageHashesForUrls(siteId: string, urls: string[]): Promise<void> {
   if (urls.length === 0) return;
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    for (const url of urls) {
-      await client.query(`DELETE FROM page_lastmod WHERE site_id = $1 AND url = $2`, [siteId, url]);
-    }
-    await client.query("COMMIT");
-  } catch (e) {
-    await client.query("ROLLBACK");
-    throw e;
-  } finally {
-    client.release();
-  }
+  await pool.query(
+    `DELETE FROM page_lastmod WHERE site_id = $1 AND url = ANY($2::text[])`,
+    [siteId, urls]
+  );
 }
 
 export async function getSiteCountBySiteId(siteId: string): Promise<number> {

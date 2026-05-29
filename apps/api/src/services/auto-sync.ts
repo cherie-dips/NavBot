@@ -103,7 +103,7 @@ async function syncSite(site: {
 
     for (let i = 0; i < urlsToCrawl.length; i += BATCH_SIZE) {
       const batchUrls = urlsToCrawl.slice(i, i + BATCH_SIZE);
-      const batchPages = await crawlPages(batchUrls);
+      const batchPages = await crawlPages(batchUrls, { enableOcr: true });
       totalCrawled += batchPages.length;
 
       const batchChanged = batchPages.filter((p) => storedHashes[p.url] !== p.hash);
@@ -118,28 +118,27 @@ async function syncSite(site: {
       await upsertPageHashes(siteId, batchPages.map((p) => ({ url: p.url, hash: p.hash })));
       const batchEntries = changedEntries.filter((e) => batchUrls.includes(e.url));
       await upsertPageLastmods(siteId, batchEntries.map((e) => ({ url: e.url, lastmod: e.lastmod })));
-
-      await shutdownBrowser();
     }
+
+    await shutdownBrowser();
 
     console.log(`${tag} ${totalCrawled} pages crawled, ${totalInserted} chunks upserted (${totalFailed} failed)`);
 
-    // 8. Update site metadata
-    const storedHashCount = Object.keys(storedHashes).length;
-    const newTotal =
-      storedHashCount + changedEntries.length - removedUrls.length;
+    // 8. Update site metadata — count actual indexed pages from DB
+    const updatedHashes = await getPageHashes(siteId);
     await upsertSite({
       siteId: site.site_id,
       userId: site.user_id,
       url: site.url,
       hostname: site.hostname,
-      pagesIndexed: Math.max(newTotal, 0),
+      pagesIndexed: Object.keys(updatedHashes).length,
     });
 
     console.log(`${tag} Sync complete`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`${tag} Error:`, msg);
+    await shutdownBrowser();
   }
 }
 

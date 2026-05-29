@@ -6,12 +6,13 @@ import { writeFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { fetchRenderedHtml, detectFramework } from "./browser-render";
+import { fetchRobotsRules, isUrlAllowedByRobots } from "./sitemap";
 
 export interface CrawledPage {
   url: string;
   title: string;
   content: string;
-  /** MD5 of first 600 chars of content — used for change detection in sync */
+  /** MD5 of full content — used for change detection in sync */
   hash: string;
   /** Heading hierarchy for each section — used for contextual chunking */
   sections?: Array<{ heading: string; content: string }>;
@@ -36,8 +37,8 @@ interface CrawlOptions {
 }
 
 const DEFAULT_OPTIONS: Required<CrawlOptions> = {
-  maxPages: 500,
-  maxDepth: 10,
+  maxPages: Infinity,
+  maxDepth: Infinity,
 };
 
 const SKIP_PATH_PATTERNS: RegExp[] = [
@@ -50,8 +51,12 @@ const SKIP_PATH_PATTERNS: RegExp[] = [
 const PDF_PATTERN = /\.pdf$/i;
 
 const SKIP_CONTENT_PATTERNS: RegExp[] = [
-  /^(404|page not found|access denied)/i,
-  /this page (does not exist|has been removed)/i,
+  /^(404|page not found|access denied|forbidden|unauthorized)/i,
+  /this page (does not exist|has been removed|is no longer available)/i,
+  /^(please (sign|log) in|login required|authentication required)/i,
+  /^(coming soon|under construction|under maintenance)/i,
+  /^(please enable javascript|this site requires javascript)/i,
+  /^(verify you are human|captcha|please complete the security check)/i,
 ];
 
 
@@ -94,6 +99,7 @@ async function fetchStaticHtml(url: string): Promise<StaticFetchResult | null> {
   try {
     const res = await fetch(url, {
       redirect: "follow",
+      signal: AbortSignal.timeout(30_000),
       headers: {
         "User-Agent": "NavBot/1.0 (site indexer; respectful crawler)",
         Accept: "text/html",
@@ -148,6 +154,18 @@ async function resolvePageHtml(
     if (rendered) return rendered;
     console.warn(`[crawler] Browser render failed for SPA ${normalizedUrl}, using static HTML`);
     return result.html;
+  }
+
+  const roughText = result.html
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (roughText.length < 200) {
+    console.log(`[crawler] Thin static content (${roughText.length} chars) for ${normalizedUrl} — trying browser render`);
+    const rendered = await fetchRenderedHtml(fetchUrl);
+    if (rendered) return rendered;
   }
 
   return result.html;
@@ -219,10 +237,7 @@ function extractStructuredContent(
 ): { text: string; sections: ExtractedSection[] } {
   const metaLines = extractMetadata($);
 
-  $(
-    "script, style, noscript, .cookie-banner, " +
-      ".popup, .modal, .advertisement, [aria-hidden='true']"
-  ).remove();
+  $("script, style, noscript, .cookie-banner, .advertisement, .gdpr-banner, .cookie-consent").remove();
 
   const parts: string[] = [];
   parts.push(`Page Title: ${title}`);
@@ -248,7 +263,7 @@ function extractStructuredContent(
   }
 
 
-  contentRoot.find("h1, h2, h3, h4, h5, h6, p, li, table, blockquote, img, figure, figcaption, span, div").each((_, el) => {
+  contentRoot.find("h1, h2, h3, h4, h5, h6, p, li, table, blockquote, img, figure, figcaption, span, div, dl, dt, dd, details, summary, address, time, mark").each((_, el) => {
     const tag = (el as Element).tagName?.toLowerCase();
     if (!tag) return;
 
@@ -292,16 +307,99 @@ function extractStructuredContent(
       return;
     }
 
-    if (tag === "figure") return;
+    if (tag === "figure") {
+      const figText = $(el).find("figcaption").text().replace(/\s+/g, " ").trim();
+      if (!figText) {
+        const alt = $(el).find("img").attr("alt")?.trim();
+        if (alt && alt.length > 5) {
+          parts.push(`[Image: ${alt}]`);
+          currentSectionParts.push(`[Image: ${alt}]`);
+        }
+      }
+      return;
+    }
 
     if (tag === "span" || tag === "div") {
       const node = $(el);
+      if (node.parents("p, li, blockquote, dt, dd, figcaption, address, td, th").length > 0) return;
       if (node.children().filter((_i, c) => {
         const ct = (c as Element).tagName?.toLowerCase();
-        return ct !== undefined && ct !== "br" && ct !== "strong" && ct !== "em" && ct !== "b" && ct !== "i" && ct !== "a";
+        return ct !== undefined && ct !== "br" && ct !== "strong" && ct !== "em" && ct !== "b" && ct !== "i" && ct !== "a" && ct !== "span";
       }).length > 0) return;
+      const parent = node.parent();
+      const parentTag = (parent[0] as Element | undefined)?.tagName?.toLowerCase();
+      if (parentTag === "nav" || parentTag === "button") return;
+      const cls = (node.attr("class") || "") + " " + (parent.attr("class") || "");
+      if (/\b(nav-|menu|breadcrumb|toolbar|dropdown|sidebar)\b/i.test(cls)) return;
       const text = node.text().replace(/\s+/g, " ").trim();
-      if (text.length >= 4 && text.length <= 200) {
+      if (text.length >= 5 && text.length <= 800) {
+        parts.push(text);
+        currentSectionParts.push(text);
+      }
+      return;
+    }
+
+    if (tag === "dt") {
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+      if (text.length > 2) {
+        parts.push(`${text}:`);
+        currentSectionParts.push(`${text}:`);
+      }
+      return;
+    }
+
+    if (tag === "dd") {
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+      if (text.length > 2) {
+        parts.push(`  ${text}`);
+        currentSectionParts.push(text);
+      }
+      return;
+    }
+
+    if (tag === "summary") {
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+      if (text.length > 3) {
+        parts.push(`\n**${text}**`);
+        currentSectionParts.push(text);
+      }
+      return;
+    }
+
+    if (tag === "address") {
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+      if (text.length > 5) {
+        parts.push(`Address: ${text}`);
+        currentSectionParts.push(text);
+      }
+      return;
+    }
+
+    if (tag === "time") {
+      const datetime = $(el).attr("datetime") || "";
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+      const value = text || datetime;
+      if (value.length > 3) {
+        parts.push(value);
+        currentSectionParts.push(value);
+      }
+      return;
+    }
+
+    if (tag === "mark") {
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+      if (text.length > 3) {
+        parts.push(text);
+        currentSectionParts.push(text);
+      }
+      return;
+    }
+
+    if (tag === "details") {
+      const clone = $(el).clone();
+      clone.find("summary").remove();
+      const text = clone.text().replace(/\s+/g, " ").trim();
+      if (text.length > 5) {
         parts.push(text);
         currentSectionParts.push(text);
       }
@@ -310,7 +408,7 @@ function extractStructuredContent(
 
     if (tag === "p" || tag === "li" || tag === "blockquote") {
       const text = $(el).text().replace(/\s+/g, " ").trim();
-      if (text.length > 10) {
+      if (text.length > 5) {
         parts.push(text);
         currentSectionParts.push(text);
       }
@@ -318,6 +416,20 @@ function extractStructuredContent(
   });
 
   flushSection();
+
+  // Extract title/aria-label attributes that contain substantial text
+  contentRoot.find("[title], [aria-label]").each((_, el) => {
+    const titleAttr = $(el).attr("title")?.trim();
+    const ariaLabel = $(el).attr("aria-label")?.trim();
+    for (const attr of [titleAttr, ariaLabel]) {
+      if (attr && attr.length >= 10 && attr.length <= 300) {
+        const existing = parts.join(" ");
+        if (!existing.includes(attr)) {
+          parts.push(attr);
+        }
+      }
+    }
+  });
 
   // Also extract contact-like content from nav/footer before they're gone
   const contactParts: string[] = [];
@@ -339,7 +451,7 @@ function extractStructuredContent(
 
 
 export function contentFingerprint(text: string): string {
-  return crypto.createHash("md5").update(text.slice(0, 600)).digest("hex");
+  return crypto.createHash("md5").update(text).digest("hex");
 }
 
 // ---------------------------------------------------------------------------
@@ -412,6 +524,19 @@ export async function ocrImagesOnPage(
     } catch {}
   });
 
+  // CSS background images (common in cards, hero sections, profile overlays)
+  $("[style]").each((_, el) => {
+    const style = $(el).attr("style") || "";
+    const bgMatch = style.match(/background(?:-image)?\s*:\s*url\(['"]?([^'")\s]+)['"]?\)/i);
+    if (!bgMatch?.[1]) return;
+    const src = bgMatch[1];
+    if (!shouldOcrImage(src, "", undefined, undefined)) return;
+    try {
+      const absolute = new URL(src, pageUrl).toString();
+      if (!candidates.includes(absolute)) candidates.push(absolute);
+    } catch {}
+  });
+
   const results: string[] = [];
   for (const url of candidates.slice(0, maxImages)) {
     try {
@@ -456,6 +581,7 @@ async function fetchPdfText(url: string): Promise<{ title: string; content: stri
   try {
     const res = await fetch(url, {
       redirect: "follow",
+      signal: AbortSignal.timeout(30_000),
       headers: { "User-Agent": "NavBot/1.0 (site indexer; respectful crawler)" },
     });
     if (!res.ok) return null;
@@ -504,41 +630,86 @@ function processHtmlPage(
   return { url: rawUrl, title, content, hash, sections };
 }
 
+const CRAWL_CONCURRENCY = parseInt(process.env.NAVBOT_CRAWL_CONCURRENCY || "5", 10);
+const CRAWL_DELAY_MS = parseInt(process.env.NAVBOT_CRAWL_DELAY_MS || "150", 10);
+
+async function mapConcurrent<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  let idx = 0;
+
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++;
+      results[i] = await fn(items[i]!);
+      if (CRAWL_DELAY_MS > 0) await new Promise((r) => setTimeout(r, CRAWL_DELAY_MS));
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+  return results;
+}
+
+async function crawlSingleUrl(rawUrl: string, mode: BrowserCrawlMode, ocr: boolean): Promise<CrawledPage | null> {
+  if (PDF_PATTERN.test(rawUrl)) {
+    const pdf = await fetchPdfText(rawUrl);
+    if (pdf) {
+      const hash = contentFingerprint(pdf.content);
+      return { url: rawUrl, title: pdf.title, content: pdf.content, hash };
+    }
+    return null;
+  }
+
+  const html = await resolvePageHtml(rawUrl, rawUrl, mode);
+  if (!html) return null;
+
+  let ocrTexts: string[] | undefined;
+  if (ocr) {
+    ocrTexts = await ocrImagesOnPage(html, rawUrl).catch((e) => {
+      console.warn(`[crawler] OCR failed for ${rawUrl}:`, e);
+      return [];
+    });
+  }
+
+  return processHtmlPage(rawUrl, html, ocrTexts);
+}
+
 export async function crawlPages(urls: string[], options?: { enableOcr?: boolean }): Promise<CrawledPage[]> {
-  const pages: CrawledPage[] = [];
   const mode = parseBrowserCrawlMode();
   const ocr = options?.enableOcr ?? false;
   logBrowserCrawlModeOnce(mode);
 
-  for (const rawUrl of urls) {
+  const originRules = new Map<string, Awaited<ReturnType<typeof fetchRobotsRules>>>();
+  for (const url of urls) {
     try {
-      if (PDF_PATTERN.test(rawUrl)) {
-        const pdf = await fetchPdfText(rawUrl);
-        if (pdf) {
-          const hash = contentFingerprint(pdf.content);
-          pages.push({ url: rawUrl, title: pdf.title, content: pdf.content, hash });
-        }
-        continue;
+      const origin = new URL(url).origin;
+      if (!originRules.has(origin)) {
+        originRules.set(origin, await fetchRobotsRules(origin));
       }
-
-      const html = await resolvePageHtml(rawUrl, rawUrl, mode);
-      if (!html) continue;
-
-      let ocrTexts: string[] | undefined;
-      if (ocr) {
-        ocrTexts = await ocrImagesOnPage(html, rawUrl).catch((e) => {
-          console.warn(`[crawler] OCR failed for ${rawUrl}:`, e);
-          return [];
-        });
-      }
-
-      const page = processHtmlPage(rawUrl, html, ocrTexts);
-      if (page) pages.push(page);
-    } catch (err) {
-      console.error("Failed to crawl page", rawUrl, err);
-    }
+    } catch {}
   }
 
+  const results = await mapConcurrent(urls, CRAWL_CONCURRENCY, async (rawUrl) => {
+    try {
+      try {
+        const origin = new URL(rawUrl).origin;
+        const rules = originRules.get(origin);
+        if (rules && !isUrlAllowedByRobots(rawUrl, rules)) {
+          console.log(`[crawler] Skipping ${rawUrl} — disallowed by robots.txt`);
+          return null;
+        }
+      } catch {}
+      return await crawlSingleUrl(rawUrl, mode, ocr);
+    } catch (err) {
+      console.error("Failed to crawl page", rawUrl, err);
+      return null;
+    }
+  });
+
+  const pages = results.filter((p): p is CrawledPage => p !== null);
   console.log(`Selective crawl complete: ${pages.length} of ${urls.length} pages fetched`);
   return pages;
 }
@@ -554,6 +725,7 @@ export async function crawlSite(
 ): Promise<CrawledPage[]> {
   const { maxPages, maxDepth } = { ...DEFAULT_OPTIONS, ...options };
   const origin = new URL(rootUrl).origin;
+  const robotsRules = await fetchRobotsRules(origin);
 
   const visited = new Set<string>();
   const contentSeen = new Set<string>();
@@ -565,77 +737,85 @@ export async function crawlSite(
   logBrowserCrawlModeOnce(mode);
 
   while (queue.length > 0 && pages.length < maxPages) {
-    const { url, depth } = queue.shift()!;
-    const normalized = normalizeUrl(url);
+    const batchSize = Math.min(CRAWL_CONCURRENCY, queue.length, maxPages - pages.length);
+    const batch: Array<{ url: string; depth: number }> = [];
+    while (batch.length < batchSize && queue.length > 0) {
+      const item = queue.shift()!;
+      const normalized = normalizeUrl(item.url);
+      if (visited.has(normalized)) continue;
+      if (item.depth > maxDepth) continue;
+      if (SKIP_PATH_PATTERNS.some((p) => p.test(normalized))) continue;
+      if (!isUrlAllowedByRobots(normalized, robotsRules)) continue;
+      visited.add(normalized);
+      batch.push({ url: normalized, depth: item.depth });
+    }
 
-    if (visited.has(normalized)) continue;
-    if (depth > maxDepth) continue;
-    if (SKIP_PATH_PATTERNS.some((p) => p.test(normalized))) continue;
+    if (batch.length === 0) continue;
 
-    visited.add(normalized);
-
-    try {
-      // H: Handle PDFs in BFS crawl
-      if (PDF_PATTERN.test(normalized)) {
-        const pdf = await fetchPdfText(url);
-        if (pdf) {
-          const fp = contentFingerprint(pdf.content);
-          if (!contentSeen.has(fp)) {
-            contentSeen.add(fp);
-            pages.push({ url: normalized, title: pdf.title, content: pdf.content, hash: fp });
+    const batchResults = await Promise.all(
+      batch.map(async ({ url: normalized, depth }) => {
+        try {
+          if (PDF_PATTERN.test(normalized)) {
+            const pdf = await fetchPdfText(normalized);
+            if (pdf) {
+              const fp = contentFingerprint(pdf.content);
+              return { page: { url: normalized, title: pdf.title, content: pdf.content, hash: fp } as CrawledPage, html: null as string | null, depth };
+            }
+            return null;
           }
+
+          const html = await resolvePageHtml(normalized, normalized, mode);
+          if (!html) return null;
+
+          let ocrTexts: string[] | undefined;
+          if (options.enableOcr) {
+            ocrTexts = await ocrImagesOnPage(html, normalized).catch((e) => {
+              console.warn(`[crawler] OCR failed for ${normalized}:`, e);
+              return [];
+            });
+          }
+
+          const page = processHtmlPage(normalized, html, ocrTexts);
+          if (!page) return null;
+          return { page, html, depth };
+        } catch (err) {
+          console.error("Failed to crawl", normalized, err);
+          return null;
         }
-        continue;
-      }
+      })
+    );
 
-      const html = await resolvePageHtml(url, normalized, mode);
-      if (!html) continue;
+    for (const result of batchResults) {
+      if (!result) continue;
+      const { page, html, depth } = result;
 
-      let ocrTexts: string[] | undefined;
-      if (options.enableOcr) {
-        ocrTexts = await ocrImagesOnPage(html, url).catch((e) => {
-          console.warn(`[crawler] OCR failed for ${url}:`, e);
-          return [];
-        });
-      }
-
-      const page = processHtmlPage(normalized, html, ocrTexts);
-      if (!page) continue;
-
-      const $ = cheerio.load(html);
-
-      // Dedup by content fingerprint (catches near-duplicate pages)
       if (contentSeen.has(page.hash)) {
-        console.log(`Skipping duplicate content page: ${normalized}`);
+        console.log(`Skipping duplicate content page: ${page.url}`);
         continue;
       }
       contentSeen.add(page.hash);
       pages.push(page);
 
-      // Enqueue same-origin links (including PDFs now)
-      if (depth < maxDepth) {
-        const links = new Set<string>();
+      if (html && depth < maxDepth) {
+        const $ = cheerio.load(html);
         $("a[href]").each((_, el) => {
           const href = $(el).attr("href");
           if (!href) return;
           try {
-            const absolute = new URL(href, url).toString();
+            const absolute = new URL(href, page.url).toString();
             if (!absolute.startsWith(origin)) return;
             const norm = normalizeUrl(absolute);
             if (visited.has(norm)) return;
             if (SKIP_PATH_PATTERNS.some((p) => p.test(norm))) return;
-            links.add(norm);
+            if (queue.length + pages.length < maxPages) {
+              queue.push({ url: norm, depth: depth + 1 });
+            }
           } catch { /* ignore invalid URLs */ }
         });
-
-        for (const next of links) {
-          if (queue.length + pages.length >= maxPages) break;
-          queue.push({ url: next, depth: depth + 1 });
-        }
       }
-    } catch (err) {
-      console.error("Failed to crawl", url, err);
     }
+
+    if (CRAWL_DELAY_MS > 0) await new Promise((r) => setTimeout(r, CRAWL_DELAY_MS));
   }
 
   console.log(

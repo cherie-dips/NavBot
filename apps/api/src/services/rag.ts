@@ -7,71 +7,64 @@ import { isExhaustiveListQuestion, sortDocsForExhaustiveAnswer } from "./multipa
 import type { ChatHistoryItem, PageLink, SocialLink } from "./chat-types";
 import {
   withRetry,
-  getSarvamApiKey,
-  getSarvamClient,
-  SARVAM_MODELS,
-  SARVAM_TTS_SPEAKER,
-  SARVAM_TTS_LANG,
-  GROQ_MODELS,
+  getGeminiApiKey,
+  getGoogleGenAI,
+  GEMINI_MODELS,
   generateContentText,
-  llmJudgeEnabled,
 } from "./gemini-client";
 
 export type { ChatHistoryItem } from "./chat-types";
 
-if (!getSarvamApiKey()) {
+if (!getGeminiApiKey()) {
   console.warn(
-    "SARVAM_API_KEY is not set. STT and TTS will not work."
+    "GEMINI_API_KEY is not set. Chat, STT, and TTS will not work."
   );
 }
 
 // ---------------------------------------------------------------------------
-// Query expansion (3 focused rules — planner handles the rest)
+// Query expansion (rule-based)
 // ---------------------------------------------------------------------------
 interface ExpansionRule {
   pattern: RegExp;
   expansion: (original: string) => string;
 }
 
-const INSTITUTION_SYNONYMS: Record<string, string> = {
-  iisc: "IISc Indian Institute of Science Bangalore Bengaluru",
-  iit: "IIT Indian Institute of Technology",
-  nit: "NIT National Institute of Technology",
-  iiit: "IIIT International Institute of Information Technology",
-  iiser: "IISER Indian Institute of Science Education and Research",
-  bits: "BITS Birla Institute of Technology and Science",
-};
-
 const QUERY_EXPANSION_RULES: ExpansionRule[] = [
   {
-    pattern: /\b(deadline|date|when|admission|apply|round|open|close|submit)\b/i,
-    expansion: (q) => `admission deadline dates application rounds ${q}`,
+    pattern: /\b(deadline|admission|admit|apply|application|eligibility|criteria|requirement|enrol)/i,
+    expansion: (q) => `${q} admission deadline application eligibility requirements`,
   },
   {
-    pattern: /\b(fee|cost|tuition|scholarship|financial|aid|funding|stipend)\b/i,
-    expansion: (q) => `tuition fee scholarship financial aid ${q}`,
+    pattern: /\b(fee structure|tuition|scholarship|financial aid|funding|stipend|loan|waiver)\b/i,
+    expansion: (q) => `${q} tuition fee structure scholarship financial aid`,
   },
   {
-    pattern: /\b(contact|email|phone|address|location|campus|office)\b/i,
-    expansion: (q) => `contact email phone address ${q}`,
+    pattern: /\b(program|course|degree|major|minor|specialization|stream|branch|curriculum|syllabus|department)\b/i,
+    expansion: (q) => `${q} programs courses degrees curriculum department`,
   },
   {
-    pattern: /\b(faculty|professor|teacher|instructor|researcher|supervisor|mentor|phd|doctorate|academic staff)\b/i,
-    expansion: (q) => `faculty professor PhD academic research ${q}`,
+    pattern: /\b(contact|email|phone|address|office hours|directions?)\b/i,
+    expansion: (q) => `${q} contact email phone address location`,
   },
   {
-    pattern: /\b(placement|recruit|hiring|company|companies|career|job|package|ctc|salary)\b/i,
-    expansion: (q) => `placement recruiting companies career packages ${q}`,
+    pattern: /\b(faculty|professor|teacher|instructor|researcher|supervisor|mentor|dean)\b/i,
+    expansion: (q) => `${q} faculty professor academic staff research`,
   },
   {
-    pattern: /\b(IISc|IIT|NIT|IIIT|IISER|BITS)\b/i,
-    expansion: (q) => {
-      const lower = q.toLowerCase();
-      for (const [abbrev, full] of Object.entries(INSTITUTION_SYNONYMS)) {
-        if (lower.includes(abbrev)) return `${full} ${q}`;
-      }
-      return q;
-    },
+    pattern: /\b(placement|recruit|hiring|companies|career|job|package|salary|internship)\b/i,
+    expansion: (q) => `${q} placements recruiting companies career internship`,
+  },
+  {
+    pattern: /\b(hostel|accommodation|mess|dining|residence|dorm|campus housing)\b/i,
+    expansion: (q) => `${q} hostel accommodation campus housing residence`,
+  },
+  {
+    pattern: /\b(fest|club|society|extracurricular|campus life|student life|student activit)/i,
+    expansion: (q) => `${q} events clubs student life campus activities`,
+  },
+  {
+    pattern: /\b(research lab|publication|innovation|research centre|research center|research project)\b/i,
+    expansion: (q) => `${q} research labs projects innovation centres`,
   },
 ];
 
@@ -80,6 +73,21 @@ function stripQuestionPhrasing(text: string): string {
     .replace(/^(who is|what is|what are|where is|where are|when is|when are|how is|how are|how do|how does|tell me about|can you tell me|explain|describe|give me info on|i want to know about|do you know)\s+/i, "")
     .replace(/\?+$/, "")
     .trim();
+}
+
+const FOLLOW_UP_PATTERN = /\b(it|that|this|those|them|they|its|their|there|the same|these|more about|more details|tell me more|what about|how about|and the|also the|what else)\b/i;
+
+function resolveFollowUp(message: string, history: ChatHistoryItem[]): string {
+  if (history.length === 0) return message;
+  if (message.split(/\s+/).length > 8 && !FOLLOW_UP_PATTERN.test(message)) return message;
+
+  const lastUserMsg = [...history].reverse().find((h) => h.role === "user");
+  if (!lastUserMsg) return message;
+
+  const lastTopics = stripQuestionPhrasing(lastUserMsg.content);
+  if (lastTopics.length < 3) return message;
+
+  return `${lastTopics} — ${message}`;
 }
 
 export function buildRetrievalQueries(message: string): string[] {
@@ -96,7 +104,7 @@ export function buildRetrievalQueries(message: string): string[] {
   return Array.from(queries);
 }
 
-const CONTEXT_BUDGET_CHARS = 32_000;
+const CONTEXT_BUDGET_CHARS = 64_000;
 
 function removeChunkOverlap(chunks: string[]): string[] {
   if (chunks.length <= 1) return chunks;
@@ -118,7 +126,7 @@ function removeChunkOverlap(chunks: string[]): string[] {
 function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
   const exhaustive = isExhaustiveListQuestion(userMessage);
   const maxCharsPerChunk = exhaustive ? 1200 : 1600;
-  const maxSources = exhaustive ? 40 : 15;
+  const maxSources = exhaustive ? 40 : 20;
   const ordered = exhaustive
     ? sortDocsForExhaustiveAnswer(docs, userMessage)
     : [...docs].sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
@@ -137,16 +145,21 @@ function buildContextString(docs: RetrievedDoc[], userMessage: string): string {
 
   let totalChars = 0;
   const blocks: string[] = [];
-  for (const [, { title, chunks }] of pages) {
+  const includedKeys = new Set<string>();
+  for (const [key, { title, chunks }] of pages) {
     const deduped = removeChunkOverlap(chunks);
     const body = deduped.join("\n\n");
     const block = `${title}\n${body}`;
     if (totalChars + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 0) break;
     blocks.push(block);
     totalChars += block.length;
+    includedKeys.add(key);
   }
 
-  const urlDirectory = pages.map(([, { title, url }]) => `${title} — ${url}`).join("\n");
+  const urlDirectory = pages
+    .filter(([key]) => includedKeys.has(key))
+    .map(([, { title, url }]) => `${title} — ${url}`)
+    .join("\n");
   blocks.push(`Pages:\n${urlDirectory}`);
 
   return blocks.join("\n\n---\n\n");
@@ -165,31 +178,28 @@ function deduplicateSources(
 }
 
 // ---------------------------------------------------------------------------
-// Structural output cleaner — 3-pass approach instead of pattern whack-a-mole
+// Output cleaner
 // ---------------------------------------------------------------------------
-const META_WORDS = /\b(context|sources?|retrieved|provided|mentioned|found|checked|reviewed|re-?checked|searched|looking at|appears?|seems?|explicitly|stated)\b/i;
+const META_PATTERN = /\b(based on (the )?(context|sources?|provided|retrieved)|according to (the )?(sources?|context|provided)|from (the )?(retrieved|provided|available) (context|sources?|information)|I (found|checked|reviewed|searched|re-?checked)|looking at (the )?(sources?|context|pages?)|(?:it )?(appears|seems) (?:that |from ))\b/i;
 
 function cleanModelOutput(raw: string): string {
   let text = raw
-    .replace(/<redacted_thinking>[\s\S]*?<\/think>/gi, "")
-    .replace(/<\/?think>/gi, "")
-    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, "$1")
+    .replace(/\[(?:Source\s*\d+|(?:\d+))\]\((https?:\/\/[^\s)]+)\)/gi, "")
     .trim();
 
-  // Pass 1: Strip leading preamble if first sentence is meta-commentary
+  const META_START = /^(based on|according to|from the|I found|looking at|it (?:appears|seems))\b/i;
   const firstBreak = text.search(/[.!:]\s/);
-  if (firstBreak > 0 && firstBreak < 250) {
-    const firstSentence = text.slice(0, firstBreak + 1);
-    if (META_WORDS.test(firstSentence) && !/\d/.test(firstSentence.slice(0, 10))) {
+  if (firstBreak > 0 && firstBreak < 150) {
+    const firstSentence = text.slice(0, firstBreak + 1).trim();
+    if (META_START.test(firstSentence)) {
       text = text.slice(firstBreak + 1).replace(/^[,:;\s]+/, "").trim();
     }
   }
 
-  // Pass 2: Remove trailing meta-commentary sentences
   const lines = text.split("\n");
   while (lines.length > 1) {
     const last = lines[lines.length - 1]!.trim();
-    if (last && META_WORDS.test(last) && last.length < 180 && !/\b\d+\b/.test(last)) {
+    if (last && META_PATTERN.test(last) && last.length < 180 && !/\b\d+\b/.test(last)) {
       lines.pop();
     } else {
       break;
@@ -197,7 +207,6 @@ function cleanModelOutput(raw: string): string {
   }
   text = lines.join("\n").trim();
 
-  // Pass 3: Deduplicate blocks
   const blocks = text.split(/\n{3,}/).map((b) => b.trim()).filter(Boolean);
   const seen = new Set<string>();
   const unique: string[] = [];
@@ -270,65 +279,6 @@ function formatSocialLinksInline(results: SocialSearchResult[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Inline LLM judge — checks answer completeness & groundedness
-// ---------------------------------------------------------------------------
-interface JudgeVerdict {
-  pass: boolean;
-  feedback: string;
-}
-
-function parseJudgeVerdict(raw: string): JudgeVerdict {
-  const cleaned = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
-  const match = cleaned.match(/\{[\s\S]*\}/);
-  if (!match) return { pass: true, feedback: "" };
-  try {
-    const parsed = JSON.parse(match[0]) as { pass?: boolean; feedback?: string };
-    return {
-      pass: parsed.pass !== false,
-      feedback: typeof parsed.feedback === "string" ? parsed.feedback : "",
-    };
-  } catch {
-    return { pass: true, feedback: "" };
-  }
-}
-
-async function runInlineJudge(
-  question: string,
-  answer: string,
-  context: string
-): Promise<JudgeVerdict> {
-  const prompt = `You are a quality judge for a RAG chatbot. Check if the answer is complete and grounded.
-
-QUESTION: ${JSON.stringify(question)}
-
-ANSWER TO CHECK: ${JSON.stringify(answer.slice(0, 2000))}
-
-CONTEXT (retrieved pages): ${context.slice(0, 8000)}
-
-Check these criteria:
-1. COMPLETENESS: Does the answer list ALL matching items from the context? For filter/list questions ("which faculty...", "what companies..."), count how many matches exist in the context vs how many the answer lists.
-2. GROUNDEDNESS: Is every claim in the answer supported by the context?
-3. RELEVANCE: Does it actually answer the question asked?
-
-If ALL criteria pass, return: {"pass": true, "feedback": ""}
-If any criterion fails, return: {"pass": false, "feedback": "Specific instruction to fix the answer, e.g. 'The context contains 5 faculty with PhDs from IISc but the answer only lists 2. Include: [names].'"}
-
-Return JSON only.`;
-
-  const raw = await generateContentText({
-    model: GROQ_MODELS.judge,
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: {
-      temperature: 0.1,
-      maxOutputTokens: 300,
-      responseMimeType: "application/json",
-    },
-  });
-
-  return parseJudgeVerdict(raw);
-}
-
-// ---------------------------------------------------------------------------
 // Main RAG
 // ---------------------------------------------------------------------------
 export async function answerQuestionWithRag(params: {
@@ -347,7 +297,13 @@ export async function answerQuestionWithRag(params: {
     };
   }
 
-  const baseQueries = buildRetrievalQueries(message);
+  const enrichedMessage = resolveFollowUp(message, history);
+  const baseQueries = buildRetrievalQueries(enrichedMessage);
+  if (enrichedMessage !== message) {
+    for (const q of buildRetrievalQueries(message)) {
+      if (!baseQueries.includes(q)) baseQueries.push(q);
+    }
+  }
 
   const socialIntent = hasSocialIntent(message);
   const socialPromise = socialIntent
@@ -357,21 +313,21 @@ export async function answerQuestionWithRag(params: {
       })
     : Promise.resolve([]);
 
-  const [{ docs: agenticDocs, retrievalMeta }, socialResults] = await Promise.all([
+  const [{ docs, retrievalMeta }, socialResults] = await Promise.all([
     runAgenticRetrieval({ siteId, userMessage: message, history, baseQueries }),
     socialPromise,
   ]);
 
   console.log(
-    `RAG for site "${siteId}": ${retrievalMeta.totalQueriesUsed} retrieval quer${retrievalMeta.totalQueriesUsed === 1 ? "y" : "ies"} ` +
-      `(rule=${retrievalMeta.ruleQueryCount}, planner=${retrievalMeta.plannerRan}, refiner=${retrievalMeta.refinerIterations}) → ${agenticDocs.length} chunks, bestDist≈${retrievalMeta.bestDistance.toFixed(4)}`
+    `RAG for site "${siteId}": ${retrievalMeta.totalQueriesUsed} queries → ${docs.length} chunks, bestDist≈${retrievalMeta.bestDistance.toFixed(4)}`
   );
-
-  const docs = agenticDocs;
-
   console.log(`[social] Got ${socialResults.length} social results, ${docs.length} vector docs`);
 
-  if (docs.length === 0 && socialResults.length === 0) {
+  const NO_MATCH_THRESHOLD = 0.85;
+  const LOW_QUALITY_THRESHOLD = 0.65;
+  const bestDist = retrievalMeta.bestDistance;
+
+  if ((docs.length === 0 && socialResults.length === 0) || bestDist >= NO_MATCH_THRESHOLD) {
     return {
       answer:
         "I couldn't find relevant information to answer that question. " +
@@ -382,37 +338,45 @@ export async function answerQuestionWithRag(params: {
     };
   }
 
+  const lowConfidence = bestDist >= LOW_QUALITY_THRESHOLD;
+
   const contextString = buildContextString(docs, message);
   const socialContextString = buildSocialContextString(socialResults);
 
-  const systemPrompt = `You are NavBot, a website assistant. Answer using ONLY the provided page content.
+  const systemPrompt = `You are NavBot, a navigation chatbot for the website ${siteId}. You help users find information on the website by answering questions. Use ONLY the provided page content for factual answers. For greetings, small talk, and thank-yous, respond naturally without needing page content.
 
 ANSWER FORMAT:
 - Start directly with the answer. First word must be content, not commentary.
-- Lists: bullet points (•), one per line. Include every match from the pages.
-- Tables: use Markdown tables for multi-column data (fees, schedules, comparisons).
-- Prose: 2-5 sentences. Every sentence adds new information.
+- Keep answers concise — this is a chat widget, not a document.
+- Lists: bullet points (•), one per line.
+- Short answers (dates, names, yes/no): 1-2 sentences is fine.
+- Detailed answers (comparisons, overviews): up to 5 sentences or a brief list.
+- Avoid large markdown tables — use bullet points instead for chat readability.
 
 RULES:
-- Unknown answer: reply "I don't have that information — please contact the site or check directly."
-- Only state facts you are certain about. Omit uncertain items silently.
+- Unknown answer: reply "I don't have that information — please check ${siteId} or contact them directly."
+- Only state facts you are certain about. If your answer may be incomplete, add "For the full list, check the relevant page below."
 - Combine information from all pages into one unified answer.
 - If pages contradict each other, state both versions with their page names.
-- Filter questions ("which X did Y"): list only explicit matches. Skip non-matches silently.
 - Counting questions: enumerate items then state the total.
-- Greetings and small talk: respond naturally.
-- Social media posts: include post URLs inline when referencing them.
+- Greetings: respond naturally and introduce yourself as the chatbot for this website.
+- Follow-up questions: use the conversation history to resolve pronouns and references (e.g. "tell me more", "what about the fees for that").
+- Respond in the same language the user writes in.
 
-After your answer, on a new line output 1-2 most relevant page URLs:
+After your answer, on a new line output 1-2 most relevant page URLs the user can visit for more details:
 [RELEVANT_PAGES]
 url1
 url2
 [/RELEVANT_PAGES]
 Omit for greetings.`;
 
-  let contextMessage = `Page content:\n\n${contextString}`;
-  if (socialContextString) {
-    contextMessage += `\n\n---\n\nRecent social media posts (include post URLs when referencing):\n\n${socialContextString}`;
+  const strongSocialIntent = /\b(social\s*media|instagram|twitter|linkedin|facebook|posts?|reels?)\b/i.test(message);
+
+  let contextMessage = lowConfidence
+    ? `Note: the retrieved pages may not be closely related to the question. Only answer if you find a clear match; otherwise say you don't have that information.\n\nPage content:\n\n${contextString}`
+    : `Page content:\n\n${contextString}`;
+  if (socialContextString && strongSocialIntent) {
+    contextMessage += `\n\n---\n\nRecent social media posts:\n\n${socialContextString}`;
   }
 
   const recentHistory = history.slice(-6);
@@ -429,8 +393,8 @@ Omit for greetings.`;
     { role: "user" as const, parts: [{ text: message }] },
   ];
 
-  let rawAnswer = await generateContentText({
-    model: SARVAM_MODELS.chat,
+  const rawAnswer = await generateContentText({
+    model: GEMINI_MODELS.chat,
     contents,
     config: {
       systemInstruction: systemPrompt,
@@ -440,37 +404,6 @@ Omit for greetings.`;
   });
 
   console.log(`[RAG] Raw model output (${rawAnswer.length} chars): ${rawAnswer.slice(0, 500)}`);
-
-  if (llmJudgeEnabled()) {
-    try {
-      const verdict = await runInlineJudge(message, rawAnswer, contextString);
-      if (!verdict.pass && verdict.feedback) {
-        console.log(`[RAG judge] FAIL — refining. Feedback: ${verdict.feedback}`);
-        const refinedContents = [
-          { role: "user" as const, parts: [{ text: contextMessage }] },
-          { role: "model" as const, parts: [{ text: "Ready." }] },
-          {
-            role: "user" as const,
-            parts: [{ text: `${message}\n\nImportant: ${verdict.feedback}` }],
-          },
-        ];
-        rawAnswer = await generateContentText({
-          model: SARVAM_MODELS.chat,
-          contents: refinedContents,
-          config: {
-            systemInstruction: systemPrompt,
-            temperature: 0.2,
-            maxOutputTokens: 2048,
-          },
-        });
-        console.log(`[RAG judge] Refined answer (${rawAnswer.length} chars)`);
-      } else {
-        console.log(`[RAG judge] PASS`);
-      }
-    } catch (err) {
-      console.warn(`[RAG judge] failed, using original answer:`, err instanceof Error ? err.message : err);
-    }
-  }
 
   const sources = deduplicateSources(docs);
 
@@ -502,38 +435,37 @@ Omit for greetings.`;
 }
 
 // ---------------------------------------------------------------------------
-// Speech-to-text (Sarvam Saaras)
+// Speech-to-text (Gemini 2.5 Flash)
 // ---------------------------------------------------------------------------
 async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<string> {
-  const client = getSarvamClient();
+  const ai = getGoogleGenAI();
+  const audioBase64 = audioBuffer.toString("base64");
 
   console.log(
-    `[STT] Sending ${(audioBuffer.length / 1024).toFixed(1)} KB of ${mimeType} to Sarvam ${SARVAM_MODELS.stt}`
+    `[STT] Sending ${(audioBuffer.length / 1024).toFixed(1)} KB of ${mimeType} to Gemini ${GEMINI_MODELS.stt}`
   );
-
-  const ext = mimeType.includes("wav") ? "wav"
-    : mimeType.includes("mp3") || mimeType.includes("mpeg") ? "mp3"
-    : mimeType.includes("ogg") ? "ogg"
-    : mimeType.includes("webm") ? "webm"
-    : "wav";
-
-  const blob = new Blob([audioBuffer], { type: mimeType });
-  const file = new File([blob], `audio.${ext}`, { type: mimeType });
 
   const response = await withRetry(
     () =>
-      client.speechToText.transcribe({
-        file,
-        model: SARVAM_MODELS.stt as "saaras:v3" | "saarika:v2.5",
-        language_code: "unknown" as never,
+      ai.models.generateContent({
+        model: GEMINI_MODELS.stt,
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { inlineData: { mimeType, data: audioBase64 } },
+              { text: "Transcribe this audio exactly. Return only the transcript text, no explanations." },
+            ],
+          },
+        ],
+        config: { temperature: 0.0, maxOutputTokens: 1024 },
       }),
     { maxAttempts: 3, baseDelayMs: 800, label: "STT" }
   );
 
-  const result = response as unknown as { transcript?: string; text?: string };
-  const transcript = (result.transcript ?? result.text ?? "").trim();
+  const transcript = (response.text ?? "").trim();
   if (!transcript) {
-    throw new Error("Sarvam STT returned an empty transcript.");
+    throw new Error("Gemini STT returned an empty transcript.");
   }
   console.log(`[STT] Transcript: "${transcript}"`);
   return transcript;
@@ -558,7 +490,7 @@ export async function transcribeAndAnswer(params: {
       transcript: null,
       answer:
         "Sorry, I couldn't transcribe your voice message. " +
-        "Please check that SARVAM_API_KEY is set and try WAV, MP3, OGG, or WebM audio. " +
+        "Please check that GEMINI_API_KEY is set and try WAV, MP3, OGG, or WebM audio. " +
         "You can also type your question instead.",
       sources: [],
       error: msg,
@@ -578,32 +510,50 @@ export async function transcribeAndAnswer(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Text-to-speech → base64 WAV for widget
+// Text-to-speech → base64 audio for widget (Gemini 2.5 Flash)
 // ---------------------------------------------------------------------------
 const MAX_TTS_CHARS = 1000;
+const GEMINI_TTS_VOICE = process.env.GEMINI_TTS_VOICE?.trim() || "Kore";
 
 export async function synthesizeSpeech(text: string): Promise<string> {
-  const client = getSarvamClient();
+  const ai = getGoogleGenAI();
   const truncated =
     text.length > MAX_TTS_CHARS ? text.slice(0, MAX_TTS_CHARS) + "…" : text;
 
-  console.log(`[TTS] Converting ${truncated.length} chars to speech`);
+  console.log(`[TTS] Converting ${truncated.length} chars to speech via Gemini`);
 
   const response = await withRetry(
     () =>
-      client.textToSpeech.convert({
-        text: truncated,
-        target_language_code: SARVAM_TTS_LANG as "en-IN",
-        speaker: SARVAM_TTS_SPEAKER as "anushka",
-        model: SARVAM_MODELS.tts as "bulbul:v2",
+      ai.models.generateContent({
+        model: GEMINI_MODELS.tts,
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: `Read this text aloud:\n\n${truncated}` }],
+          },
+        ],
+        config: {
+          responseModalities: ["audio"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: GEMINI_TTS_VOICE },
+            },
+          },
+        },
       }),
     { maxAttempts: 3, baseDelayMs: 1000, label: "TTS" }
   );
 
-  const result = response as unknown as { audios?: string[] };
-  const wavB64 = result.audios?.[0];
-  if (!wavB64) throw new Error("Sarvam TTS returned no audio.");
+  const candidates = response.candidates ?? [];
+  const parts = candidates[0]?.content?.parts ?? [];
+  const audioPart = parts.find(
+    (p) => "inlineData" in p && p.inlineData != null
+  );
+  const inlineData = (audioPart as { inlineData?: { data?: string; mimeType?: string } } | undefined)?.inlineData;
+  if (!inlineData?.data) {
+    throw new Error("Gemini TTS returned no audio data.");
+  }
 
-  console.log(`[TTS] Audio generated (${wavB64.length} chars base64)`);
-  return wavB64;
+  console.log(`[TTS] Audio generated (${inlineData.data.length} chars base64, ${inlineData.mimeType})`);
+  return inlineData.data;
 }

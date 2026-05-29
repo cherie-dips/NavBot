@@ -1,11 +1,15 @@
 import { getTrackedUrls } from "./db";
 import { getDocsForUrls, type RetrievedDoc } from "./vectorstore";
 
-/**
- * Questions that need breadth across many URLs (not just the single best-matching page).
- */
-export function isExhaustiveListQuestion(_message: string): boolean {
-  return true;
+const EXHAUSTIVE_PATTERN =
+  /\b(list|all|every|each|how many|name all|what are the|enumerate|complete list|full list|overview of all)\b/i;
+const PLURAL_ENTITY =
+  /\b(programs?|courses?|departments?|facult(?:y|ies)|events?|clubs?|hostels?|scholarships?|placements?|companies|labs?|centres?|centers?|projects?|alumni)\b/i;
+
+export function isExhaustiveListQuestion(message: string): boolean {
+  if (EXHAUSTIVE_PATTERN.test(message)) return true;
+  if (PLURAL_ENTITY.test(message) && /\b(what|which|how|tell|give|show)\b/i.test(message)) return true;
+  return false;
 }
 
 interface PathPrefix {
@@ -37,9 +41,33 @@ function pathnameMatchesSeedPrefix(pathname: string, p: PathPrefix): boolean {
   return segs[0] === p.firstSegment;
 }
 
+interface TopicMatch {
+  queryPattern: RegExp;
+  pathPattern: RegExp;
+}
+
+const TOPIC_MATCHERS: TopicMatch[] = [
+  { queryPattern: /\b(event|workshop|seminar|talk|session|meetup|webinar|hackathon|bootcamp|fest|conference)\b/i, pathPattern: /\/events?(\/|$)/i },
+  { queryPattern: /\bprojects?\b/i, pathPattern: /\/projects?(\/|$)/i },
+  { queryPattern: /\b(faculty|professor|teacher|researcher|staff|supervisor|academic|instructor|dean)\b/i, pathPattern: /\/(faculty|people|team|staff)(\/|$)/i },
+  { queryPattern: /\b(placement|recruit|hiring|company|companies|career|job|internship)\b/i, pathPattern: /\/(placement|careers?|recruiting)(\/|$)/i },
+  { queryPattern: /\b(alumni|alumnus|alumna|graduate|batch)\b/i, pathPattern: /\/alumni(\/|$)/i },
+  { queryPattern: /\b(admission|apply|application|eligibility)\b/i, pathPattern: /\/(admission|apply|application)(\/|$)/i },
+  { queryPattern: /\b(program|course|degree|curriculum|department|major|specialization)\b/i, pathPattern: /\/(program|course|academics?|department|curriculum)(\/|$)/i },
+  { queryPattern: /\b(hostel|accommodation|housing|residence|dorm|campus life)\b/i, pathPattern: /\/(hostel|accommodation|campus-life|residence|student-life)(\/|$)/i },
+  { queryPattern: /\b(research|lab|publication|innovation|centre|center)\b/i, pathPattern: /\/(research|labs?|innovation|centres?|centers?)(\/|$)/i },
+  { queryPattern: /\b(scholarship|financial aid|fee|tuition|funding)\b/i, pathPattern: /\/(scholarship|financial-aid|fee|tuition)(\/|$)/i },
+];
+
+function buildTopicPathPatterns(userMessage: string): RegExp[] {
+  return TOPIC_MATCHERS
+    .filter((m) => m.queryPattern.test(userMessage))
+    .map((m) => m.pathPattern);
+}
+
 /**
- * From SQLite-tracked pages, pick URLs under the same site sections as seeds
- * (same origin + first path segment, e.g. all `/events/...`) or topical hints (/events/, /projects/, …).
+ * From tracked pages, pick URLs under the same site sections as seeds
+ * or matching topic-based path patterns derived from the user's query.
  */
 export function pickTrackedUrlsForExpansion(
   seedUrls: string[],
@@ -50,19 +78,7 @@ export function pickTrackedUrlsForExpansion(
   const seen = new Set(seedUrls.filter(Boolean));
   const prefixes = pathPrefixesFromSeeds(seedUrls);
 
-  const wantsEvents = /workshop|event|seminar|talk|session|meetup|webinar|hackathon|bootcamp/i.test(
-    userMessage
-  );
-  const wantsProjects = /\bprojects?\b/i.test(userMessage);
-  const wantsFaculty = /\b(faculty|professor|teacher|researcher|staff|phd|supervisor|academic|instructor)\b/i.test(
-    userMessage
-  );
-  const wantsPlacements = /\b(placement|recruit|hiring|company|companies|career|job)\b/i.test(
-    userMessage
-  );
-  const wantsAlumni = /\b(alumni|alumnus|alumna|graduate|passed out|batch)\b/i.test(
-    userMessage
-  );
+  const topicPathPatterns = buildTopicPathPatterns(userMessage);
 
   const candidates: string[] = [];
   for (const t of tracked) {
@@ -78,11 +94,11 @@ export function pickTrackedUrlsForExpansion(
           break;
         }
       }
-      if (!add && wantsEvents && /\/events(\/|$)/i.test(path)) add = true;
-      if (!add && wantsProjects && /\/projects?(\/|$)/i.test(path)) add = true;
-      if (!add && wantsFaculty && /\/faculty(\/|$)/i.test(path)) add = true;
-      if (!add && wantsPlacements && /\/placement/i.test(path)) add = true;
-      if (!add && wantsAlumni && /\/alumni/i.test(path)) add = true;
+      if (!add) {
+        for (const tp of topicPathPatterns) {
+          if (tp.test(path)) { add = true; break; }
+        }
+      }
     } catch {
       /* skip bad URL */
     }
@@ -109,27 +125,13 @@ function mergeDedupeById(primary: RetrievedDoc[], extra: RetrievedDoc[]): Retrie
  * merged in with a fixed supplementary distance. Put relevant path sections first, then distance.
  */
 export function sortDocsForExhaustiveAnswer(docs: RetrievedDoc[], userMessage: string): RetrievedDoc[] {
-  const wantsEvents = /workshop|events?\b|seminar|talk|session|meetup|webinar|hackathon|bootcamp/i.test(
-    userMessage
-  );
-  const wantsProjects = /\bprojects?\b/i.test(userMessage);
-  const wantsFaculty = /\b(faculty|professor|teacher|researcher|staff|phd|supervisor|academic|instructor)\b/i.test(
-    userMessage
-  );
-  const wantsPlacements = /\b(placement|recruit|hiring|company|companies|career|job)\b/i.test(
-    userMessage
-  );
-  const wantsAlumni = /\b(alumni|alumnus|alumna|graduate|passed out|batch)\b/i.test(
-    userMessage
-  );
+  const topicPathPatterns = buildTopicPathPatterns(userMessage);
 
   const sectionTier = (d: RetrievedDoc): number => {
     const u = d.url || "";
-    if (wantsEvents && /\/events(\/|$)/i.test(u)) return 0;
-    if (wantsProjects && /\/projects?(\/|$)/i.test(u)) return 0;
-    if (wantsFaculty && /\/faculty(\/|$)/i.test(u)) return 0;
-    if (wantsPlacements && /\/placement/i.test(u)) return 0;
-    if (wantsAlumni && /\/alumni/i.test(u)) return 0;
+    for (const tp of topicPathPatterns) {
+      if (tp.test(u)) return 0;
+    }
     return 1;
   };
 

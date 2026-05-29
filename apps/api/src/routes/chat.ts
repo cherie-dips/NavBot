@@ -6,6 +6,31 @@ import { logChatTurn } from "../services/db";
 export const router: Router = Router();
 
 // ---------------------------------------------------------------------------
+// Rate limiting — per IP+siteId, 30 requests/minute
+// ---------------------------------------------------------------------------
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX = 30;
+const rateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function checkRateLimit(key: string): boolean {
+  const now = Date.now();
+  const bucket = rateBuckets.get(key);
+  if (!bucket || now >= bucket.resetAt) {
+    rateBuckets.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return false;
+  }
+  bucket.count++;
+  return bucket.count > RATE_MAX;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, bucket] of rateBuckets) {
+    if (now >= bucket.resetAt) rateBuckets.delete(key);
+  }
+}, RATE_WINDOW_MS);
+
+// ---------------------------------------------------------------------------
 // Text chat
 // ---------------------------------------------------------------------------
 router.post("/", async (req: Request, res: Response) => {
@@ -18,6 +43,11 @@ router.post("/", async (req: Request, res: Response) => {
 
     if (!siteId || !message) {
       return res.status(400).json({ error: "siteId and message are required" });
+    }
+
+    const rateKey = `${req.ip || "unknown"}:${siteId}`;
+    if (checkRateLimit(rateKey)) {
+      return res.status(429).json({ error: "Too many requests. Please try again shortly." });
     }
 
     const t0 = Date.now();
@@ -88,6 +118,11 @@ router.post(
         return res
           .status(400)
           .json({ error: "siteId and audio file are required" });
+      }
+
+      const rateKey = `${req.ip || "unknown"}:${siteId}`;
+      if (checkRateLimit(rateKey)) {
+        return res.status(429).json({ error: "Too many requests. Please try again shortly." });
       }
 
       const t0 = Date.now();
