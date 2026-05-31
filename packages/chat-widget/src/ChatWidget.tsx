@@ -19,7 +19,25 @@ interface Message {
   socialLinks?: SocialLink[];
 }
 
-function renderBotText(raw: string): React.ReactNode {
+const PLATFORM_COLORS: Record<string, string> = {
+  instagram: "#E4405F",
+  twitter: "#1DA1F2",
+  linkedin: "#0A66C2",
+  facebook: "#1877F2",
+};
+
+function detectSocialPlatform(url: string): string | null {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    if (host === "instagram.com") return "instagram";
+    if (host === "twitter.com" || host === "x.com") return "twitter";
+    if (host === "facebook.com") return "facebook";
+    if (host === "linkedin.com") return "linkedin";
+  } catch {}
+  return null;
+}
+
+function renderBotText(raw: string, onSocialClick?: (link: SocialLink) => void): React.ReactNode {
   const lines = raw.split("\n");
   const elements: React.ReactNode[] = [];
   let listItems: React.ReactNode[] = [];
@@ -92,6 +110,32 @@ function renderBotText(raw: string): React.ReactNode {
     const parts = text.split(/(https?:\/\/[^\s]+)/g);
     return parts.map((part, idx) => {
       if (/^https?:\/\/[^\s]+$/i.test(part)) {
+        const platform = detectSocialPlatform(part);
+        if (platform && onSocialClick) {
+          const color = PLATFORM_COLORS[platform] || "#2563eb";
+          return (
+            <button
+              key={`${keyPrefix}-soc-${idx}`}
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                onSocialClick({ platform, title: part, url: part });
+              }}
+              style={{
+                all: "unset",
+                cursor: "pointer",
+                color,
+                textDecoration: "underline",
+                textUnderlineOffset: "2px",
+                fontFamily: "inherit",
+                fontSize: "inherit",
+                pointerEvents: "auto",
+              }}
+            >
+              {part}
+            </button>
+          );
+        }
         return (
           <a
             key={`${keyPrefix}-lnk-${idx}`}
@@ -377,6 +421,8 @@ function getSocialEmbedUrl(url: string, platform: string): string | null {
         }
         return null;
       }
+      case "linkedin":
+        return null;
       default:
         return null;
     }
@@ -384,13 +430,6 @@ function getSocialEmbedUrl(url: string, platform: string): string | null {
     return null;
   }
 }
-
-const PLATFORM_COLORS: Record<string, string> = {
-  instagram: "#E4405F",
-  twitter: "#1DA1F2",
-  linkedin: "#0A66C2",
-  facebook: "#1877F2",
-};
 
 function SocialEmbedModal({ url, platform, title, onClose, fontFamily }: {
   url: string;
@@ -1162,7 +1201,7 @@ export const ChatWidget: React.FC = () => {
                 fontFamily: "inherit",
               }}>
                 {message.sender === "bot" && !message.isVoice
-                  ? renderBotText(message.socialLinks?.length ? stripInlineSocialLinks(message.text) : message.text)
+                  ? renderBotText(message.socialLinks?.length ? stripInlineSocialLinks(message.text) : message.text, setSocialEmbed)
                   : message.text}
                 {message.sender === "bot" && message.socialLinks && renderSocialLinks(message.socialLinks, setSocialEmbed)}
                 {message.sender === "bot" && message.pageLinks && renderPageLinks(message.pageLinks)}
