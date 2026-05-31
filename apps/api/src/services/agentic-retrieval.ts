@@ -6,9 +6,9 @@ import {
 } from "./multipage-retrieval";
 import type { ChatHistoryItem } from "./chat-types";
 
-const MAX_QUERIES_TOTAL = 8;
+const MAX_QUERIES_TOTAL = 10;
 const MAX_QUERIES_EXHAUSTIVE = 14;
-const RETRIEVAL_TOP_K = 18;
+const RETRIEVAL_TOP_K = 24;
 
 export interface AgenticRetrievalParams {
   siteId: string;
@@ -64,6 +64,40 @@ export type AgenticRetrievalResult = {
   };
 };
 
+function extractEntityQueries(docs: RetrievedDoc[], userMessage: string, cap: number): string[] {
+  const topDocs = docs.slice(0, 8);
+  const text = topDocs.map((d) => d.content).join(" ");
+
+  const properNouns = new Set<string>();
+  const nameRe = /(?:(?:School|Institute|Centre|Center|Lab|Foundation|Department|Dept)\s+(?:of|for)\s+[\w\s&-]{3,40})|(?:[A-Z][a-z]+(?:\s+(?:&\s+)?[A-Z][a-z]+){1,4}(?:\s+(?:School|Institute|Centre|Center|Lab|Foundation|Department|Program|Initiative|Award|Fellowship|Chair))?)/g;
+  for (const m of text.matchAll(nameRe)) {
+    const name = m[0].trim();
+    if (name.length >= 8 && name.length <= 80) properNouns.add(name);
+  }
+
+  const userWords = new Set(userMessage.toLowerCase().split(/\s+/));
+  const queries: string[] = [];
+  for (const name of properNouns) {
+    const words = name.toLowerCase().split(/\s+/);
+    const isJustUserQuery = words.every((w) => userWords.has(w));
+    if (isJustUserQuery) continue;
+    queries.push(name);
+    if (queries.length >= cap) break;
+  }
+  return queries;
+}
+
+function mergeDocSets(primary: RetrievedDoc[], secondary: RetrievedDoc[]): RetrievedDoc[] {
+  const seen = new Set(primary.map((d) => d.id));
+  const out = [...primary];
+  for (const d of secondary) {
+    if (seen.has(d.id)) continue;
+    seen.add(d.id);
+    out.push(d);
+  }
+  return out;
+}
+
 export async function runAgenticRetrieval(
   params: AgenticRetrievalParams
 ): Promise<AgenticRetrievalResult> {
@@ -84,18 +118,33 @@ export async function runAgenticRetrieval(
     exhaustiveSpread: exhaustiveList,
   });
 
+  let entityQueryCount = 0;
+  if (!exhaustiveList && docs.length > 0 && bestDistance(docs) < 0.7) {
+    const entityQueries = extractEntityQueries(docs, userMessage, 4);
+    entityQueryCount = entityQueries.length;
+    if (entityQueries.length > 0) {
+      console.log(`[RAG retrieval] entity expansion queries: ${entityQueries.join(" | ")}`);
+      const entityDocs = await querySiteDocs({
+        siteId,
+        query: entityQueries,
+        topK: 12,
+      });
+      docs = mergeDocSets(docs, entityDocs);
+    }
+  }
+
   docs = await expandRetrievalAcrossTrackedPages(siteId, docs, userMessage);
 
   const bestDist = bestDistance(docs);
   console.log(
-    `[RAG retrieval] site="${siteId}" queries=${allQueries.length} exhaustiveList=${exhaustiveList} chunks=${docs.length} bestDistance=${bestDist.toFixed(4)}`
+    `[RAG retrieval] site="${siteId}" queries=${allQueries.length}+${entityQueryCount}entity exhaustiveList=${exhaustiveList} chunks=${docs.length} bestDistance=${bestDist.toFixed(4)}`
   );
 
   return {
     docs,
     retrievalMeta: {
       ruleQueryCount: baseQueries.length,
-      totalQueriesUsed: allQueries.length,
+      totalQueriesUsed: allQueries.length + entityQueryCount,
       bestDistance: bestDist,
     },
   };

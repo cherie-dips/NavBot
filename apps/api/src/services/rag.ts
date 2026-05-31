@@ -104,7 +104,7 @@ export function buildRetrievalQueries(message: string): string[] {
   return Array.from(queries);
 }
 
-const CONTEXT_BUDGET_CHARS = 64_000;
+const CONTEXT_BUDGET_CHARS = 128_000;
 
 function removeChunkOverlap(chunks: string[]): string[] {
   if (chunks.length <= 1) return chunks;
@@ -150,10 +150,22 @@ function resolveTitle(title: string, url: string, siteId: string): string {
   return generic ? titleFromUrl(url) : title;
 }
 
+function isRedundant(chunk: string, existing: string[], threshold: number): boolean {
+  const words = new Set(chunk.toLowerCase().split(/\s+/).filter((w) => w.length > 3));
+  if (words.size < 5) return false;
+  for (const e of existing) {
+    const eWords = new Set(e.toLowerCase().split(/\s+/).filter((w) => w.length > 3));
+    let overlap = 0;
+    for (const w of words) if (eWords.has(w)) overlap++;
+    if (overlap / words.size > threshold) return true;
+  }
+  return false;
+}
+
 function buildContextString(docs: RetrievedDoc[], userMessage: string, siteId: string): string {
   const exhaustive = isExhaustiveListQuestion(userMessage);
-  const maxCharsPerChunk = exhaustive ? 1200 : 1600;
-  const maxSources = exhaustive ? 40 : 20;
+  const maxCharsPerChunk = exhaustive ? 1200 : 2000;
+  const maxSources = exhaustive ? 40 : 30;
   const ordered = exhaustive
     ? sortDocsForExhaustiveAnswer(docs, userMessage)
     : [...docs].sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
@@ -174,14 +186,19 @@ function buildContextString(docs: RetrievedDoc[], userMessage: string, siteId: s
   let totalChars = 0;
   const blocks: string[] = [];
   const includedKeys = new Set<string>();
+  const allIncludedChunks: string[] = [];
+
   for (const [key, { title, chunks }] of pages) {
     const deduped = removeChunkOverlap(chunks);
-    const body = deduped.join("\n\n");
+    const fresh = deduped.filter((c) => !isRedundant(c, allIncludedChunks, 0.75));
+    if (fresh.length === 0) continue;
+    const body = fresh.join("\n\n");
     const block = `${title}\n${body}`;
     if (totalChars + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 0) break;
     blocks.push(block);
     totalChars += block.length;
     includedKeys.add(key);
+    allIncludedChunks.push(...fresh);
   }
 
   const urlDirectory = pages
@@ -386,6 +403,7 @@ RULES:
 - Unknown answer: reply "I don't have that information — please check ${siteId} or contact them directly."
 - Only state facts you are certain about. If your answer may be incomplete, add "For the full list, check the relevant page below."
 - Carefully scan ALL provided page content before answering. Information about the same topic may be spread across multiple pages — do not stop after finding a partial answer on one page.
+- Connect the dots: if a person is mentioned on one page and a school/institute/initiative named after them appears on another page, link those facts together in your answer.
 - Combine information from all pages into one unified answer.
 - If pages contradict each other, state both versions with their page names.
 - Counting questions: enumerate items then state the total.
@@ -428,7 +446,7 @@ Only include pages whose content you actually used in your answer. Omit for gree
     config: {
       systemInstruction: systemPrompt,
       temperature: 0.2,
-      maxOutputTokens: 2048,
+      maxOutputTokens: 4096,
     },
   });
 
