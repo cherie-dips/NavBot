@@ -32,6 +32,7 @@ export async function generateFaqsForSite(
   siteId: string
 ): Promise<Array<{ label: string; question: string }>> {
   const docs = await querySiteDocs({ siteId, query: SEED_QUERIES, topK: 18 });
+  console.log(`[FAQ] Retrieved ${docs.length} docs from Pinecone for seed queries`);
 
   if (docs.length === 0) {
     return fallbackFaqs();
@@ -93,18 +94,27 @@ Example output format:
     });
 
     const cleaned = raw.trim();
+    console.log(`[FAQ] LLM raw output (${cleaned.length} chars): ${cleaned.slice(0, 300)}`);
 
     const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return fallbackFaqs();
+    if (!jsonMatch) {
+      console.error("[FAQ] No JSON array found in LLM output");
+      return fallbackFaqs();
+    }
 
     const parsed = JSON.parse(jsonMatch[0]) as Array<{ label: string; question: string }>;
+    console.log(`[FAQ] Parsed ${parsed.length} items from JSON`);
     if (!Array.isArray(parsed) || parsed.length === 0) return fallbackFaqs();
 
     const validated = parsed
       .filter((f) => typeof f.label === "string" && f.label.trim().length > 0 && typeof f.question === "string" && f.question.trim().length > 0)
       .slice(0, MAX_FAQS);
 
-    if (validated.length < MIN_FAQS) return fallbackFaqs();
+    console.log(`[FAQ] Validated ${validated.length} FAQs (min=${MIN_FAQS})`);
+    if (validated.length < MIN_FAQS) {
+      console.warn(`[FAQ] Only ${validated.length} valid FAQs, falling back`);
+      return fallbackFaqs();
+    }
     return validated;
   } catch (err) {
     console.error("FAQ generation failed:", err);
