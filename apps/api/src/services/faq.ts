@@ -13,50 +13,59 @@ import { generateContentText, GEMINI_MODELS, getGeminiApiKey } from "./gemini-cl
 const FAQ_ANSWER_PREVIEW_MAX = 800;
 
 const SEED_QUERIES = [
-  "admissions deadlines",
-  "programs offered",
-  "fee structure",
-  "how to apply",
-  "campus facilities",
-  "contact information",
-  "scholarships and financial aid",
-  "placement statistics",
+  "admissions deadlines how to apply",
+  "programs courses degrees offered",
+  "fee structure tuition scholarships financial aid",
+  "campus facilities hostel accommodation",
+  "placements careers companies recruiting",
+  "faculty research labs leadership",
+  "events workshops student life clubs",
+  "about mission founders vision",
+  "contact information address email",
+  "achievements rankings highlights",
 ];
+
+const MIN_FAQS = 5;
+const MAX_FAQS = 8;
 
 export async function generateFaqsForSite(
   siteId: string
 ): Promise<Array<{ label: string; question: string }>> {
-  const docs = await querySiteDocs({ siteId, query: SEED_QUERIES, topK: 6 });
+  const docs = await querySiteDocs({ siteId, query: SEED_QUERIES, topK: 18 });
 
   if (docs.length === 0) {
-    return [{ label: "About this website", question: "What is this website about?" }];
+    return fallbackFaqs();
   }
 
   const contextSnippets = docs
-    .slice(0, 15)
-    .map((d, i) => `[${i + 1}] ${d.title}\n${d.content.slice(0, 400)}`)
+    .slice(0, 24)
+    .map((d, i) => `[${i + 1}] ${d.title}\n${d.content.slice(0, 500)}`)
     .join("\n\n");
 
-  const topQueries = await getTopQueries(siteId, 10);
+  const topQueries = await getTopQueries(siteId, 15);
   let popularSection = "";
-  if (topQueries.length >= 3) {
+  if (topQueries.length >= 2) {
     popularSection = `\n\nPOPULAR USER QUESTIONS (incorporate the most relevant ones):\n${topQueries.map((q) => `- "${q.query}" (asked ${q.count} times)`).join("\n")}`;
   }
 
-  const prompt = `You are an FAQ generator. Based on the website content below, generate 4-6 frequently asked questions that a first-time visitor would likely ask.${popularSection}
+  const siteDomain = siteId.replace(/^www\./, "");
+  const prompt = `You are generating FAQ questions for the chatbot of ${siteDomain}. Based on the website content below, generate exactly ${MAX_FAQS} thoughtful frequently asked questions that a prospective visitor would ask.${popularSection}
 
 WEBSITE CONTENT:
 ${contextSnippets}
 
 RULES:
-1. Each FAQ must be answerable from the website content above.
-2. Keep labels short (3-5 words) and questions natural.
-3. Cover diverse topics (don't repeat similar questions).
-4. If popular user questions are provided, prioritize those topics.
-5. Return ONLY a valid JSON array of objects with "label" and "question" keys. No other text.
+1. Generate EXACTLY ${MAX_FAQS} FAQs. This is critical — do not generate fewer.
+2. Questions must be specific to this website's actual content — not generic like "What is this website about?" or "How can I contact you?"
+3. Think about what a prospective student, parent, or visitor would genuinely want to know: specific programs, unique offerings, admission criteria, placements, campus life, leadership, research, events, etc.
+4. Labels: 2-5 words, specific and descriptive (e.g. "B.Tech Admissions" not "Admissions").
+5. Questions: natural, conversational, specific (e.g. "What are the placement statistics and top recruiting companies?" not "Tell me about placements").
+6. Cover diverse topics — each FAQ should address a different aspect of the website.
+7. If popular user questions are provided, prioritize and refine those topics.
+8. Return ONLY a valid JSON array of objects with "label" and "question" keys. No other text.
 
-Example output:
-[{"label":"Admission deadlines","question":"What are the admission deadlines?"},{"label":"Programs offered","question":"What programs do you offer?"}]`;
+Example output format:
+[{"label":"B.Tech Programs","question":"What B.Tech programs are offered and what makes them unique?"},{"label":"Placement Stats","question":"What are the placement statistics and which companies recruit from here?"}]`;
 
   if (!getGeminiApiKey()) {
     console.warn("generateFaqsForSite: no GEMINI_API_KEY — using fallback FAQs");
@@ -78,8 +87,8 @@ Example output:
         },
       ],
       config: {
-        temperature: 0.3,
-        maxOutputTokens: 500,
+        temperature: 0.4,
+        maxOutputTokens: 1024,
       },
     });
 
@@ -92,10 +101,11 @@ Example output:
     if (!Array.isArray(parsed) || parsed.length === 0) return fallbackFaqs();
 
     const validated = parsed
-      .filter((f) => typeof f.label === "string" && typeof f.question === "string")
-      .slice(0, 6);
+      .filter((f) => typeof f.label === "string" && f.label.trim().length > 0 && typeof f.question === "string" && f.question.trim().length > 0)
+      .slice(0, MAX_FAQS);
 
-    return validated.length > 0 ? validated : fallbackFaqs();
+    if (validated.length < MIN_FAQS) return fallbackFaqs();
+    return validated;
   } catch (err) {
     console.error("FAQ generation failed:", err);
     return fallbackFaqs();
@@ -123,9 +133,11 @@ async function generateAnswerForFaq(siteId: string, question: string): Promise<s
 
 function fallbackFaqs(): Array<{ label: string; question: string }> {
   return [
-    { label: "About this website", question: "What is this website about?" },
-    { label: "How to get started", question: "How do I get started?" },
-    { label: "Contact information", question: "How can I contact you?" },
+    { label: "Programs offered", question: "What programs and courses are offered?" },
+    { label: "How to apply", question: "How do I apply and what are the admission requirements?" },
+    { label: "Fee & scholarships", question: "What is the fee structure and are scholarships available?" },
+    { label: "Campus & facilities", question: "What facilities and campus life can students expect?" },
+    { label: "Placements & careers", question: "What are the placement statistics and top recruiters?" },
   ];
 }
 
