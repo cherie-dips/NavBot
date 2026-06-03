@@ -11,22 +11,23 @@ import { answerQuestionWithRag } from "./rag";
 import { generateContentText, GEMINI_MODELS, getGeminiApiKey } from "./gemini-client";
 
 const FAQ_ANSWER_PREVIEW_MAX = 800;
-
-const SEED_QUERIES = [
-  "admissions deadlines how to apply",
-  "programs courses degrees offered",
-  "fee structure tuition scholarships financial aid",
-  "campus facilities hostel accommodation",
-  "placements careers companies recruiting",
-  "faculty research labs leadership",
-  "events workshops student life clubs",
-  "about mission founders vision",
-  "contact information address email",
-  "achievements rankings highlights",
-];
-
 const MIN_FAQS = 5;
 const MAX_FAQS = 8;
+
+const SEED_QUERIES = [
+  "about mission vision overview",
+  "services products offerings features",
+  "team people leadership founders",
+  "contact information location address",
+  "projects work portfolio experience",
+  "events news updates announcements",
+  "apply join register get started",
+  "pricing plans cost investment",
+  "achievements highlights awards recognition",
+  "FAQ help support resources",
+];
+
+const QUERY_REFRESH_THRESHOLD = 20;
 
 export async function generateFaqsForSite(
   siteId: string
@@ -34,9 +35,7 @@ export async function generateFaqsForSite(
   const docs = await querySiteDocs({ siteId, query: SEED_QUERIES, topK: 18 });
   console.log(`[FAQ] Retrieved ${docs.length} docs from Pinecone for seed queries`);
 
-  if (docs.length === 0) {
-    return fallbackFaqs();
-  }
+  if (docs.length === 0) return [];
 
   const contextSnippets = docs
     .slice(0, 24)
@@ -45,32 +44,31 @@ export async function generateFaqsForSite(
 
   const topQueries = await getTopQueries(siteId, 15);
   let popularSection = "";
-  if (topQueries.length >= 2) {
-    popularSection = `\n\nPOPULAR USER QUESTIONS (incorporate the most relevant ones):\n${topQueries.map((q) => `- "${q.query}" (asked ${q.count} times)`).join("\n")}`;
+  if (topQueries.length >= 1) {
+    popularSection = `\n\nPOPULAR USER QUESTIONS — these are real questions users have asked. Incorporate the most relevant ones as FAQs:\n${topQueries.map((q) => `- "${q.query}" (asked ${q.count} times)`).join("\n")}`;
   }
 
   const siteDomain = siteId.replace(/^www\./, "");
-  const prompt = `You are generating FAQ questions for the chatbot of ${siteDomain}. Based on the website content below, generate exactly ${MAX_FAQS} thoughtful frequently asked questions that a prospective visitor would ask.${popularSection}
+  const prompt = `You are generating FAQ questions for the chatbot of ${siteDomain}. Based on the website content below, generate exactly ${MAX_FAQS} thoughtful frequently asked questions that a first-time visitor would ask.${popularSection}
 
 WEBSITE CONTENT:
 ${contextSnippets}
 
 RULES:
 1. Generate EXACTLY ${MAX_FAQS} FAQs. This is critical — do not generate fewer.
-2. Questions must be specific to this website's actual content — not generic like "What is this website about?" or "How can I contact you?"
-3. Think about what a prospective student, parent, or visitor would genuinely want to know: specific programs, unique offerings, admission criteria, placements, campus life, leadership, research, events, etc.
-4. Labels: 2-5 words, specific and descriptive (e.g. "B.Tech Admissions" not "Admissions").
-5. Questions: natural, conversational, specific (e.g. "What are the placement statistics and top recruiting companies?" not "Tell me about placements").
+2. Questions MUST be specific to THIS website's actual content. Read the content carefully and generate questions that match what this particular site offers.
+3. Do NOT use generic questions like "What is this website about?" or "How can I contact you?" — every FAQ should reflect something unique about this site.
+4. Labels: 2-5 words, specific and descriptive.
+5. Questions: natural, conversational, specific to the site's content.
 6. Cover diverse topics — each FAQ should address a different aspect of the website.
-7. If popular user questions are provided, prioritize and refine those topics.
+7. If popular user questions are provided, prioritize those — they represent what real visitors want to know.
 8. Return ONLY a valid JSON array of objects with "label" and "question" keys. No other text.
 
-Example output format:
-[{"label":"B.Tech Programs","question":"What B.Tech programs are offered and what makes them unique?"},{"label":"Placement Stats","question":"What are the placement statistics and which companies recruit from here?"}]`;
+Example: for a university site you might generate [{"label":"B.Tech Programs","question":"What B.Tech programs are offered?"}], for a portfolio site [{"label":"Tech Stack","question":"What technologies do you work with?"}], for a company site [{"label":"Product Pricing","question":"What are the pricing plans?"}] — always match the site.`;
 
   if (!getGeminiApiKey()) {
-    console.warn("generateFaqsForSite: no GEMINI_API_KEY — using fallback FAQs");
-    return fallbackFaqs();
+    console.warn("[FAQ] no GEMINI_API_KEY — building FAQs from user queries");
+    return buildFaqsFromUserQueries(topQueries);
   }
 
   try {
@@ -89,37 +87,69 @@ Example output format:
       ],
       config: {
         temperature: 0.4,
-        maxOutputTokens: 1024,
+        maxOutputTokens: 4096,
+        responseMimeType: "application/json",
       },
     });
 
     const cleaned = raw.trim();
-    console.log(`[FAQ] LLM raw output (${cleaned.length} chars): ${cleaned.slice(0, 300)}`);
+    console.log(`[FAQ] LLM raw output (${cleaned.length} chars): ${JSON.stringify(cleaned.slice(0, 500))}`);
 
     const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
     if (!jsonMatch) {
       console.error("[FAQ] No JSON array found in LLM output");
-      return fallbackFaqs();
+      return buildFaqsFromUserQueries(topQueries);
     }
 
     const parsed = JSON.parse(jsonMatch[0]) as Array<{ label: string; question: string }>;
     console.log(`[FAQ] Parsed ${parsed.length} items from JSON`);
-    if (!Array.isArray(parsed) || parsed.length === 0) return fallbackFaqs();
+    if (!Array.isArray(parsed) || parsed.length === 0) return buildFaqsFromUserQueries(topQueries);
 
     const validated = parsed
       .filter((f) => typeof f.label === "string" && f.label.trim().length > 0 && typeof f.question === "string" && f.question.trim().length > 0)
       .slice(0, MAX_FAQS);
 
-    console.log(`[FAQ] Validated ${validated.length} FAQs (min=${MIN_FAQS})`);
+    console.log(`[FAQ] Validated ${validated.length} FAQs`);
     if (validated.length < MIN_FAQS) {
-      console.warn(`[FAQ] Only ${validated.length} valid FAQs, falling back`);
-      return fallbackFaqs();
+      console.warn(`[FAQ] Only ${validated.length} valid FAQs from LLM, supplementing with user queries`);
+      return supplementWithUserQueries(validated, topQueries);
     }
     return validated;
   } catch (err) {
-    console.error("FAQ generation failed:", err);
-    return fallbackFaqs();
+    console.error("[FAQ] Generation failed:", err);
+    return buildFaqsFromUserQueries(topQueries);
   }
+}
+
+function buildFaqsFromUserQueries(
+  topQueries: Array<{ query: string; count: number }>
+): Array<{ label: string; question: string }> {
+  if (topQueries.length === 0) return [];
+  const faqs = topQueries.slice(0, MAX_FAQS).map((q) => {
+    const label = q.query
+      .replace(/[?!.]+$/, "")
+      .replace(/^(what|how|where|when|who|which|can|do|does|is|are|tell me about|i want to know)\s+/i, "")
+      .slice(0, 40)
+      .trim();
+    const capitalized = label.charAt(0).toUpperCase() + label.slice(1);
+    return {
+      label: capitalized,
+      question: q.query.endsWith("?") ? q.query : `${q.query}?`,
+    };
+  });
+  return faqs;
+}
+
+function supplementWithUserQueries(
+  llmFaqs: Array<{ label: string; question: string }>,
+  topQueries: Array<{ query: string; count: number }>
+): Array<{ label: string; question: string }> {
+  const existing = new Set(llmFaqs.map((f) => f.question.toLowerCase()));
+  const extras = buildFaqsFromUserQueries(topQueries).filter(
+    (f) => !existing.has(f.question.toLowerCase())
+  );
+  const combined = [...llmFaqs, ...extras].slice(0, MAX_FAQS);
+  return combined;
 }
 
 function normalizeAnswerPreview(answer: string): string {
@@ -141,18 +171,9 @@ async function generateAnswerForFaq(siteId: string, question: string): Promise<s
   }
 }
 
-function fallbackFaqs(): Array<{ label: string; question: string }> {
-  return [
-    { label: "Programs offered", question: "What programs and courses are offered?" },
-    { label: "How to apply", question: "How do I apply and what are the admission requirements?" },
-    { label: "Fee & scholarships", question: "What is the fee structure and are scholarships available?" },
-    { label: "Campus & facilities", question: "What facilities and campus life can students expect?" },
-    { label: "Placements & careers", question: "What are the placement statistics and top recruiters?" },
-  ];
-}
-
 /**
  * Get FAQs for a site. If none exist, generate and store them.
+ * If enough new user queries have accumulated, trigger a background refresh.
  */
 export async function getOrGenerateFaqs(
   siteId: string,
@@ -170,7 +191,10 @@ export async function getOrGenerateFaqs(
 > {
   const includeAnswers = options?.includeAnswers === true;
   const existing = await getFaqsBySite(siteId);
+
   if (existing.length > 0) {
+    maybeScheduleRefresh(siteId, existing).catch(() => {});
+
     if (!includeAnswers) {
       return existing.map((f) => ({ label: f.label, question: f.question }));
     }
@@ -212,6 +236,8 @@ export async function getOrGenerateFaqs(
   }
 
   const generated = await generateFaqsForSite(siteId);
+  if (generated.length === 0) return [];
+
   if (!includeAnswers) {
     await replaceFaqs(siteId, generated);
     return generated;
@@ -226,6 +252,33 @@ export async function getOrGenerateFaqs(
   return withAnswers;
 }
 
+const refreshInProgress = new Set<string>();
+
+async function maybeScheduleRefresh(siteId: string, existing: Array<{ created_at: Date | string }>) {
+  if (refreshInProgress.has(siteId)) return;
+
+  const oldestFaq = existing.reduce((oldest, f) => {
+    const d = f.created_at instanceof Date ? f.created_at : new Date(f.created_at);
+    return d < oldest ? d : oldest;
+  }, new Date());
+
+  const topQueries = await getTopQueries(siteId, 1);
+  const totalQueries = topQueries.reduce((sum, q) => sum + q.count, 0);
+
+  const hoursSinceGenerated = (Date.now() - oldestFaq.getTime()) / (1000 * 60 * 60);
+  const shouldRefresh = totalQueries >= QUERY_REFRESH_THRESHOLD && hoursSinceGenerated >= 24;
+
+  if (!shouldRefresh) return;
+
+  console.log(`[FAQ] Auto-refreshing FAQs for ${siteId} (${totalQueries} queries, ${Math.round(hoursSinceGenerated)}h since last generation)`);
+  refreshInProgress.add(siteId);
+  try {
+    await refreshFaqs(siteId);
+  } finally {
+    refreshInProgress.delete(siteId);
+  }
+}
+
 /**
  * Force-refresh FAQs for a site (incorporating latest user queries).
  */
@@ -233,6 +286,11 @@ export async function refreshFaqs(
   siteId: string
 ): Promise<Array<{ label: string; question: string; answerPreview?: string | null }>> {
   const generated = await generateFaqsForSite(siteId);
+  if (generated.length === 0) {
+    console.warn(`[FAQ] Refresh produced 0 FAQs for ${siteId} — keeping existing`);
+    const existing = await getFaqsBySite(siteId);
+    return existing.map((f) => ({ label: f.label, question: f.question, answerPreview: f.answer_preview }));
+  }
   const withAnswers = await Promise.all(
     generated.map(async (faq) => ({
       ...faq,
