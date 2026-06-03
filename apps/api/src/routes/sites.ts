@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { crawlSite, crawlPages, shutdownBrowser } from "../services/crawler";
+import { crawlSite, crawlPages, shutdownBrowser, discoverUrls, normalizeUrl } from "../services/crawler";
 import {
   upsertSitePages,
   deletePagesFromSite,
@@ -243,7 +243,7 @@ router.post("/", async (req: Request, res: Response) => {
       );
     }
 
-    // Prefer sitemap-based crawl (covers all pages) over BFS (misses unlinked pages, capped at 500)
+    // Combine sitemap + BFS discovery for maximum coverage
     let pages: Awaited<ReturnType<typeof crawlSite>>;
     let sitemapEntries: Awaited<ReturnType<typeof getSitemapEntries>> = [];
 
@@ -254,15 +254,31 @@ router.post("/", async (req: Request, res: Response) => {
     if (sitemapEntries.length > 0) {
       const BATCH_SIZE = 10;
       const sitemapUrls = sitemapEntries.map((e) => e.url);
-      console.log(`[index] Sitemap found with ${sitemapUrls.length} URLs — crawling in batches of ${BATCH_SIZE}`);
+      const sitemapSet = new Set(sitemapUrls.map((u) => normalizeUrl(u)));
+
+      // BFS discovery to find pages not in sitemap
+      console.log(`[index] Sitemap has ${sitemapUrls.length} URLs — running BFS discovery for additional pages...`);
+      let bfsUrls: string[] = [];
+      try {
+        const discovered = await discoverUrls(siteUrl.toString(), sitemapSet);
+        bfsUrls = discovered.filter((u: string) => !sitemapSet.has(normalizeUrl(u)));
+        if (bfsUrls.length > 0) {
+          console.log(`[index] BFS discovered ${bfsUrls.length} extra URLs not in sitemap`);
+        }
+      } catch (err) {
+        console.warn(`[index] BFS discovery failed, continuing with sitemap only:`, err);
+      }
+
+      const allUrls = [...sitemapUrls, ...bfsUrls];
+      console.log(`[index] Total URLs to crawl: ${allUrls.length} (${sitemapUrls.length} sitemap + ${bfsUrls.length} BFS)`);
 
       let totalPages = 0;
       let insertedCount = 0;
       let failedCount = 0;
       const crawledUrls = new Set<string>();
 
-      for (let i = 0; i < sitemapUrls.length; i += BATCH_SIZE) {
-        const batchUrls = sitemapUrls.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < allUrls.length; i += BATCH_SIZE) {
+        const batchUrls = allUrls.slice(i, i + BATCH_SIZE);
         console.log(`[index] Batch ${Math.floor(i / BATCH_SIZE) + 1}: crawling ${batchUrls.length} URLs`);
         const batchPages = await crawlPages(batchUrls);
         totalPages += batchPages.length;

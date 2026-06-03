@@ -823,3 +823,75 @@ export async function crawlSite(
   );
   return pages;
 }
+
+// ---------------------------------------------------------------------------
+// Lightweight BFS URL discovery — returns URLs only (no content processing)
+// ---------------------------------------------------------------------------
+const DISCOVER_MAX_PAGES = 600;
+const DISCOVER_MAX_DEPTH = 4;
+const DISCOVER_CONCURRENCY = 8;
+
+export async function discoverUrls(
+  rootUrl: string,
+  knownUrls?: Set<string>
+): Promise<string[]> {
+  const origin = new URL(rootUrl).origin;
+  const visited = new Set<string>(knownUrls ?? []);
+  const discovered: string[] = [];
+  const queue: Array<{ url: string; depth: number }> = [
+    { url: normalizeUrl(rootUrl), depth: 0 },
+  ];
+
+  while (queue.length > 0 && discovered.length + visited.size < DISCOVER_MAX_PAGES) {
+    const batchSize = Math.min(DISCOVER_CONCURRENCY, queue.length);
+    const batch: Array<{ url: string; depth: number }> = [];
+    while (batch.length < batchSize && queue.length > 0) {
+      const item = queue.shift()!;
+      const norm = normalizeUrl(item.url);
+      if (visited.has(norm)) continue;
+      if (item.depth > DISCOVER_MAX_DEPTH) continue;
+      if (SKIP_PATH_PATTERNS.some((p) => p.test(norm))) continue;
+      visited.add(norm);
+      batch.push({ url: norm, depth: item.depth });
+    }
+
+    if (batch.length === 0) continue;
+
+    await Promise.all(
+      batch.map(async ({ url, depth }) => {
+        try {
+          const resp = await fetch(url, {
+            headers: { "User-Agent": "NavBot/1.0" },
+            redirect: "follow",
+            signal: AbortSignal.timeout(10_000),
+          });
+          if (!resp.ok) return;
+          const ct = resp.headers.get("content-type") ?? "";
+          if (!ct.includes("text/html")) return;
+          const html = await resp.text();
+
+          discovered.push(url);
+
+          if (depth < DISCOVER_MAX_DEPTH) {
+            const $ = cheerio.load(html);
+            $("a[href]").each((_, el) => {
+              const href = $(el).attr("href");
+              if (!href) return;
+              try {
+                const abs = new URL(href, url).toString();
+                if (!abs.startsWith(origin)) return;
+                const norm = normalizeUrl(abs);
+                if (visited.has(norm)) return;
+                if (SKIP_PATH_PATTERNS.some((p) => p.test(norm))) return;
+                queue.push({ url: norm, depth: depth + 1 });
+              } catch {}
+            });
+          }
+        } catch {}
+      })
+    );
+  }
+
+  console.log(`[discover] BFS found ${discovered.length} URLs (${visited.size} total visited)`);
+  return discovered;
+}
