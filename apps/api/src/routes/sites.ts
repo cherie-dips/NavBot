@@ -1,11 +1,6 @@
 import { Router, type Request, type Response } from "express";
 import { crawlSite, crawlPages, shutdownBrowser, discoverUrls, normalizeUrl } from "../services/crawler";
-import {
-  upsertSitePages,
-  deletePagesFromSite,
-  deleteSiteCollection,
-  pineconeSiteNamespaceRecordCount,
-} from "../services/vectorstore";
+import { compileSiteKnowledge } from "../services/knowledge-compiler";
 import { getSitemapEntries } from "../services/sitemap";
 import { trySitemapSync } from "../services/auto-sync";
 import {
@@ -28,6 +23,8 @@ import {
   upsertSocialHandles,
   type SocialHandles,
   setIndexingActive,
+  deleteKnowledgeForSite,
+  hasKnowledgeTopics,
 } from "../services/db";
 import { getOrGenerateFaqs, refreshFaqs, saveFaqUserAnswer } from "../services/faq";
 
@@ -41,64 +38,6 @@ function parsePublicSiteUrl(raw: string): URL {
     ? trimmed
     : `https://${trimmed}`;
   return new URL(withScheme);
-}
-
-function pineconeFailureResponse(
-  err: unknown,
-  msg: string
-): { status: number; body: Record<string, string> } | null {
-  const name =
-    err && typeof err === "object" && "name" in err && typeof (err as Error).name === "string"
-      ? (err as Error).name
-      : "";
-
-  const authLike =
-    name === "PineconeAuthorizationError" ||
-    name === "PineconeForbiddenError" ||
-    /API key you provided was rejected/i.test(msg) ||
-    (/pinecone/i.test(msg) && /401|403|rejected|unauthorized|forbidden|not authorized/i.test(msg));
-
-  if (authLike) {
-    return {
-      status: 502,
-      body: {
-        error: "pinecone_auth_failed",
-        message:
-          "Pinecone rejected your API key. In https://app.pinecone.io copy a current API key for the project that owns index \"" +
-          (process.env.PINECONE_INDEX?.trim() || "your-index") +
-          "\", set it as PINECONE_API_KEY on Render (navbot-api → Environment), save, and redeploy. Keys are often wrong if pasted with a typo, extra space, or from a different Pinecone project.",
-      },
-    };
-  }
-
-  if (
-    msg.includes("PINECONE_API_KEY is required") ||
-    msg.includes("PINECONE_INDEX is required")
-  ) {
-    return {
-      status: 503,
-      body: {
-        error: "pinecone_not_configured",
-        message:
-          "The API is not configured for search indexing. Set PINECONE_API_KEY and PINECONE_INDEX on the API service (Render → navbot-api → Environment).",
-      },
-    };
-  }
-
-  if (/pinecone/i.test(msg) && /not found|does not exist|404/i.test(msg)) {
-    return {
-      status: 502,
-      body: {
-        error: "pinecone_index_not_found",
-        message:
-          "Pinecone index \"" +
-          (process.env.PINECONE_INDEX?.trim() || "") +
-          "\" was not found for this API key. Create that index in the Pinecone console or set PINECONE_INDEX to an existing index name.",
-      },
-    };
-  }
-
-  return null;
 }
 
 function indexErrorResponse(err: unknown): { status: number; body: Record<string, string> } {
@@ -118,9 +57,6 @@ function indexErrorResponse(err: unknown): { status: number; body: Record<string
       },
     };
   }
-
-  const pc = pineconeFailureResponse(err, msg);
-  if (pc) return pc;
 
   return {
     status: 500,
@@ -217,11 +153,11 @@ router.post("/", async (req: Request, res: Response) => {
     const alreadyCrawled = Object.keys(existingHashes).length > 0;
 
     if (alreadyCrawled) {
-      const vecCount = await pineconeSiteNamespaceRecordCount(siteId);
-      if (vecCount > 0) {
+      const hasTopics = await hasKnowledgeTopics(siteId);
+      if (hasTopics) {
         const pageCount = Object.keys(existingHashes).length;
         console.log(
-          `[index] Site "${siteId}" already indexed (${pageCount} page hashes, ${vecCount} Pinecone records). ` +
+          `[index] Site "${siteId}" already indexed (${pageCount} page hashes, knowledge topics exist). ` +
             `Linking to user ${userId ?? "(no userId)"} without re-crawling.`
         );
 
@@ -239,24 +175,25 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       console.warn(
-        `[index] Site "${siteId}" has DB page hashes but Pinecone namespace "site_${siteId}" is empty — re-crawling and re-upserting.`
+        `[index] Site "${siteId}" has DB page hashes but no knowledge topics — re-crawling and compiling.`
       );
     }
 
     // Combine sitemap + BFS discovery for maximum coverage
-    let pages: Awaited<ReturnType<typeof crawlSite>>;
     let sitemapEntries: Awaited<ReturnType<typeof getSitemapEntries>> = [];
 
     try {
       sitemapEntries = await getSitemapEntries(siteUrl.toString());
     } catch { /* ignore — fall through to BFS */ }
 
+    const BATCH_SIZE = 10;
+    let allCrawledPages: Awaited<ReturnType<typeof crawlSite>> = [];
+    const crawledUrls = new Set<string>();
+
     if (sitemapEntries.length > 0) {
-      const BATCH_SIZE = 10;
       const sitemapUrls = sitemapEntries.map((e) => e.url);
       const sitemapSet = new Set(sitemapUrls.map((u) => normalizeUrl(u)));
 
-      // BFS discovery to find pages not in sitemap
       console.log(`[index] Sitemap has ${sitemapUrls.length} URLs — running BFS discovery for additional pages...`);
       let bfsUrls: string[] = [];
       try {
@@ -272,81 +209,47 @@ router.post("/", async (req: Request, res: Response) => {
       const allUrls = [...sitemapUrls, ...bfsUrls];
       console.log(`[index] Total URLs to crawl: ${allUrls.length} (${sitemapUrls.length} sitemap + ${bfsUrls.length} BFS)`);
 
-      let totalPages = 0;
-      let insertedCount = 0;
-      let failedCount = 0;
-      const crawledUrls = new Set<string>();
-
       for (let i = 0; i < allUrls.length; i += BATCH_SIZE) {
         const batchUrls = allUrls.slice(i, i + BATCH_SIZE);
         console.log(`[index] Batch ${Math.floor(i / BATCH_SIZE) + 1}: crawling ${batchUrls.length} URLs`);
         const batchPages = await crawlPages(batchUrls);
-        totalPages += batchPages.length;
-
-        if (batchPages.length > 0) {
-          const result = await upsertSitePages(siteId, batchPages);
-          insertedCount += result.insertedCount;
-          failedCount += result.failedCount;
-          await upsertPageHashes(siteId, batchPages.map((p) => ({ url: p.url, hash: p.hash })));
-          for (const p of batchPages) crawledUrls.add(p.url);
-        }
-
+        allCrawledPages.push(...batchPages);
+        for (const p of batchPages) crawledUrls.add(p.url);
         await shutdownBrowser();
-      }
-
-      if (totalPages === 0) {
-        return res.status(422).json({
-          error: "no_pages_crawled",
-          message:
-            "No pages could be fetched or parsed from that URL. Check that the site is public, the URL is correct, and (on Render) NAVBOT_BROWSER_CRAWL is auto or always for JavaScript-heavy sites.",
-        });
-      }
-
-      if (userId) {
-        await upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
       }
 
       const crawledEntries = sitemapEntries.filter((e) => crawledUrls.has(e.url));
       if (crawledEntries.length > 0) {
         await upsertPageLastmods(siteId, crawledEntries.map((e) => ({ url: e.url, lastmod: e.lastmod })));
-        console.log(
-          `[index] Stored ${crawledEntries.length} sitemap lastmod values for "${siteId}"` +
-            (crawledEntries.length < sitemapEntries.length
-              ? ` (${sitemapEntries.length - crawledEntries.length} sitemap URLs failed to crawl — will retry on next sync)`
-              : "")
-        );
       }
-
-      res.json({ siteId, pageCount: totalPages, stored: insertedCount, failed: failedCount });
     } else {
       console.log(`[index] No sitemap — falling back to BFS crawl`);
-      pages = await crawlSite(siteUrl.toString());
-
-      if (pages.length === 0) {
-        return res.status(422).json({
-          error: "no_pages_crawled",
-          message:
-            "No pages could be fetched or parsed from that URL. Check that the site is public, the URL is correct, and (on Render) NAVBOT_BROWSER_CRAWL is auto or always for JavaScript-heavy sites.",
-        });
-      }
-
-      const { insertedCount, failedCount, totalChunks } = await upsertSitePages(siteId, pages);
-
-      if (totalChunks > 0 && insertedCount === 0) {
-        return res.status(502).json({
-          error: "pinecone_upsert_failed",
-          message:
-            "Crawl finished but no vectors were stored in Pinecone. Check the API server logs and PINECONE_API_KEY / PINECONE_INDEX.",
-        });
-      }
-
-      if (userId) {
-        await upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
-      }
-
-      await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
-      res.json({ siteId, pageCount: pages.length, stored: insertedCount, failed: failedCount });
+      allCrawledPages = await crawlSite(siteUrl.toString());
     }
+
+    if (allCrawledPages.length === 0) {
+      return res.status(422).json({
+        error: "no_pages_crawled",
+        message:
+          "No pages could be fetched or parsed from that URL. Check that the site is public, the URL is correct, and (on Render) NAVBOT_BROWSER_CRAWL is auto or always for JavaScript-heavy sites.",
+      });
+    }
+
+    await upsertPageHashes(siteId, allCrawledPages.map((p) => ({ url: p.url, hash: p.hash })));
+
+    const { topicCount } = await compileSiteKnowledge(siteId, allCrawledPages, url);
+
+    if (userId) {
+      await upsertSite({ siteId, userId, url, hostname, pagesIndexed: allCrawledPages.length });
+    }
+
+    res.json({
+      siteId,
+      pageCount: allCrawledPages.length,
+      stored: allCrawledPages.length,
+      topicCount,
+      failed: 0,
+    });
   } catch (err) {
     console.error("[index]", err);
     const { status, body } = indexErrorResponse(err);
@@ -367,29 +270,18 @@ router.patch("/:siteId/pages", async (req: Request, res: Response) => {
     }
 
     const pages = await crawlPages(urls);
-    await deletePagesFromSite(siteId, urls);
-    const { insertedCount, failedCount, totalChunks } = await upsertSitePages(
-      siteId,
-      pages
-    );
-
-    if (totalChunks > 0 && insertedCount === 0) {
-      return res.status(502).json({
-        error: "pinecone_upsert_failed",
-        message:
-          "Pages were crawled but no vectors were stored in Pinecone. See API logs and PINECONE_* configuration.",
-      });
-    }
-
-    // Update hashes for re-crawled pages
     await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+
+    const siteUrl = `https://${siteId}`;
+    const { topicCount } = await compileSiteKnowledge(siteId, pages, siteUrl);
 
     res.json({
       siteId,
       requestedUrls: urls.length,
       pagesFound: pages.length,
-      stored: insertedCount,
-      failed: failedCount,
+      stored: pages.length,
+      topicCount,
+      failed: 0,
     });
   } catch (err) {
     console.error(err);
@@ -406,29 +298,23 @@ router.post("/:siteId/reindex", async (req: Request, res: Response) => {
     if (!url) return res.status(400).json({ error: "url is required" });
 
     const pages = await crawlSite(url);
-    const { insertedCount, failedCount, totalChunks } = await upsertSitePages(
-      siteId,
-      pages,
-      { replaceExisting: true }
-    );
 
-    if (totalChunks > 0 && insertedCount === 0) {
-      return res.status(502).json({
-        error: "pinecone_upsert_failed",
-        message:
-          "Reindex crawl finished but Pinecone stored no vectors. See API logs and PINECONE_* configuration.",
+    if (pages.length === 0) {
+      return res.status(422).json({
+        error: "no_pages_crawled",
+        message: "No pages could be fetched from that URL.",
       });
     }
 
+    await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+    const { topicCount } = await compileSiteKnowledge(siteId, pages, url);
+
     if (userId) {
       const hostname = (() => { try { return new URL(url).hostname; } catch { return url; } })();
-      await upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
+      await upsertSite({ siteId, userId, url, hostname, pagesIndexed: pages.length });
     }
 
-    // Full reindex — overwrite all stored hashes
-    await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
-
-    res.json({ siteId, pageCount: pages.length, stored: insertedCount, failed: failedCount, reindexed: true });
+    res.json({ siteId, pageCount: pages.length, stored: pages.length, topicCount, failed: 0, reindexed: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "failed_to_reindex_site" });
@@ -444,17 +330,15 @@ router.delete("/:siteId", async (req: Request, res: Response) => {
 
     const dbDeleted = await deleteSite(siteId, userId);
 
-    // Only delete Pinecone namespace + hashes if no other user references this site
     const remainingUsers = await getSiteCountBySiteId(siteId);
-    let vectorDeleted = false;
 
     if (remainingUsers === 0) {
-      vectorDeleted = await deleteSiteCollection(siteId);
+      await deleteKnowledgeForSite(siteId);
       await deletePageHashes(siteId);
       await purgeSiteDerivedData(siteId);
     }
 
-    res.json({ deleted: dbDeleted, vectorStoreCleared: vectorDeleted });
+    res.json({ deleted: dbDeleted, knowledgeCleared: remainingUsers === 0 });
   } catch (err) {
     console.error("[delete site] error:", err);
     res.status(500).json({ error: "internal_error" });

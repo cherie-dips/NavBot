@@ -4,13 +4,13 @@
  * Usage:
  *   pnpm --filter api eval:baselines
  *
- * Requires: GOOGLE_API_KEY, PINECONE_API_KEY, PINECONE_INDEX, DATABASE_URL
+ * Requires: GEMINI_API_KEY, DATABASE_URL
  * Set EVAL_SITE_ID to your target site (default: first site in DB).
  */
 import "dotenv/config";
 import fs from "fs";
 import path from "path";
-import { querySiteDocs } from "../src/services/vectorstore";
+import { routeQuery } from "../src/services/query-router";
 import { answerQuestionWithRag } from "../src/services/rag";
 import {
   generateContentText,
@@ -52,19 +52,15 @@ function sleep(ms: number) {
 }
 
 async function singlePromptRag(siteId: string, question: string): Promise<string> {
-  const docs = await querySiteDocs({
-    siteId,
-    query: [question],
-    topK: 8,
-  });
+  const { topics } = await routeQuery(siteId, question);
 
-  if (docs.length === 0) {
+  if (topics.length === 0) {
     return "I couldn't find relevant information to answer that question.";
   }
 
-  const context = docs
-    .slice(0, 6)
-    .map((d, i) => `[Source ${i + 1}] ${d.title}\n${d.content.slice(0, 1500)}`)
+  const context = topics
+    .slice(0, 3)
+    .map((t, i) => `[Source ${i + 1}] ${t.name}\n${t.content.slice(0, 3000)}`)
     .join("\n\n---\n\n");
 
   const prompt = `You are a helpful website assistant. Answer the user's question using ONLY the provided context. If the answer is not in the context, say you don't have that information.

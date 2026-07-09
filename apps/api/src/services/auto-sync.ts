@@ -14,7 +14,7 @@
 import cron from "node-cron";
 import { getSitemapEntries, diffSitemapEntries } from "./sitemap";
 import { crawlPages, shutdownBrowser } from "./crawler";
-import { upsertSitePages, deletePagesFromSite } from "./vectorstore";
+import { recompileTopicsForUrls } from "./knowledge-compiler";
 import {
   getAllActiveSites,
   getPageLastmods,
@@ -83,36 +83,29 @@ async function syncSite(site: {
     // 4. Remove pages that are no longer in the sitemap
     if (removedUrls.length > 0) {
       console.log(`${tag} Removing ${removedUrls.length} pages no longer in sitemap`);
-      await deletePagesFromSite(siteId, removedUrls);
       await deletePageHashesForUrls(siteId, removedUrls);
     }
 
-    if (changedEntries.length === 0) {
+    if (changedEntries.length === 0 && removedUrls.length === 0) {
       return;
     }
 
-    // 5. Crawl in batches to avoid OOM on large sites
+    // 5. Crawl changed pages in batches
     const BATCH_SIZE = 10;
     const urlsToCrawl = changedEntries.map((e) => e.url);
     console.log(`${tag} Crawling ${urlsToCrawl.length} URLs in batches of ${BATCH_SIZE}`);
 
     const storedHashes = await getPageHashes(siteId);
-    let totalCrawled = 0;
-    let totalInserted = 0;
-    let totalFailed = 0;
+    const allCrawledPages: Awaited<ReturnType<typeof crawlPages>> = [];
+    const changedPageUrls: string[] = [];
 
     for (let i = 0; i < urlsToCrawl.length; i += BATCH_SIZE) {
       const batchUrls = urlsToCrawl.slice(i, i + BATCH_SIZE);
       const batchPages = await crawlPages(batchUrls, { enableOcr: true });
-      totalCrawled += batchPages.length;
 
-      const batchChanged = batchPages.filter((p) => storedHashes[p.url] !== p.hash);
-
-      if (batchChanged.length > 0) {
-        await deletePagesFromSite(siteId, batchChanged.map((p) => p.url));
-        const { insertedCount, failedCount } = await upsertSitePages(siteId, batchChanged);
-        totalInserted += insertedCount;
-        totalFailed += failedCount;
+      for (const p of batchPages) {
+        allCrawledPages.push(p);
+        if (storedHashes[p.url] !== p.hash) changedPageUrls.push(p.url);
       }
 
       await upsertPageHashes(siteId, batchPages.map((p) => ({ url: p.url, hash: p.hash })));
@@ -122,7 +115,14 @@ async function syncSite(site: {
 
     await shutdownBrowser();
 
-    console.log(`${tag} ${totalCrawled} pages crawled, ${totalInserted} chunks upserted (${totalFailed} failed)`);
+    // 6. Recompile affected knowledge topics
+    const affectedUrls = [...changedPageUrls, ...removedUrls];
+    if (affectedUrls.length > 0) {
+      console.log(`${tag} Recompiling knowledge topics for ${affectedUrls.length} changed/removed URLs`);
+      await recompileTopicsForUrls(siteId, affectedUrls, allCrawledPages, site.url);
+    }
+
+    console.log(`${tag} ${allCrawledPages.length} pages crawled, ${changedPageUrls.length} changed`);
 
     // 8. Update site metadata — count actual indexed pages from DB
     const updatedHashes = await getPageHashes(siteId);

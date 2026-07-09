@@ -10,7 +10,7 @@
 
 import { Router, type Request, type Response } from "express";
 import { crawlSite, crawlPages, shutdownBrowser } from "../services/crawler";
-import { upsertSitePages, deletePagesFromSite } from "../services/vectorstore";
+import { compileSiteKnowledge } from "../services/knowledge-compiler";
 import { getSitemapEntries, diffSitemapEntries } from "../services/sitemap";
 import {
   getSitesByUser,
@@ -162,11 +162,10 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
 
       if (deletedUrls.length > 0) {
         console.log(`[sync] Removing ${deletedUrls.length} pages no longer in sitemap`);
-        await deletePagesFromSite(siteId, deletedUrls);
         await deletePageHashesForUrls(siteId, deletedUrls);
       }
 
-      if (changedEntries.length === 0) {
+      if (changedEntries.length === 0 && deletedUrls.length === 0) {
         return res.json({
           siteId,
           message: "All pages are up to date (sitemap unchanged).",
@@ -174,52 +173,40 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
           checked: sitemapEntries.length,
           changed: 0,
           unchanged: sitemapEntries.length,
-          deleted: deletedUrls.length,
+          deleted: 0,
           stored: 0,
           failed: 0,
         });
       }
 
-      // 3. Crawl in batches to avoid OOM on large sites
       const BATCH_SIZE = 10;
       const urlsToCrawl = changedEntries.map((e) => e.url);
       console.log(`[sync] Crawling ${urlsToCrawl.length} changed/new URLs in batches of ${BATCH_SIZE}`);
 
       const storedHashes = await getPageHashes(siteId);
-      let totalCrawled = 0;
+      const allCrawledPages: Awaited<ReturnType<typeof crawlPages>> = [];
       let totalChanged = 0;
-      let insertedCount = 0;
-      let failedCount = 0;
 
       for (let i = 0; i < urlsToCrawl.length; i += BATCH_SIZE) {
         const batchUrls = urlsToCrawl.slice(i, i + BATCH_SIZE);
-        console.log(`[sync] Batch ${Math.floor(i / BATCH_SIZE) + 1}: crawling ${batchUrls.length} URLs`);
         const batchPages = await crawlPages(batchUrls);
-        totalCrawled += batchPages.length;
 
-        const batchChanged = batchPages.filter((p) => storedHashes[p.url] !== p.hash);
-        totalChanged += batchChanged.length;
-
-        if (batchChanged.length > 0) {
-          await deletePagesFromSite(siteId, batchChanged.map((p) => p.url));
-          const result = await upsertSitePages(siteId, batchChanged);
-          insertedCount += result.insertedCount;
-          failedCount += result.failedCount;
+        for (const p of batchPages) {
+          allCrawledPages.push(p);
+          if (storedHashes[p.url] !== p.hash) totalChanged++;
         }
 
         await upsertPageHashes(siteId, batchPages.map((p) => ({ url: p.url, hash: p.hash })));
         const batchEntries = changedEntries.filter((e) => batchUrls.includes(e.url));
         await upsertPageLastmods(siteId, batchEntries.map((e) => ({ url: e.url, lastmod: e.lastmod })));
-
         await shutdownBrowser();
       }
 
-      const unchangedCount = totalCrawled - totalChanged;
-      console.log(
-        `[sync] ${totalCrawled} crawled, ${totalChanged} have new content, ${unchangedCount} unchanged`
-      );
+      if (totalChanged > 0 || deletedUrls.length > 0) {
+        console.log(`[sync] Recompiling knowledge (${totalChanged} changed, ${deletedUrls.length} deleted)`);
+        await compileSiteKnowledge(siteId, allCrawledPages, site.url);
+      }
 
-      // 6. Update site metadata
       const totalPages = sitemapEntries.length - deletedUrls.length;
       await upsertSite({
         siteId: site.site_id,
@@ -234,14 +221,14 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
         method: "sitemap",
         checked: sitemapEntries.length,
         changed: totalChanged,
-        unchanged: sitemapEntries.length - changedEntries.length + unchangedCount,
+        unchanged: allCrawledPages.length - totalChanged,
         deleted: deletedUrls.length,
-        stored: insertedCount,
-        failed: failedCount,
+        stored: allCrawledPages.length,
+        failed: 0,
       });
     }
 
-    // ── Fallback: full BFS crawl (no sitemap available or force-full) ──
+    // ── Fallback: full BFS crawl ──
     console.log(`[sync] Full BFS crawl for ${site.url}`);
     const allPages = await crawlSite(site.url);
 
@@ -249,24 +236,16 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
     const changedPages = allPages.filter((p) => storedHashes[p.url] !== p.hash);
     const unchangedCount = allPages.length - changedPages.length;
 
-    console.log(
-      `[sync] ${allPages.length} pages crawled — ` +
-        `${changedPages.length} changed, ${unchangedCount} unchanged`
-    );
-
-    // Handle deleted pages
     const crawledUrls = new Set(allPages.map((p) => p.url));
     const deletedUrls = Object.keys(storedHashes).filter((url) => !crawledUrls.has(url));
 
     if (deletedUrls.length > 0) {
-      console.log(`[sync] Removing ${deletedUrls.length} deleted pages from index`);
-      await deletePagesFromSite(siteId, deletedUrls);
       await deletePageHashesForUrls(siteId, deletedUrls);
     }
 
-    if (changedPages.length === 0) {
-      await upsertPageHashes(siteId, allPages.map((p) => ({ url: p.url, hash: p.hash })));
+    await upsertPageHashes(siteId, allPages.map((p) => ({ url: p.url, hash: p.hash })));
 
+    if (changedPages.length === 0 && deletedUrls.length === 0) {
       return res.json({
         siteId,
         method: "bfs",
@@ -274,27 +253,14 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
         checked: allPages.length,
         changed: 0,
         unchanged: unchangedCount,
-        deleted: deletedUrls.length,
+        deleted: 0,
         stored: 0,
         failed: 0,
       });
     }
 
-    await deletePagesFromSite(siteId, changedPages.map((p) => p.url));
-    const { insertedCount, failedCount, totalChunks } = await upsertSitePages(
-      siteId,
-      changedPages
-    );
-
-    if (totalChunks > 0 && insertedCount === 0) {
-      return res.status(502).json({
-        error: "pinecone_upsert_failed",
-        message:
-          "Full sync crawled changed pages but Pinecone stored no vectors. See API logs and PINECONE_* configuration.",
-      });
-    }
-
-    await upsertPageHashes(siteId, allPages.map((p) => ({ url: p.url, hash: p.hash })));
+    console.log(`[sync] Recompiling knowledge (${changedPages.length} changed, ${deletedUrls.length} deleted)`);
+    const { topicCount } = await compileSiteKnowledge(siteId, allPages, site.url);
 
     await upsertSite({
       siteId: site.site_id,
@@ -311,8 +277,9 @@ router.post("/:siteId/sync", async (req: Request, res: Response) => {
       changed: changedPages.length,
       unchanged: unchangedCount,
       deleted: deletedUrls.length,
-      stored: insertedCount,
-      failed: failedCount,
+      stored: allPages.length,
+      topicCount,
+      failed: 0,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

@@ -1,9 +1,7 @@
 
-import { type RetrievedDoc } from "./vectorstore";
 import { hasSocialIntent, searchSocialMedia, buildSocialContextString, type SocialSearchResult } from "./social-search";
-import { getFaqUserAnswerForQuestion } from "./db";
-import { runAgenticRetrieval } from "./agentic-retrieval";
-import { isExhaustiveListQuestion, sortDocsForExhaustiveAnswer } from "./multipage-retrieval";
+import { getFaqUserAnswerForQuestion, type KnowledgeTopicRow } from "./db";
+import { routeQuery } from "./query-router";
 import type { ChatHistoryItem, PageLink, SocialLink } from "./chat-types";
 import {
   withRetry,
@@ -104,120 +102,19 @@ export function buildRetrievalQueries(message: string): string[] {
   return Array.from(queries);
 }
 
-const CONTEXT_BUDGET_CHARS = 128_000;
-
-function removeChunkOverlap(chunks: string[]): string[] {
-  if (chunks.length <= 1) return chunks;
-  const out = [chunks[0]!];
-  for (let i = 1; i < chunks.length; i++) {
-    const prev = chunks[i - 1]!;
-    const cur = chunks[i]!;
-    const tail = prev.slice(-200);
-    const overlapIdx = cur.indexOf(tail.slice(-80));
-    if (overlapIdx >= 0 && overlapIdx < 200) {
-      out.push(cur.slice(overlapIdx + tail.slice(-80).length).trim());
-    } else {
-      out.push(cur);
-    }
-  }
-  return out.filter((c) => c.length > 20);
+function buildContextFromTopics(topics: KnowledgeTopicRow[]): string {
+  return topics.map((t) => `# ${t.name}\n\n${t.content}`).join("\n\n---\n\n");
 }
 
-function titleFromUrl(url: string): string {
-  try {
-    const path = new URL(url).pathname.replace(/\/+$/, "");
-    const last = path.split("/").filter(Boolean).pop();
-    if (!last) return url;
-    return last
-      .replace(/[-_]+/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase());
-  } catch {
-    return url;
-  }
-}
-
-function resolveTitle(title: string, url: string, siteId: string): string {
-  if (!title) return titleFromUrl(url);
-  const norm = title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const site = siteId.replace(/\./g, " ").toLowerCase();
-  const generic =
-    norm.length < 4 ||
-    norm === "home" ||
-    norm === "homepage" ||
-    norm.startsWith("welcome") ||
-    norm === site ||
-    norm === `welcome to ${site}`;
-  return generic ? titleFromUrl(url) : title;
-}
-
-function isRedundant(chunk: string, existing: string[], threshold: number): boolean {
-  const words = new Set(chunk.toLowerCase().split(/\s+/).filter((w) => w.length > 3));
-  if (words.size < 5) return false;
-  for (const e of existing) {
-    const eWords = new Set(e.toLowerCase().split(/\s+/).filter((w) => w.length > 3));
-    let overlap = 0;
-    for (const w of words) if (eWords.has(w)) overlap++;
-    if (overlap / words.size > threshold) return true;
-  }
-  return false;
-}
-
-function buildContextString(docs: RetrievedDoc[], userMessage: string, siteId: string): string {
-  const exhaustive = isExhaustiveListQuestion(userMessage);
-  const maxCharsPerChunk = exhaustive ? 1200 : 2000;
-  const maxSources = exhaustive ? 40 : 30;
-  const ordered = exhaustive
-    ? sortDocsForExhaustiveAnswer(docs, userMessage)
-    : [...docs].sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
-  const slice = ordered.slice(0, maxSources);
-
-  const byUrl = new Map<string, { title: string; url: string; bestDistance: number; chunks: string[] }>();
-  for (const d of slice) {
-    const key = d.url || `_untitled_${d.id}`;
-    const title = resolveTitle(d.title, d.url, siteId);
-    const entry = byUrl.get(key) ?? { title, url: d.url, bestDistance: d.distance ?? 1, chunks: [] };
-    entry.chunks.push(d.content.slice(0, maxCharsPerChunk).trim());
-    if ((d.distance ?? 1) < entry.bestDistance) entry.bestDistance = d.distance ?? 1;
-    byUrl.set(key, entry);
-  }
-
-  const pages = [...byUrl.entries()].sort((a, b) => a[1].bestDistance - b[1].bestDistance);
-
-  let totalChars = 0;
-  const blocks: string[] = [];
-  const includedKeys = new Set<string>();
-  const allIncludedChunks: string[] = [];
-
-  for (const [key, { title, chunks }] of pages) {
-    const deduped = removeChunkOverlap(chunks);
-    const fresh = deduped.filter((c) => !isRedundant(c, allIncludedChunks, 0.75));
-    if (fresh.length === 0) continue;
-    const body = fresh.join("\n\n");
-    const block = `${title}\n${body}`;
-    if (totalChars + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 0) break;
-    blocks.push(block);
-    totalChars += block.length;
-    includedKeys.add(key);
-    allIncludedChunks.push(...fresh);
-  }
-
-  const urlDirectory = pages
-    .filter(([key]) => includedKeys.has(key))
-    .map(([, { title, url }]) => `${title} — ${url}`)
-    .join("\n");
-  blocks.push(`Pages:\n${urlDirectory}`);
-
-  return blocks.join("\n\n---\n\n");
-}
-
-function deduplicateSources(
-  docs: RetrievedDoc[],
-  siteId: string
-): Array<{ url: string; title: string; distance?: number }> {
-  const seen = new Map<string, { url: string; title: string; distance?: number }>();
-  for (const d of docs) {
-    if (!seen.has(d.url)) {
-      seen.set(d.url, { url: d.url, title: resolveTitle(d.title, d.url, siteId), distance: d.distance });
+function extractSourcesFromTopics(
+  topics: KnowledgeTopicRow[]
+): Array<{ url: string; title: string }> {
+  const seen = new Map<string, { url: string; title: string }>();
+  for (const t of topics) {
+    for (const url of t.source_urls) {
+      if (!seen.has(url)) {
+        seen.set(url, { url, title: t.name });
+      }
     }
   }
   return Array.from(seen.values());
@@ -344,12 +241,6 @@ export async function answerQuestionWithRag(params: {
   }
 
   const enrichedMessage = resolveFollowUp(message, history);
-  const baseQueries = buildRetrievalQueries(enrichedMessage);
-  if (enrichedMessage !== message) {
-    for (const q of buildRetrievalQueries(message)) {
-      if (!baseQueries.includes(q)) baseQueries.push(q);
-    }
-  }
 
   const socialIntent = hasSocialIntent(message);
   const socialPromise = socialIntent
@@ -359,21 +250,18 @@ export async function answerQuestionWithRag(params: {
       })
     : Promise.resolve([]);
 
-  const [{ docs, retrievalMeta }, socialResults] = await Promise.all([
-    runAgenticRetrieval({ siteId, userMessage: message, history, baseQueries }),
+  const [routeResult, socialResults] = await Promise.all([
+    routeQuery(siteId, enrichedMessage),
     socialPromise,
   ]);
 
+  const { topics, routingMethod, slugsUsed } = routeResult;
+
   console.log(
-    `RAG for site "${siteId}": ${retrievalMeta.totalQueriesUsed} queries → ${docs.length} chunks, bestDist≈${retrievalMeta.bestDistance.toFixed(4)}`
+    `[knowledge] Route for "${siteId}": ${routingMethod} → ${slugsUsed.join(", ")} (${topics.length} topics loaded)`
   );
-  console.log(`[social] Got ${socialResults.length} social results, ${docs.length} vector docs`);
 
-  const NO_MATCH_THRESHOLD = 0.85;
-  const LOW_QUALITY_THRESHOLD = 0.65;
-  const bestDist = retrievalMeta.bestDistance;
-
-  if ((docs.length === 0 && socialResults.length === 0) || bestDist >= NO_MATCH_THRESHOLD) {
+  if (topics.length === 0 && socialResults.length === 0) {
     return {
       answer:
         "I couldn't find relevant information to answer that question. " +
@@ -384,27 +272,28 @@ export async function answerQuestionWithRag(params: {
     };
   }
 
-  const lowConfidence = bestDist >= LOW_QUALITY_THRESHOLD;
+  const lowConfidence = routingMethod === "fallback";
 
-  const contextString = buildContextString(docs, message, siteId);
+  const contextString = buildContextFromTopics(topics);
   const socialContextString = buildSocialContextString(socialResults);
 
-  const systemPrompt = `You are NavBot, a navigation chatbot for the website ${siteId}. You help users find information on the website by answering questions. Use ONLY the provided page content for factual answers. For greetings, small talk, and thank-yous, respond naturally without needing page content.
+  const systemPrompt = `You are NavBot, a navigation chatbot for the website ${siteId}. You help users find information on the website by answering questions. Use the provided page content for factual answers. For greetings, small talk, and thank-yous, respond naturally without needing page content.
 
 ANSWER FORMAT:
 - Start directly with the answer. First word must be content, not commentary.
 - Keep answers concise — this is a chat widget, not a document.
 - Lists: bullet points (•), one per line.
 - Short answers (dates, names, yes/no): 1-2 sentences is fine.
-- Detailed answers (comparisons, overviews): up to 5 sentences or a brief list.
+- Detailed answers (comparisons, overviews): up to 8-10 bullet points or a few paragraphs.
 - Avoid large markdown tables — use bullet points instead for chat readability.
 
 RULES:
-- Unknown answer: reply "I don't have that information — please check ${siteId} or contact them directly."
-- Only state facts you are certain about. If your answer may be incomplete, add "For the full list, check the relevant page below."
+- ALWAYS try to answer from the provided content. Synthesize, infer, and connect information across pages. Even a partial answer is better than no answer.
+- Only say "I don't have that information — please check ${siteId} or contact them directly." when the provided content has absolutely ZERO relevant information. If you can answer even partially, do so and add "For more details, please check the relevant page below."
 - Carefully scan ALL provided page content before answering. Information about the same topic may be spread across multiple pages — do not stop after finding a partial answer on one page.
 - Connect the dots: if a person is mentioned on one page and a school/institute/initiative named after them appears on another page, link those facts together in your answer.
 - Combine information from all pages into one unified answer.
+- For opinion/advice questions (e.g. "should I apply?", "is this right for me?", "wrong choice"), provide relevant factual information from the website that helps the user make their own decision instead of refusing to answer.
 - If pages contradict each other, state both versions with their page names.
 - Counting questions: enumerate items then state the total.
 - Greetings: respond naturally and introduce yourself as the chatbot for this website.
@@ -420,7 +309,7 @@ url2
 Only include pages whose content you actually used in your answer. Omit for greetings.`;
 
   let contextMessage = lowConfidence
-    ? `Note: the retrieved pages may not be closely related to the question. Only answer if you find a clear match; otherwise say you don't have that information.\n\nPage content:\n\n${contextString}`
+    ? `Note: the retrieved pages may not be the best match for this question, but try your best to answer from the available content.\n\nPage content:\n\n${contextString}`
     : `Page content:\n\n${contextString}`;
   if (socialContextString) {
     contextMessage += `\n\n---\n\nRecent social media posts:\n\n${socialContextString}`;
@@ -450,9 +339,9 @@ Only include pages whose content you actually used in your answer. Omit for gree
     },
   });
 
-  console.log(`[RAG] Raw model output (${rawAnswer.length} chars): ${rawAnswer.slice(0, 500)}`);
+  console.log(`[knowledge] Raw model output (${rawAnswer.length} chars): ${rawAnswer.slice(0, 500)}`);
 
-  const sources = deduplicateSources(docs, siteId);
+  const sources = extractSourcesFromTopics(topics);
 
   for (const sr of socialResults) {
     if (!sources.find((s) => s.url === sr.url)) {

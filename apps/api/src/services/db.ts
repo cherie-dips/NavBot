@@ -142,6 +142,38 @@ async function ensureSchema(): Promise<void> {
     );
 
     CREATE INDEX IF NOT EXISTS idx_chat_query_site_created ON chat_query(site_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS knowledge_topic (
+      id BIGSERIAL PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      content TEXT NOT NULL,
+      source_urls TEXT[] NOT NULL DEFAULT '{}',
+      token_estimate INTEGER,
+      compiled_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(site_id, slug)
+    );
+
+    CREATE TABLE IF NOT EXISTS knowledge_graph_edge (
+      id BIGSERIAL PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      from_slug TEXT NOT NULL,
+      to_slug TEXT NOT NULL,
+      relationship TEXT,
+      UNIQUE(site_id, from_slug, to_slug)
+    );
+
+    CREATE TABLE IF NOT EXISTS knowledge_index (
+      site_id TEXT PRIMARY KEY,
+      index_content TEXT NOT NULL,
+      topic_count INTEGER NOT NULL DEFAULT 0,
+      compiled_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_knowledge_topic_site ON knowledge_topic(site_id);
+    CREATE INDEX IF NOT EXISTS idx_knowledge_graph_site ON knowledge_graph_edge(site_id);
   `);
 }
 
@@ -863,4 +895,182 @@ export async function upsertSocialHandles(
     [JSON.stringify(handles), siteId, userId]
   );
   return (result.rowCount ?? 0) > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge topic CRUD
+// ---------------------------------------------------------------------------
+
+export interface KnowledgeTopicRow {
+  id: number;
+  site_id: string;
+  slug: string;
+  name: string;
+  description: string;
+  content: string;
+  source_urls: string[];
+  token_estimate: number | null;
+  compiled_at: string;
+}
+
+function toKnowledgeTopic(r: Record<string, unknown>): KnowledgeTopicRow {
+  return {
+    id: numId(r.id),
+    site_id: r.site_id as string,
+    slug: r.slug as string,
+    name: r.name as string,
+    description: r.description as string,
+    content: r.content as string,
+    source_urls: (r.source_urls as string[]) ?? [],
+    token_estimate: r.token_estimate != null ? Number(r.token_estimate) : null,
+    compiled_at: toIso(r.compiled_at),
+  };
+}
+
+export async function upsertKnowledgeTopic(params: {
+  siteId: string;
+  slug: string;
+  name: string;
+  description: string;
+  content: string;
+  sourceUrls: string[];
+  tokenEstimate?: number | null;
+}): Promise<void> {
+  await pool.query(
+    `INSERT INTO knowledge_topic (site_id, slug, name, description, content, source_urls, token_estimate, compiled_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+     ON CONFLICT (site_id, slug) DO UPDATE SET
+       name = EXCLUDED.name,
+       description = EXCLUDED.description,
+       content = EXCLUDED.content,
+       source_urls = EXCLUDED.source_urls,
+       token_estimate = EXCLUDED.token_estimate,
+       compiled_at = NOW()`,
+    [
+      params.siteId,
+      params.slug,
+      params.name,
+      params.description,
+      params.content,
+      params.sourceUrls,
+      params.tokenEstimate ?? null,
+    ]
+  );
+}
+
+export async function getKnowledgeTopics(siteId: string): Promise<KnowledgeTopicRow[]> {
+  const { rows } = await pool.query(
+    `SELECT * FROM knowledge_topic WHERE site_id = $1 ORDER BY slug`,
+    [siteId]
+  );
+  return rows.map((r: unknown) => toKnowledgeTopic(r as Record<string, unknown>));
+}
+
+export async function getKnowledgeTopicsBySlugs(
+  siteId: string,
+  slugs: string[]
+): Promise<KnowledgeTopicRow[]> {
+  if (slugs.length === 0) return [];
+  const { rows } = await pool.query(
+    `SELECT * FROM knowledge_topic WHERE site_id = $1 AND slug = ANY($2::text[])`,
+    [siteId, slugs]
+  );
+  return rows.map((r: unknown) => toKnowledgeTopic(r as Record<string, unknown>));
+}
+
+export async function getKnowledgeIndex(siteId: string): Promise<{
+  indexContent: string;
+  topicCount: number;
+  compiledAt: string;
+} | null> {
+  const { rows } = await pool.query(
+    `SELECT * FROM knowledge_index WHERE site_id = $1`,
+    [siteId]
+  );
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (!row) return null;
+  return {
+    indexContent: row.index_content as string,
+    topicCount: Number(row.topic_count),
+    compiledAt: toIso(row.compiled_at),
+  };
+}
+
+export async function upsertKnowledgeIndex(
+  siteId: string,
+  indexContent: string,
+  topicCount: number
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO knowledge_index (site_id, index_content, topic_count, compiled_at)
+     VALUES ($1, $2, $3, NOW())
+     ON CONFLICT (site_id) DO UPDATE SET
+       index_content = EXCLUDED.index_content,
+       topic_count = EXCLUDED.topic_count,
+       compiled_at = NOW()`,
+    [siteId, indexContent, topicCount]
+  );
+}
+
+export interface GraphEdge {
+  fromSlug: string;
+  toSlug: string;
+  relationship: string;
+}
+
+export async function upsertGraphEdges(siteId: string, edges: GraphEdge[]): Promise<void> {
+  if (edges.length === 0) return;
+  await pool.query(`DELETE FROM knowledge_graph_edge WHERE site_id = $1`, [siteId]);
+  const BATCH = 50;
+  for (let i = 0; i < edges.length; i += BATCH) {
+    const batch = edges.slice(i, i + BATCH);
+    const values: unknown[] = [];
+    const placeholders: string[] = [];
+    for (let j = 0; j < batch.length; j++) {
+      const off = j * 4;
+      placeholders.push(`($${off + 1}, $${off + 2}, $${off + 3}, $${off + 4})`);
+      values.push(siteId, batch[j]!.fromSlug, batch[j]!.toSlug, batch[j]!.relationship);
+    }
+    await pool.query(
+      `INSERT INTO knowledge_graph_edge (site_id, from_slug, to_slug, relationship)
+       VALUES ${placeholders.join(", ")}
+       ON CONFLICT (site_id, from_slug, to_slug) DO NOTHING`,
+      values
+    );
+  }
+}
+
+export async function getRelatedTopics(siteId: string, slug: string): Promise<string[]> {
+  const { rows } = await pool.query(
+    `SELECT CASE WHEN from_slug = $2 THEN to_slug ELSE from_slug END AS related
+     FROM knowledge_graph_edge
+     WHERE site_id = $1 AND (from_slug = $2 OR to_slug = $2)`,
+    [siteId, slug]
+  );
+  return (rows as Array<{ related: string }>).map((r) => r.related);
+}
+
+export async function deleteKnowledgeForSite(siteId: string): Promise<void> {
+  await pool.query(`DELETE FROM knowledge_topic WHERE site_id = $1`, [siteId]);
+  await pool.query(`DELETE FROM knowledge_graph_edge WHERE site_id = $1`, [siteId]);
+  await pool.query(`DELETE FROM knowledge_index WHERE site_id = $1`, [siteId]);
+}
+
+export async function getTopicsForSourceUrl(
+  siteId: string,
+  url: string
+): Promise<KnowledgeTopicRow[]> {
+  const { rows } = await pool.query(
+    `SELECT * FROM knowledge_topic WHERE site_id = $1 AND $2 = ANY(source_urls)`,
+    [siteId, url]
+  );
+  return rows.map((r: unknown) => toKnowledgeTopic(r as Record<string, unknown>));
+}
+
+export async function hasKnowledgeTopics(siteId: string): Promise<boolean> {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM knowledge_topic WHERE site_id = $1 LIMIT 1`,
+    [siteId]
+  );
+  return rows.length > 0;
 }

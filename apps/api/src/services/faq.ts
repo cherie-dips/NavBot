@@ -1,4 +1,3 @@
-import { querySiteDocs } from "./vectorstore";
 import {
   getFaqsBySite,
   replaceFaqs,
@@ -6,6 +5,7 @@ import {
   updateFaqAnswerPreview,
   isFaqUserAnswerStale,
   updateFaqUserAnswer,
+  getKnowledgeTopics,
 } from "./db";
 import { answerQuestionWithRag } from "./rag";
 import { generateContentText, GEMINI_MODELS, getGeminiApiKey } from "./gemini-client";
@@ -32,14 +32,13 @@ const QUERY_REFRESH_THRESHOLD = 20;
 export async function generateFaqsForSite(
   siteId: string
 ): Promise<Array<{ label: string; question: string }>> {
-  const docs = await querySiteDocs({ siteId, query: SEED_QUERIES, topK: 18 });
-  console.log(`[FAQ] Retrieved ${docs.length} docs from Pinecone for seed queries`);
+  const topics = await getKnowledgeTopics(siteId);
+  console.log(`[FAQ] Retrieved ${topics.length} knowledge topics for FAQ generation`);
 
-  if (docs.length === 0) return [];
+  if (topics.length === 0) return [];
 
-  const contextSnippets = docs
-    .slice(0, 24)
-    .map((d, i) => `[${i + 1}] ${d.title}\n${d.content.slice(0, 500)}`)
+  const contextSnippets = topics
+    .map((t, i) => `[${i + 1}] ${t.name}\n${t.content.slice(0, 500)}`)
     .join("\n\n");
 
   const topQueries = await getTopQueries(siteId, 15);

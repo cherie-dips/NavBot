@@ -23,9 +23,6 @@ importers:
       '@google/genai':
         specifier: ^1.21.0
         version: 1.49.0
-      '@pinecone-database/pinecone':
-        specifier: ^6.1.4
-        version: 6.1.4
       '@repo/color-extractor':
         specifier: workspace:*
         version: link:../../packages/color-extractor
@@ -1276,11 +1273,6 @@ packages:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.19.1
-
-  /@pinecone-database/pinecone@6.1.4:
-    resolution: {integrity: sha512-wkipvpkBYNGYDeYj4azVVyCzSrekJE3Pgo0HImkbw80SGnTo9gz5kSbDCXCfVvFnhqC2q4nGikdTUvFCDiuruA==}
-    engines: {node: '>=18.0.0'}
-    dev: false
 
   /@prisma/client-runtime-utils@7.4.2:
     resolution: {integrity: sha512-cID+rzOEb38VyMsx5LwJMEY4NGIrWCNpKu/0ImbeooQ2Px7TI+kOt7cm0NelxUzF2V41UVVXAmYjANZQtCu1/Q==}
