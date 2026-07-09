@@ -130,7 +130,21 @@ export async function getSharedBrowser(): Promise<Browser | null> {
       const { chromium } = await import("playwright");
       const b = await chromium.launch({
         headless: true,
-        args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-gpu",
+          "--disable-extensions",
+          "--disable-background-networking",
+          "--disable-default-apps",
+          "--disable-sync",
+          "--disable-translate",
+          "--metrics-recording-only",
+          "--no-first-run",
+          "--single-process",
+          "--js-flags=--max-old-space-size=64",
+        ],
       });
       browserInstance = b;
       return b;

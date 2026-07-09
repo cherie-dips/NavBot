@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "node --max-old-space-size=384 dist/index.js",
+    "start": "node --max-old-space-size=384 --optimize-for-size dist/index.js",
     "build": "pnpm --filter @repo/color-extractor build && tsc -p tsconfig.json",
     "playwright:install": "playwright install chromium",
     "eval:baselines": "tsx eval/baselines.ts",

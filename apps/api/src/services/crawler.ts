@@ -630,7 +630,7 @@ function processHtmlPage(
   return { url: rawUrl, title, content, hash, sections };
 }
 
-const CRAWL_CONCURRENCY = parseInt(process.env.NAVBOT_CRAWL_CONCURRENCY || "5", 10);
+const CRAWL_CONCURRENCY = parseInt(process.env.NAVBOT_CRAWL_CONCURRENCY || "3", 10);
 const CRAWL_DELAY_MS = parseInt(process.env.NAVBOT_CRAWL_DELAY_MS || "150", 10);
 
 async function mapConcurrent<T, R>(
@@ -829,7 +829,7 @@ export async function crawlSite(
 // ---------------------------------------------------------------------------
 const DISCOVER_MAX_PAGES = 600;
 const DISCOVER_MAX_DEPTH = 4;
-const DISCOVER_CONCURRENCY = 8;
+const DISCOVER_CONCURRENCY = 4;
 
 export async function discoverUrls(
   rootUrl: string,

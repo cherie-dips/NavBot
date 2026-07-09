@@ -253,7 +253,7 @@ router.post("/", async (req: Request, res: Response) => {
     } catch { /* ignore — fall through to BFS */ }
 
     if (sitemapEntries.length > 0) {
-      const BATCH_SIZE = 10;
+      const BATCH_SIZE = 5;
       const sitemapUrls = sitemapEntries.map((e) => e.url);
       const sitemapSet = new Set(sitemapUrls.map((u) => normalizeUrl(u)));
 
