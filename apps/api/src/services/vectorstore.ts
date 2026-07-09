@@ -462,112 +462,110 @@ export async function upsertSitePages(
     }
   }
 
-  const seenHashes = new Set<string>();
-  const allChunks: EnrichedChunk[] = [];
-
-  for (const page of pages) {
-    const chunks = buildEnrichedChunks(page);
-    for (const chunk of chunks) {
-      const hash = chunkFingerprint(chunk.document);
-      if (seenHashes.has(hash)) continue;
-      seenHashes.add(hash);
-      allChunks.push(chunk);
-    }
-  }
-
   const nsName = siteNamespace(siteId);
-  console.log(
-    `Upserting ${allChunks.length} chunks from ${pages.length} pages into Pinecone namespace "${nsName}" (mode=${upsertMode}). ` +
-      `In the Pinecone console → Browser, choose this namespace (not the default) to inspect vectors.`
-  );
-
+  const PAGE_BATCH = 5;
+  const seenHashes = new Set<string>();
+  let totalChunks = 0;
   let failedCount = 0;
 
-  if (upsertMode === "records") {
-    for (let i = 0; i < allChunks.length; i += UPSERT_RECORDS_BATCH) {
-      const batch = allChunks.slice(i, i + UPSERT_RECORDS_BATCH);
-      try {
-        const integrated = batch.map((c) => ({
-          id: c.id,
-          [embedTextField]: c.document,
-          siteId: String(siteId),
-          url: c.url,
-          title: c.title,
-          chunkIndex: c.chunkIndex,
-          totalChunks: c.totalChunks,
-          heading: c.heading || "",
-          entities: c.entities.join(", "),
-        }));
-        await ns.upsertRecords(integrated);
+  console.log(
+    `Upserting ${pages.length} pages into Pinecone namespace "${nsName}" (mode=${upsertMode}, batch=${PAGE_BATCH}).`
+  );
 
-        if (i % 200 === 0) {
-          console.log(
-            `  Progress: ${Math.min(i + UPSERT_RECORDS_BATCH, allChunks.length)} / ${allChunks.length}`
-          );
-        }
-      } catch (err) {
-        failedCount += batch.length;
-        console.warn(
-          `[vectorstore] Pinecone upsertRecords failed for batch starting at ${batch[0]?.id}:`,
-          err
-        );
+  for (let p = 0; p < pages.length; p += PAGE_BATCH) {
+    const pageBatch = pages.slice(p, p + PAGE_BATCH);
+    const batchChunks: EnrichedChunk[] = [];
+
+    for (const page of pageBatch) {
+      const chunks = buildEnrichedChunks(page);
+      for (const chunk of chunks) {
+        const hash = chunkFingerprint(chunk.document);
+        if (seenHashes.has(hash)) continue;
+        seenHashes.add(hash);
+        batchChunks.push(chunk);
       }
     }
-  } else {
-    for (let i = 0; i < allChunks.length; i += EMBED_BATCH_SIZE) {
-      const batch = allChunks.slice(i, i + EMBED_BATCH_SIZE);
-      const texts = batch.map((c) => c.document);
 
-      try {
-        const vectors = await embedTexts(texts, "passage");
-        const records = batch.map((c, j) => ({
-          id: c.id,
-          values: vectors[j]!,
-          metadata: {
+    totalChunks += batchChunks.length;
+
+    if (upsertMode === "records") {
+      for (let i = 0; i < batchChunks.length; i += UPSERT_RECORDS_BATCH) {
+        const batch = batchChunks.slice(i, i + UPSERT_RECORDS_BATCH);
+        try {
+          const integrated = batch.map((c) => ({
+            id: c.id,
+            [embedTextField]: c.document,
             siteId: String(siteId),
             url: c.url,
             title: c.title,
             chunkIndex: c.chunkIndex,
             totalChunks: c.totalChunks,
-            content: c.document,
             heading: c.heading || "",
             entities: c.entities.join(", "),
-          },
-        }));
-
-        for (let u = 0; u < records.length; u += UPSERT_BATCH_SIZE) {
-          await ns.upsert(records.slice(u, u + UPSERT_BATCH_SIZE));
-        }
-
-        if (i % 200 === 0) {
-          console.log(
-            `  Progress: ${Math.min(i + EMBED_BATCH_SIZE, allChunks.length)} / ${allChunks.length}`
-          );
-        }
-      } catch (err) {
-        failedCount += batch.length;
-        console.warn(
-          `[vectorstore] Pinecone upsert/embed failed for batch starting at ${batch[0]?.id}:`,
-          err
-        );
-        const msg = err instanceof Error ? err.message : String(err);
-        if (
-          /integrated|upsert records|field_map|embed/i.test(msg) ||
-          /400|403/.test(msg)
-        ) {
+          }));
+          await ns.upsertRecords(integrated);
+        } catch (err) {
+          failedCount += batch.length;
           console.warn(
-            `[vectorstore] This index may require integrated upsert. Set PINECONE_UPSERT_MODE=auto (default) or records, or create a dense-only index for PINECONE_UPSERT_MODE=vectors.`
+            `[vectorstore] Pinecone upsertRecords failed for batch starting at ${batch[0]?.id}:`,
+            err
           );
         }
       }
+    } else {
+      for (let i = 0; i < batchChunks.length; i += EMBED_BATCH_SIZE) {
+        const batch = batchChunks.slice(i, i + EMBED_BATCH_SIZE);
+        const texts = batch.map((c) => c.document);
+
+        try {
+          const vectors = await embedTexts(texts, "passage");
+          const records = batch.map((c, j) => ({
+            id: c.id,
+            values: vectors[j]!,
+            metadata: {
+              siteId: String(siteId),
+              url: c.url,
+              title: c.title,
+              chunkIndex: c.chunkIndex,
+              totalChunks: c.totalChunks,
+              content: c.document,
+              heading: c.heading || "",
+              entities: c.entities.join(", "),
+            },
+          }));
+
+          for (let u = 0; u < records.length; u += UPSERT_BATCH_SIZE) {
+            await ns.upsert(records.slice(u, u + UPSERT_BATCH_SIZE));
+          }
+        } catch (err) {
+          failedCount += batch.length;
+          console.warn(
+            `[vectorstore] Pinecone upsert/embed failed for batch starting at ${batch[0]?.id}:`,
+            err
+          );
+          const msg = err instanceof Error ? err.message : String(err);
+          if (
+            /integrated|upsert records|field_map|embed/i.test(msg) ||
+            /400|403/.test(msg)
+          ) {
+            console.warn(
+              `[vectorstore] This index may require integrated upsert. Set PINECONE_UPSERT_MODE=auto (default) or records, or create a dense-only index for PINECONE_UPSERT_MODE=vectors.`
+            );
+          }
+        }
+      }
     }
+
+    console.log(
+      `  Pages ${p + 1}-${Math.min(p + PAGE_BATCH, pages.length)} / ${pages.length}: ${batchChunks.length} chunks upserted`
+    );
   }
 
   return {
-    insertedCount: allChunks.length - failedCount,
+    insertedCount: totalChunks - failedCount,
     failedCount,
     pageCount: pages.length,
-    totalChunks: allChunks.length,
+    totalChunks,
   };
 }
 
