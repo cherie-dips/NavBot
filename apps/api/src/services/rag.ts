@@ -13,7 +13,7 @@ import {
   generateContentText,
 } from "./gemini-client";
 
-export type { ChatHistoryItem } from "./chat-types";
+
 
 if (!getGeminiApiKey()) {
   console.warn(
@@ -90,7 +90,7 @@ function resolveFollowUp(message: string, history: ChatHistoryItem[]): string {
   return `${lastTopics} — ${message}`;
 }
 
-export function buildRetrievalQueries(message: string): string[] {
+function buildRetrievalQueries(message: string): string[] {
   const queries = new Set<string>([message]);
   const cleaned = stripQuestionPhrasing(message);
   if (cleaned.length > 2 && cleaned.toLowerCase() !== message.toLowerCase()) {

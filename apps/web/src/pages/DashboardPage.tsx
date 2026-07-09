@@ -523,6 +523,273 @@ export const DashboardPage = ({
   );
 };
 
+/* ─── PAGES PANEL (list / delete / add indexed pages) ───────────────────── */
+
+interface IndexedPageItem {
+  url: string;
+  contentHash: string | null;
+  lastmod: string | null;
+  indexedAt: string;
+}
+
+function PagesPanel({ site }: { site: Website }) {
+  const [expanded, setExpanded] = useState(false);
+  const [pages, setPages] = useState<IndexedPageItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [addingUrls, setAddingUrls] = useState(false);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newUrlsText, setNewUrlsText] = useState("");
+  const [actionMsg, setActionMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const loadPages = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/sites/${encodeURIComponent(site.id)}/pages`);
+      if (!res.ok) throw new Error("Failed to load pages");
+      const data = await res.json();
+      setPages(data.pages ?? []);
+    } catch (err: any) {
+      setError(err?.message || "Failed to load pages");
+    } finally {
+      setLoading(false);
+    }
+  }, [site.id]);
+
+  useEffect(() => {
+    if (expanded && pages.length === 0 && !loading) loadPages();
+  }, [expanded, pages.length, loading, loadPages]);
+
+  const filtered = pages.filter((p) =>
+    p.url.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const toggleSelect = (url: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(url)) next.delete(url);
+      else next.add(url);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selected.size === filtered.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filtered.map((p) => p.url)));
+    }
+  };
+
+  const handleDelete = async () => {
+    if (selected.size === 0) return;
+    setDeleting(true);
+    setActionMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/sites/${encodeURIComponent(site.id)}/pages`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: [...selected] }),
+      });
+      if (!res.ok) throw new Error("Delete failed");
+      const data = await res.json();
+      setPages((prev) => prev.filter((p) => !selected.has(p.url)));
+      setSelected(new Set());
+      setActionMsg({ ok: true, text: `Deleted ${data.deleted} page(s)` });
+    } catch (err: any) {
+      setActionMsg({ ok: false, text: err?.message || "Delete failed" });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const handleAddPages = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const urls = newUrlsText.split("\n").map((u) => u.trim()).filter((u) => u.length > 0);
+    if (!urls.length) return;
+    setAddingUrls(true);
+    setActionMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/sites/${encodeURIComponent(site.id)}/pages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls }),
+      });
+      if (!res.ok) throw new Error("Add failed");
+      const data = await res.json();
+      setActionMsg({ ok: true, text: `Added ${data.stored} page(s) from ${data.pagesFound} crawled` });
+      setNewUrlsText("");
+      setShowAddForm(false);
+      loadPages();
+    } catch (err: any) {
+      setActionMsg({ ok: false, text: err?.message || "Add failed" });
+    } finally {
+      setAddingUrls(false);
+    }
+  };
+
+  return (
+    <div onClick={(e) => e.stopPropagation()} style={{ display: "contents" }}>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setExpanded(!expanded); setActionMsg(null); }}
+        className="flex items-center gap-1.5 rounded-full bg-[#f6eee3] px-3 py-1.5 text-xs font-medium text-[#bc6c25] transition-colors hover:bg-[#efdfcd]"
+      >
+        <FileText className="w-3 h-3" /> Manage Pages
+        {expanded ? <ChevronUp className="w-3 h-3 ml-0.5" /> : <ChevronDown className="w-3 h-3 ml-0.5" />}
+      </button>
+
+      {expanded && (
+        <div className={`mt-1 basis-full p-4 ${DASH_PANEL_SOFT}`}>
+          {/* Toolbar */}
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#9aa39f]" />
+              <input
+                type="text"
+                placeholder="Search pages..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full rounded-xl border border-[#1f2522]/8 bg-white pl-9 pr-3 py-2 text-xs outline-none focus:border-[#bc6c25]/35"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => { setShowAddForm(!showAddForm); setActionMsg(null); }}
+              className="flex items-center gap-1.5 rounded-full bg-[#1f2522] px-3 py-2 text-xs font-medium text-white hover:bg-[#bc6c25] transition-colors"
+            >
+              <Plus className="w-3 h-3" /> Add Pages
+            </button>
+            {selected.size > 0 && (
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className="flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-2 text-xs font-medium text-red-600 hover:bg-red-100 transition-colors disabled:opacity-50"
+              >
+                {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                Delete {selected.size} page(s)
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={loadPages}
+              disabled={loading}
+              className="rounded-full p-2 text-[#9aa39f] hover:bg-white transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+
+          {/* Add pages form */}
+          {showAddForm && (
+            <form onSubmit={handleAddPages} className="mb-3 rounded-xl border border-[#1f2522]/8 bg-white p-3">
+              <label className="mb-1.5 block text-xs font-medium text-[#5f6b67]">
+                New URLs to crawl & index (one per line)
+              </label>
+              <textarea
+                value={newUrlsText}
+                onChange={(e) => setNewUrlsText(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                placeholder={`https://${site.hostname}/new-page\nhttps://${site.hostname}/another-page`}
+                rows={3}
+                className="w-full resize-none rounded-lg border border-[#1f2522]/8 bg-[#fbfaf7] px-3 py-2 text-xs font-mono outline-none focus:border-[#bc6c25]/35"
+              />
+              <div className="flex items-center gap-2 mt-2">
+                <button
+                  type="submit"
+                  disabled={addingUrls || !newUrlsText.trim()}
+                  className="flex items-center gap-1.5 rounded-full bg-[#1f2522] px-4 py-2 text-xs font-medium text-white hover:bg-[#bc6c25] transition-colors disabled:opacity-50"
+                >
+                  {addingUrls ? <><Loader2 className="w-3 h-3 animate-spin" /> Crawling...</> : <><Plus className="w-3 h-3" /> Crawl & Index</>}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAddForm(false)}
+                  className="text-xs text-[#9aa39f] hover:text-[#5f6b67]"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Action message */}
+          {actionMsg && (
+            <div className={`mb-2 flex items-center gap-1.5 text-xs ${actionMsg.ok ? "text-green-600" : "text-red-600"}`}>
+              {actionMsg.ok ? <CheckCircle2 className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+              {actionMsg.text}
+            </div>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div className="mb-2 flex items-center gap-1.5 text-xs text-red-600">
+              <AlertCircle className="w-3 h-3" /> {error}
+            </div>
+          )}
+
+          {/* Loading */}
+          {loading && pages.length === 0 && (
+            <div className="flex items-center justify-center py-8 text-xs text-[#9aa39f]">
+              <Loader2 className="w-4 h-4 animate-spin mr-2" /> Loading pages...
+            </div>
+          )}
+
+          {/* Pages list */}
+          {!loading && pages.length === 0 && !error && (
+            <div className="py-6 text-center text-xs text-[#9aa39f]">No indexed pages found.</div>
+          )}
+
+          {filtered.length > 0 && (
+            <div className="rounded-xl border border-[#1f2522]/8 bg-white overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center gap-3 px-3 py-2 border-b border-[#1f2522]/6 bg-[#fbfaf7] text-[10px] font-medium text-[#8a938f] uppercase tracking-wide">
+                <input
+                  type="checkbox"
+                  checked={selected.size === filtered.length && filtered.length > 0}
+                  onChange={toggleSelectAll}
+                  className="rounded accent-[#bc6c25]"
+                />
+                <span className="flex-1">URL ({filtered.length}{filtered.length !== pages.length ? ` / ${pages.length}` : ""})</span>
+                <span className="hidden md:block w-36 text-right">Indexed</span>
+              </div>
+              {/* Rows */}
+              <div className="max-h-[320px] overflow-y-auto divide-y divide-[#1f2522]/5">
+                {filtered.map((page) => (
+                  <label
+                    key={page.url}
+                    className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors hover:bg-[#fbf7f2] ${selected.has(page.url) ? "bg-[#fdf5ed]" : ""}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.has(page.url)}
+                      onChange={() => toggleSelect(page.url)}
+                      className="rounded accent-[#bc6c25] flex-shrink-0"
+                    />
+                    <span className="flex-1 min-w-0 truncate text-xs font-mono text-[#1f2522]">
+                      {page.url.replace(/^https?:\/\//, "")}
+                    </span>
+                    <span className="hidden md:block flex-shrink-0 w-36 text-right text-[10px] text-[#9aa39f]">
+                      {formatLocalDate(page.indexedAt)}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── UPDATE PAGES PANEL ─────────────────────────────────────────────────── */
 
 function UpdatePagesPanel({ site }: { site: Website }) {
@@ -786,6 +1053,7 @@ function WebsitesTab({ websites, showAddSite, setShowAddSite, newSiteUrl, setNew
             </div>
 
             <div className="flex flex-wrap items-center gap-2 border-t border-[#1f2522]/8 bg-[#fbf7f2] px-6 py-3">
+              <PagesPanel site={site} />
               <UpdatePagesPanel site={site} />
               <SitemapSyncPanel siteId={site.id} userId={userId} apiBase={API_BASE} hostname={site.hostname} />
             </div>

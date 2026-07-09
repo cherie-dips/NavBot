@@ -8,7 +8,7 @@ export function setIndexingActive(v: boolean) { _indexingActive = v; }
 
 const IS_LOCAL = !(process.env.DATABASE_URL && !process.env.DATABASE_URL.includes("localhost"));
 
-export function getPool(): pg.Pool {
+function getPool(): pg.Pool {
   if (!_pool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
@@ -374,6 +374,28 @@ export async function getTrackedUrls(siteId: string): Promise<Set<string>> {
   return new Set((rows as { url: string }[]).map((r) => r.url));
 }
 
+export interface IndexedPage {
+  url: string;
+  contentHash: string | null;
+  lastmod: string | null;
+  indexedAt: string;
+}
+
+export async function getIndexedPages(siteId: string): Promise<IndexedPage[]> {
+  const { rows } = await pool.query(
+    `SELECT url, content_hash, lastmod, indexed_at
+     FROM page_lastmod WHERE site_id = $1
+     ORDER BY indexed_at DESC`,
+    [siteId]
+  );
+  return (rows as Array<{ url: string; content_hash: string | null; lastmod: string | null; indexed_at: Date | string }>).map((r) => ({
+    url: r.url,
+    contentHash: r.content_hash,
+    lastmod: r.lastmod,
+    indexedAt: toIso(r.indexed_at),
+  }));
+}
+
 export async function deletePageHashesForUrls(siteId: string, urls: string[]): Promise<void> {
   if (urls.length === 0) return;
   await pool.query(
@@ -616,11 +638,6 @@ export async function logChatTurn(params: {
   );
 }
 
-/** @deprecated use logChatTurn — kept for scripts / backward compatibility */
-export async function trackQuery(siteId: string, query: string): Promise<void> {
-  await logChatTurn({ siteId, query, channel: "text" });
-}
-
 export async function getTopQueries(
   siteId: string,
   limit = 20
@@ -641,14 +658,6 @@ export async function deleteChatQueriesForSite(siteId: string): Promise<void> {
 export async function purgeSiteDerivedData(siteId: string): Promise<void> {
   await deleteChatQueriesForSite(siteId);
   await pool.query(`DELETE FROM faq WHERE site_id = $1`, [siteId]);
-}
-
-export async function userOwnsSite(userId: string, siteId: string): Promise<boolean> {
-  const { rows } = await pool.query(
-    `SELECT 1 AS ok FROM site WHERE user_id = $1 AND site_id = $2 LIMIT 1`,
-    [userId, siteId]
-  );
-  return rows.length > 0;
 }
 
 export interface DashboardAnalytics {

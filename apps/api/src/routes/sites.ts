@@ -397,6 +397,75 @@ router.patch("/:siteId/pages", async (req: Request, res: Response) => {
   }
 });
 
+/* ── List indexed pages ───────────────────────────────────────────────── */
+router.get("/:siteId/pages", async (req: Request, res: Response) => {
+  try {
+    const { siteId } = req.params;
+    const { getIndexedPages } = await import("../services/db");
+    const pages = await getIndexedPages(siteId);
+    res.json({ siteId, pages, total: pages.length });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed_to_list_pages" });
+  }
+});
+
+/* ── Delete specific pages ───────────────────────────────────────────── */
+router.delete("/:siteId/pages", async (req: Request, res: Response) => {
+  try {
+    const { siteId } = req.params;
+    const { urls } = req.body as { urls?: string[] };
+
+    if (!urls || !Array.isArray(urls) || urls.length === 0) {
+      return res.status(400).json({ error: "urls array is required" });
+    }
+
+    await deletePagesFromSite(siteId, urls);
+    const { deletePageHashesForUrls } = await import("../services/db");
+    await deletePageHashesForUrls(siteId, urls);
+
+    res.json({ siteId, deleted: urls.length, urls });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed_to_delete_pages" });
+  }
+});
+
+/* ── Add new pages by URL ────────────────────────────────────────────── */
+router.post("/:siteId/pages", async (req: Request, res: Response) => {
+  try {
+    const { siteId } = req.params;
+    const { urls } = req.body as { urls?: string[] };
+
+    if (!urls || !Array.isArray(urls) || urls.length === 0) {
+      return res.status(400).json({ error: "urls array is required" });
+    }
+
+    const pages = await crawlPages(urls);
+    const { insertedCount, failedCount, totalChunks } = await upsertSitePages(siteId, pages);
+
+    if (totalChunks > 0 && insertedCount === 0) {
+      return res.status(502).json({
+        error: "pinecone_upsert_failed",
+        message: "Pages were crawled but no vectors were stored in Pinecone.",
+      });
+    }
+
+    await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+
+    res.json({
+      siteId,
+      requestedUrls: urls.length,
+      pagesFound: pages.length,
+      stored: insertedCount,
+      failed: failedCount,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "failed_to_add_pages" });
+  }
+});
+
 /* ── Reindex entire site ───────────────────────────────────────────────── */
 router.post("/:siteId/reindex", async (req: Request, res: Response) => {
   try {
