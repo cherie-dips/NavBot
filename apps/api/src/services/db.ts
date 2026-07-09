@@ -142,6 +142,21 @@ async function ensureSchema(): Promise<void> {
     );
 
     CREATE INDEX IF NOT EXISTS idx_chat_query_site_created ON chat_query(site_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS rag_cache (
+      id BIGSERIAL PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      query_hash TEXT NOT NULL,
+      query_text TEXT NOT NULL,
+      answer TEXT NOT NULL,
+      sources JSONB NOT NULL DEFAULT '[]',
+      page_links JSONB NOT NULL DEFAULT '[]',
+      hit_count INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(site_id, query_hash)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_rag_cache_lookup ON rag_cache(site_id, query_hash);
   `);
 }
 
@@ -658,6 +673,75 @@ export async function deleteChatQueriesForSite(siteId: string): Promise<void> {
 export async function purgeSiteDerivedData(siteId: string): Promise<void> {
   await deleteChatQueriesForSite(siteId);
   await pool.query(`DELETE FROM faq WHERE site_id = $1`, [siteId]);
+  await invalidateRagCache(siteId);
+}
+
+// ---------------------------------------------------------------------------
+// RAG Cache
+// ---------------------------------------------------------------------------
+function normalizeQueryForCache(query: string): string {
+  return query
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter((w) => !["what", "is", "the", "a", "an", "how", "does", "do", "can", "are", "was", "were", "will", "would", "should", "could", "tell", "me", "about", "please", "i", "my"].includes(w))
+    .sort()
+    .join(" ");
+}
+
+function queryHash(normalized: string): string {
+  const crypto = require("crypto");
+  return crypto.createHash("md5").update(normalized).digest("hex");
+}
+
+export interface RagCacheEntry {
+  answer: string;
+  sources: Array<{ url: string; title: string }>;
+  pageLinks: Array<{ url: string; title: string }>;
+}
+
+export async function getRagCache(siteId: string, query: string): Promise<RagCacheEntry | null> {
+  const normalized = normalizeQueryForCache(query);
+  const hash = queryHash(normalized);
+  const { rows } = await pool.query(
+    `UPDATE rag_cache SET hit_count = hit_count + 1
+     WHERE site_id = $1 AND query_hash = $2
+     RETURNING answer, sources, page_links`,
+    [siteId, hash]
+  );
+  if (rows.length === 0) return null;
+  const row = rows[0] as { answer: string; sources: unknown; page_links: unknown };
+  return {
+    answer: row.answer,
+    sources: (row.sources ?? []) as RagCacheEntry["sources"],
+    pageLinks: (row.page_links ?? []) as RagCacheEntry["pageLinks"],
+  };
+}
+
+export async function setRagCache(
+  siteId: string,
+  query: string,
+  entry: RagCacheEntry
+): Promise<void> {
+  const normalized = normalizeQueryForCache(query);
+  const hash = queryHash(normalized);
+  await pool.query(
+    `INSERT INTO rag_cache (site_id, query_hash, query_text, answer, sources, page_links)
+     VALUES ($1, $2, $3, $4, $5, $6)
+     ON CONFLICT (site_id, query_hash) DO UPDATE SET
+       answer = EXCLUDED.answer,
+       sources = EXCLUDED.sources,
+       page_links = EXCLUDED.page_links,
+       hit_count = 0,
+       created_at = NOW()`,
+    [siteId, hash, query, entry.answer, JSON.stringify(entry.sources), JSON.stringify(entry.pageLinks)]
+  );
+}
+
+export async function invalidateRagCache(siteId: string): Promise<void> {
+  await pool.query(`DELETE FROM rag_cache WHERE site_id = $1`, [siteId]);
 }
 
 export interface DashboardAnalytics {

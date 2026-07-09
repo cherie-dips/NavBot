@@ -24,6 +24,7 @@ import {
   upsertSite,
   deletePageHashesForUrls,
   isIndexingActive,
+  invalidateRagCache,
 } from "./db";
 
 const SYNC_CRON = process.env.AUTO_SYNC_CRON || "0 */6 * * *"; // default: every 6 hours
@@ -123,6 +124,11 @@ async function syncSite(site: {
     await shutdownBrowser();
 
     console.log(`${tag} ${totalCrawled} pages crawled, ${totalInserted} chunks upserted (${totalFailed} failed)`);
+
+    if (totalInserted > 0 || removedUrls.length > 0) {
+      await invalidateRagCache(siteId);
+      console.log(`${tag} RAG cache invalidated`);
+    }
 
     // 8. Update site metadata — count actual indexed pages from DB
     const updatedHashes = await getPageHashes(siteId);

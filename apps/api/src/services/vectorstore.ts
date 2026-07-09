@@ -242,54 +242,158 @@ function chunkTextFromMetadata(
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-const CHUNK_SIZE = 1500;
-const CHUNK_OVERLAP = 300;
+const SEMANTIC_CHUNK_MAX = 2000;
+const SEMANTIC_CHUNK_MIN = 150;
 const MAX_PAGE_CONTENT_LENGTH = 48000;
 const MAX_TITLE_LENGTH = 500;
 const EMBED_BATCH_SIZE = 32;
 const UPSERT_BATCH_SIZE = 100;
 
 // ---------------------------------------------------------------------------
-// Chunking
+// Entity extraction (lightweight, regex-based — no LLM needed)
 // ---------------------------------------------------------------------------
-function chunkText(
-  text: string,
-  maxChunkSize = CHUNK_SIZE,
-  overlap = CHUNK_OVERLAP
-): string[] {
-  const trimmed = typeof text === "string" ? text.trim() : "";
-  if (!trimmed) return [];
-  if (trimmed.length <= maxChunkSize) return [trimmed];
+const ENTITY_PATTERNS: Array<{ type: string; pattern: RegExp }> = [
+  { type: "currency", pattern: /(?:₹|INR|Rs\.?)\s?[\d,]+(?:\.\d+)?(?:\s?(?:lakh|crore|lakhs|crores|per annum|p\.a\.))?/gi },
+  { type: "percentage", pattern: /\d+(?:\.\d+)?%/g },
+  { type: "email", pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g },
+  { type: "phone", pattern: /(?:\+91[-\s]?)?(?:\d{5}[-\s]?\d{5}|\d{3,4}[-\s]?\d{3,4}[-\s]?\d{3,4})/g },
+  { type: "date", pattern: /\b(?:\d{1,2}\s+)?(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}\b/gi },
+  { type: "year", pattern: /\b20[1-3]\d\b/g },
+  { type: "degree", pattern: /\b(?:B\.?Tech|M\.?Tech|B\.?Sc|M\.?Sc|MBA|Ph\.?D|B\.?A|M\.?A|B\.?Des|M\.?Des|BCA|MCA)\b/gi },
+];
 
-  const chunks: string[] = [];
+function extractEntities(text: string): string[] {
+  const entities = new Set<string>();
+  for (const { pattern } of ENTITY_PATTERNS) {
+    const matches = text.match(new RegExp(pattern.source, pattern.flags));
+    if (matches) {
+      for (const m of matches) {
+        const trimmed = m.trim();
+        if (trimmed.length >= 3 && trimmed.length <= 100) entities.add(trimmed);
+      }
+    }
+  }
+
+  const headingPattern = /^#{1,4}\s+(.+)$/gm;
+  let hMatch;
+  while ((hMatch = headingPattern.exec(text)) !== null) {
+    const heading = hMatch[1]!.trim();
+    if (heading.length >= 3 && heading.length <= 80) entities.add(heading);
+  }
+
+  const arr = [...entities];
+  return arr.slice(0, 30);
+}
+
+// ---------------------------------------------------------------------------
+// Semantic Chunking — uses crawler's section structure
+// ---------------------------------------------------------------------------
+interface SemanticChunk {
+  text: string;
+  heading: string;
+  entities: string[];
+}
+
+function splitLargeSection(text: string, maxSize: number): string[] {
+  if (text.length <= maxSize) return [text];
+  const parts: string[] = [];
   let start = 0;
 
-  while (start < trimmed.length) {
-    let end = start + maxChunkSize;
-
-    if (end < trimmed.length) {
-      const paraBreak = trimmed.lastIndexOf("\n\n", end);
-      if (paraBreak > start + maxChunkSize * 0.5) {
-        end = paraBreak + 2;
-      } else {
-        const lineBreak = trimmed.lastIndexOf("\n", end);
-        if (lineBreak > start + maxChunkSize * 0.5) {
-          end = lineBreak + 1;
-        } else {
-          const wordBreak = trimmed.lastIndexOf(" ", end);
-          if (wordBreak > start) end = wordBreak + 1;
+  while (start < text.length) {
+    let end = start + maxSize;
+    if (end < text.length) {
+      const para = text.lastIndexOf("\n\n", end);
+      if (para > start + maxSize * 0.4) { end = para + 2; }
+      else {
+        const line = text.lastIndexOf("\n", end);
+        if (line > start + maxSize * 0.4) { end = line + 1; }
+        else {
+          const word = text.lastIndexOf(" ", end);
+          if (word > start) end = word + 1;
         }
       }
     }
+    const part = text.slice(start, end).trim();
+    if (part.length > 0) parts.push(part);
+    start = end;
+  }
+  return parts;
+}
 
-    const chunk = trimmed.slice(start, end).trim();
-    if (chunk.length > 0) chunks.push(chunk);
+function semanticChunk(page: CrawledPage): SemanticChunk[] {
+  const sections = page.sections;
+  const title = String(page.title ?? "");
+  const url = String(page.url ?? "");
 
-    start = end - overlap;
-    if (start >= trimmed.length) break;
+  if (!sections || sections.length === 0) {
+    const content = typeof page.content === "string"
+      ? page.content.slice(0, MAX_PAGE_CONTENT_LENGTH).trim()
+      : "";
+    if (!content) return [];
+
+    const paragraphs = content.split(/\n\n+/).filter((p) => p.trim().length > 20);
+    if (paragraphs.length === 0) return [{ text: content, heading: "", entities: extractEntities(content) }];
+
+    const merged: SemanticChunk[] = [];
+    let buf = "";
+    for (const para of paragraphs) {
+      if (buf.length + para.length + 2 > SEMANTIC_CHUNK_MAX && buf.length >= SEMANTIC_CHUNK_MIN) {
+        merged.push({ text: buf.trim(), heading: "", entities: extractEntities(buf) });
+        buf = "";
+      }
+      buf += (buf ? "\n\n" : "") + para;
+    }
+    if (buf.trim().length > 0) {
+      if (merged.length > 0 && buf.trim().length < SEMANTIC_CHUNK_MIN) {
+        merged[merged.length - 1]!.text += "\n\n" + buf.trim();
+        merged[merged.length - 1]!.entities = extractEntities(merged[merged.length - 1]!.text);
+      } else {
+        merged.push({ text: buf.trim(), heading: "", entities: extractEntities(buf) });
+      }
+    }
+    return merged;
   }
 
-  return chunks.filter((c) => c.length > 20);
+  const raw: SemanticChunk[] = [];
+  for (const section of sections) {
+    const content = section.content.trim();
+    if (!content) continue;
+
+    if (content.length > SEMANTIC_CHUNK_MAX) {
+      const parts = splitLargeSection(content, SEMANTIC_CHUNK_MAX);
+      for (let i = 0; i < parts.length; i++) {
+        raw.push({
+          text: parts[i]!,
+          heading: section.heading + (parts.length > 1 ? ` (${i + 1}/${parts.length})` : ""),
+          entities: extractEntities(parts[i]!),
+        });
+      }
+    } else {
+      raw.push({
+        text: content,
+        heading: section.heading,
+        entities: extractEntities(content),
+      });
+    }
+  }
+
+  const merged: SemanticChunk[] = [];
+  for (const chunk of raw) {
+    if (
+      merged.length > 0 &&
+      chunk.text.length < SEMANTIC_CHUNK_MIN &&
+      merged[merged.length - 1]!.text.length + chunk.text.length + 2 <= SEMANTIC_CHUNK_MAX
+    ) {
+      const last = merged[merged.length - 1]!;
+      last.text += "\n\n" + chunk.text;
+      if (chunk.heading && !last.heading) last.heading = chunk.heading;
+      last.entities = [...new Set([...last.entities, ...chunk.entities])].slice(0, 30);
+    } else {
+      merged.push(chunk);
+    }
+  }
+
+  return merged.filter((c) => c.text.length >= 20);
 }
 
 interface EnrichedChunk {
@@ -299,47 +403,24 @@ interface EnrichedChunk {
   title: string;
   chunkIndex: number;
   totalChunks: number;
-}
-
-function findSectionHeading(fullContent: string, chunkText: string): string {
-  const searchKey = chunkText.split("\n").find((l) => l.trim().length > 20)?.trim();
-  if (!searchKey) return "";
-  const pos = fullContent.indexOf(searchKey);
-  if (pos < 0) return "";
-
-  const before = fullContent.slice(0, pos);
-  const headingStack: string[] = [];
-  for (const line of before.split("\n")) {
-    const match = line.match(/^(#{1,6})\s+(.+)/);
-    if (match) {
-      const level = match[1]!.length;
-      while (headingStack.length >= level) headingStack.pop();
-      headingStack.push(match[2]!.trim());
-    }
-  }
-  return headingStack.join(" > ");
+  heading: string;
+  entities: string[];
 }
 
 function buildEnrichedChunks(page: CrawledPage): EnrichedChunk[] {
-  const content =
-    typeof page.content === "string"
-      ? page.content.slice(0, MAX_PAGE_CONTENT_LENGTH)
-      : "";
   const title = String(page.title ?? "").slice(0, MAX_TITLE_LENGTH);
   const url = String(page.url ?? "");
 
-  const rawChunks = chunkText(content);
-  if (rawChunks.length === 0) return [];
+  const chunks = semanticChunk(page);
+  if (chunks.length === 0) return [];
 
-  return rawChunks.map((chunk, i) => {
-    const heading = findSectionHeading(content, chunk);
+  return chunks.map((chunk, i) => {
     const enrichedDocument = [
       `Page: ${title}`,
       `URL: ${url}`,
-      heading ? `Section: ${heading}` : "",
-      rawChunks.length > 1 ? `Part: ${i + 1} of ${rawChunks.length}` : "",
+      chunk.heading ? `Section: ${chunk.heading}` : "",
       "",
-      chunk,
+      chunk.text,
     ]
       .filter(Boolean)
       .join("\n");
@@ -350,7 +431,9 @@ function buildEnrichedChunks(page: CrawledPage): EnrichedChunk[] {
       url,
       title,
       chunkIndex: i,
-      totalChunks: rawChunks.length,
+      totalChunks: chunks.length,
+      heading: chunk.heading,
+      entities: chunk.entities,
     };
   });
 }
@@ -412,6 +495,8 @@ export async function upsertSitePages(
           title: c.title,
           chunkIndex: c.chunkIndex,
           totalChunks: c.totalChunks,
+          heading: c.heading || "",
+          entities: c.entities.join(", "),
         }));
         await ns.upsertRecords(integrated);
 
@@ -445,6 +530,8 @@ export async function upsertSitePages(
             chunkIndex: c.chunkIndex,
             totalChunks: c.totalChunks,
             content: c.document,
+            heading: c.heading || "",
+            entities: c.entities.join(", "),
           },
         }));
 

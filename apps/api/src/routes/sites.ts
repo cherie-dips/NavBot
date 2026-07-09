@@ -28,6 +28,7 @@ import {
   upsertSocialHandles,
   type SocialHandles,
   setIndexingActive,
+  invalidateRagCache,
 } from "../services/db";
 import { getOrGenerateFaqs, refreshFaqs, saveFaqUserAnswer } from "../services/faq";
 
@@ -317,6 +318,7 @@ router.post("/", async (req: Request, res: Response) => {
         );
       }
 
+      await invalidateRagCache(siteId);
       res.json({ siteId, pageCount: totalPages, stored: insertedCount, failed: failedCount });
     } else {
       console.log(`[index] No sitemap — falling back to BFS crawl`);
@@ -345,6 +347,7 @@ router.post("/", async (req: Request, res: Response) => {
       }
 
       await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+      await invalidateRagCache(siteId);
       res.json({ siteId, pageCount: pages.length, stored: insertedCount, failed: failedCount });
     }
   } catch (err) {
@@ -381,8 +384,8 @@ router.patch("/:siteId/pages", async (req: Request, res: Response) => {
       });
     }
 
-    // Update hashes for re-crawled pages
     await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+    await invalidateRagCache(siteId);
 
     res.json({
       siteId,
@@ -423,6 +426,7 @@ router.delete("/:siteId/pages", async (req: Request, res: Response) => {
     await deletePagesFromSite(siteId, urls);
     const { deletePageHashesForUrls } = await import("../services/db");
     await deletePageHashesForUrls(siteId, urls);
+    await invalidateRagCache(siteId);
 
     res.json({ siteId, deleted: urls.length, urls });
   } catch (err) {
@@ -452,6 +456,7 @@ router.post("/:siteId/pages", async (req: Request, res: Response) => {
     }
 
     await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+    await invalidateRagCache(siteId);
 
     res.json({
       siteId,
@@ -494,8 +499,8 @@ router.post("/:siteId/reindex", async (req: Request, res: Response) => {
       await upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
     }
 
-    // Full reindex — overwrite all stored hashes
     await upsertPageHashes(siteId, pages.map((p) => ({ url: p.url, hash: p.hash })));
+    await invalidateRagCache(siteId);
 
     res.json({ siteId, pageCount: pages.length, stored: insertedCount, failed: failedCount, reindexed: true });
   } catch (err) {

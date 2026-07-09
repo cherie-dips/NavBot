@@ -1,7 +1,7 @@
 
 import { type RetrievedDoc } from "./vectorstore";
 import { hasSocialIntent, searchSocialMedia, buildSocialContextString, type SocialSearchResult } from "./social-search";
-import { getFaqUserAnswerForQuestion } from "./db";
+import { getFaqUserAnswerForQuestion, getRagCache, setRagCache } from "./db";
 import { runAgenticRetrieval } from "./agentic-retrieval";
 import { isExhaustiveListQuestion, sortDocsForExhaustiveAnswer } from "./multipage-retrieval";
 import type { ChatHistoryItem, PageLink, SocialLink } from "./chat-types";
@@ -77,17 +77,47 @@ function stripQuestionPhrasing(text: string): string {
 
 const FOLLOW_UP_PATTERN = /\b(it|that|this|those|them|they|its|their|there|the same|these|more about|more details|tell me more|what about|how about|and the|also the|what else)\b/i;
 
+function extractTopicKeywords(text: string): string[] {
+  const stop = new Set([
+    "what", "when", "where", "which", "who", "how", "does", "did", "do", "the", "and", "for",
+    "with", "from", "this", "that", "have", "your", "about", "into", "list", "give", "tell",
+    "name", "all", "can", "are", "was", "were", "will", "would", "should", "could", "please",
+    "any", "also", "more", "know", "want", "need", "like", "there", "been", "being", "much",
+    "many", "some", "them", "they", "their", "these", "those",
+  ]);
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !stop.has(w));
+}
+
 function resolveFollowUp(message: string, history: ChatHistoryItem[]): string {
   if (history.length === 0) return message;
   if (message.split(/\s+/).length > 8 && !FOLLOW_UP_PATTERN.test(message)) return message;
 
-  const lastUserMsg = [...history].reverse().find((h) => h.role === "user");
-  if (!lastUserMsg) return message;
+  const recentUserMsgs = history
+    .filter((h) => h.role === "user")
+    .slice(-3);
+  if (recentUserMsgs.length === 0) return message;
 
-  const lastTopics = stripQuestionPhrasing(lastUserMsg.content);
-  if (lastTopics.length < 3) return message;
+  const topicFreq = new Map<string, number>();
+  for (const msg of recentUserMsgs) {
+    for (const kw of extractTopicKeywords(msg.content)) {
+      topicFreq.set(kw, (topicFreq.get(kw) || 0) + 1);
+    }
+  }
 
-  return `${lastTopics} — ${message}`;
+  const currentKeywords = new Set(extractTopicKeywords(message));
+  const contextKeywords = [...topicFreq.entries()]
+    .filter(([kw]) => !currentKeywords.has(kw))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([kw]) => kw);
+
+  if (contextKeywords.length === 0) return message;
+
+  return `${contextKeywords.join(" ")} — ${message}`;
 }
 
 function buildRetrievalQueries(message: string): string[] {
@@ -343,6 +373,20 @@ export async function answerQuestionWithRag(params: {
     };
   }
 
+  const isFollowUp = history.length > 0 && FOLLOW_UP_PATTERN.test(message);
+  if (!isFollowUp) {
+    const cached = await getRagCache(siteId, message).catch(() => null);
+    if (cached) {
+      console.log(`[RAG] Cache hit for "${message.slice(0, 60)}"`);
+      return {
+        answer: cached.answer,
+        sources: cached.sources,
+        pageLinks: cached.pageLinks as PageLink[],
+        socialLinks: [] as SocialLink[],
+      };
+    }
+  }
+
   const enrichedMessage = resolveFollowUp(message, history);
   const baseQueries = buildRetrievalQueries(enrichedMessage);
   if (enrichedMessage !== message) {
@@ -471,6 +515,14 @@ Only include pages whose content you actually used in your answer. Omit for gree
 
   if (socialResults.length > 0) {
     answer += formatSocialLinksInline(socialResults);
+  }
+
+  if (!isFollowUp && bestDist < 0.5) {
+    setRagCache(siteId, message, {
+      answer,
+      sources: sources.map((s) => ({ url: s.url, title: s.title })),
+      pageLinks,
+    }).catch((err) => console.warn("[RAG] Cache write failed:", err instanceof Error ? err.message : err));
   }
 
   return {
