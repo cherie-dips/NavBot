@@ -165,11 +165,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Serialize browser access — only one tab at a time to stay under 512MB
+let renderQueue: Promise<void> = Promise.resolve();
+
 /**
  * Load URL in headless Chromium and return serialized DOM HTML (post-JS).
  * Falls back to Jina Reader when Playwright is unavailable.
+ * Access is serialized: only one page renders at a time to avoid OOM.
  */
-export async function fetchRenderedHtml(url: string): Promise<string | null> {
+export function fetchRenderedHtml(url: string): Promise<string | null> {
+  const ticket = renderQueue.then(() => renderOnePage(url));
+  renderQueue = ticket.then(() => {}, () => {});
+  return ticket;
+}
+
+async function renderOnePage(url: string): Promise<string | null> {
   const browser = await getSharedBrowser();
   if (!browser) {
     return fetchViaJinaReader(url);
