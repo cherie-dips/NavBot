@@ -142,8 +142,6 @@ export async function getSharedBrowser(): Promise<Browser | null> {
           "--disable-translate",
           "--metrics-recording-only",
           "--no-first-run",
-          "--single-process",
-          "--js-flags=--max-old-space-size=64",
         ],
       });
       browserInstance = b;
@@ -179,7 +177,18 @@ export async function fetchRenderedHtml(url: string): Promise<string | null> {
 
   const timeout = browserTimeoutMs();
   const settle = browserSettleMs();
-  const page = await browser.newPage();
+
+  let page;
+  try {
+    page = await browser.newPage();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/closed|crashed|disposed/i.test(msg)) {
+      console.warn("[browser-render] Browser crashed, resetting instance");
+      browserInstance = null;
+    }
+    return fetchViaJinaReader(url);
+  }
 
   try {
     await page.setExtraHTTPHeaders({
@@ -189,39 +198,14 @@ export async function fetchRenderedHtml(url: string): Promise<string | null> {
     await page.goto(url, { waitUntil: "load", timeout });
     await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => {});
 
-    // Scroll to bottom to trigger lazy-loaded content
-    await page.evaluate(`(async () => {
-      const step = Math.max(window.innerHeight, 600);
-      const maxY = document.body.scrollHeight;
-      for (let y = 0; y < maxY; y += step) {
-        window.scrollTo(0, y);
-        await new Promise(r => setTimeout(r, 200));
-      }
-      window.scrollTo(0, 0);
-    })()`).catch(() => {});
-
-    // Reveal CSS-hidden content (hover overlays, collapsed sections)
-    await page.evaluate(`(() => {
-      document.querySelectorAll(
-        '[style*="display: none"], [style*="display:none"], ' +
-        '[style*="visibility: hidden"], [style*="visibility:hidden"], ' +
-        '[style*="opacity: 0"], [style*="opacity:0"], ' +
-        '[style*="height: 0"], [style*="height:0"]'
-      ).forEach(el => {
-        el.style.display = "";
-        el.style.visibility = "";
-        el.style.opacity = "";
-        el.style.height = "";
-      });
-      document.querySelectorAll("details:not([open])").forEach(el => {
-        el.setAttribute("open", "");
-      });
-    })()`).catch(() => {});
-
     if (settle > 0) await sleep(settle);
     return await page.content();
   } catch (err) {
-    console.warn(`[browser-render] Navigation failed for ${url}:`, err instanceof Error ? err.message : err);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[browser-render] Navigation failed for ${url}:`, msg);
+    if (/closed|crashed|disposed/i.test(msg)) {
+      browserInstance = null;
+    }
     return fetchViaJinaReader(url);
   } finally {
     await page.close().catch(() => {});
