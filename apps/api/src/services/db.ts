@@ -84,8 +84,10 @@ let schemaReady: Promise<void> | null = null;
 
 export function initAppDatabase(): Promise<void> {
   if (!schemaReady) {
-    schemaReady = ensureSchema().then(() => {
+    schemaReady = ensureSchema().then(async () => {
       console.log("API database ready (PostgreSQL).");
+      const purged = await purgeNoInfoCacheEntries().catch(() => 0);
+      if (purged > 0) console.log(`[db] Purged ${purged} stale "no info" cache entries.`);
     });
   }
   return schemaReady;
@@ -742,6 +744,13 @@ export async function setRagCache(
 
 export async function invalidateRagCache(siteId: string): Promise<void> {
   await pool.query(`DELETE FROM rag_cache WHERE site_id = $1`, [siteId]);
+}
+
+export async function purgeNoInfoCacheEntries(): Promise<number> {
+  const res = await pool.query(
+    `DELETE FROM rag_cache WHERE answer ILIKE '%have that information%' OR answer ILIKE '%find relevant information%'`
+  );
+  return res.rowCount ?? 0;
 }
 
 export interface DashboardAnalytics {

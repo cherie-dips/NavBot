@@ -595,7 +595,8 @@ Only include pages whose content you actually used in your answer. Omit for gree
     answer += formatSocialLinksInline(socialResults);
   }
 
-  if (!isFollowUp && bestDist < 0.5) {
+  const isNoInfoAnswer = /don['']t have that information|couldn['']t find relevant/i.test(answer);
+  if (!isFollowUp && bestDist < 0.5 && !isNoInfoAnswer) {
     setRagCache(siteId, message, {
       answer,
       sources: sources.map((s) => ({ url: s.url, title: s.title })),
