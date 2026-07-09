@@ -119,7 +119,7 @@ export async function runAgenticRetrieval(
   });
 
   let entityQueryCount = 0;
-  if (!exhaustiveList && docs.length > 0 && bestDistance(docs) < 0.7) {
+  if (!exhaustiveList && docs.length > 0 && bestDistance(docs) < 0.9) {
     const entityQueries = extractEntityQueries(docs, userMessage, 4);
     entityQueryCount = entityQueries.length;
     if (entityQueries.length > 0) {

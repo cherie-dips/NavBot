@@ -57,6 +57,8 @@ const TOPIC_MATCHERS: TopicMatch[] = [
   { queryPattern: /\b(hostel|accommodation|housing|residence|dorm|campus life)\b/i, pathPattern: /\/(hostel|accommodation|campus-life|residence|student-life)(\/|$)/i },
   { queryPattern: /\b(research|lab|publication|innovation|centre|center)\b/i, pathPattern: /\/(research|labs?|innovation|centres?|centers?)(\/|$)/i },
   { queryPattern: /\b(scholarship|financial aid|fee|tuition|funding)\b/i, pathPattern: /\/(scholarship|financial-aid|fee|tuition)(\/|$)/i },
+  { queryPattern: /\b(building|facility|infrastructure|campus|lab)\b/i, pathPattern: /\/(campus|facilities?|building|infrastructure)(\/|$)/i },
+  { queryPattern: /\b(alumni|graduate|higher education)\b/i, pathPattern: /\/(alumni|placement|outcomes?)(\/|$)/i },
 ];
 
 function buildTopicPathPatterns(userMessage: string): RegExp[] {

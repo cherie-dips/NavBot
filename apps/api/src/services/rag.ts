@@ -66,6 +66,26 @@ const QUERY_EXPANSION_RULES: ExpansionRule[] = [
     pattern: /\b(research lab|publication|innovation|research centre|research center|research project)\b/i,
     expansion: (q) => `${q} research labs projects innovation centres`,
   },
+  {
+    pattern: /\b(research|undergraduate research|student research|first year research|UG research)\b/i,
+    expansion: (q) => `${q} research projects students Grand Challenge Studio undergraduate`,
+  },
+  {
+    pattern: /\b(elective|credit|CGPA|backlog|reappear|grading|GPA|academic policy|fail|semester)\b/i,
+    expansion: (q) => `${q} academic policies elective courses credit requirements grading examination`,
+  },
+  {
+    pattern: /\b(building|lab|facility|infrastructure|campus facility|FutureTech|library|auditorium)\b/i,
+    expansion: (q) => `${q} campus building lab facility infrastructure center`,
+  },
+  {
+    pattern: /\b(alumni|higher education|graduate school|masters|abroad|after graduation)\b/i,
+    expansion: (q) => `${q} alumni higher education graduate school universities outcomes`,
+  },
+  {
+    pattern: /\b(consulting|finance|tech companies?|startup|recruiting companies|recruiter|MNC)\b/i,
+    expansion: (q) => `${q} placements recruiting companies career outcomes CTC package`,
+  },
 ];
 
 function stripQuestionPhrasing(text: string): string {
@@ -132,6 +152,31 @@ function buildRetrievalQueries(message: string): string[] {
     }
   }
   return Array.from(queries);
+}
+
+// ---------------------------------------------------------------------------
+// LLM query rewriting — fallback for poor retrieval
+// ---------------------------------------------------------------------------
+async function rewriteQueryForRetrieval(message: string): Promise<string[]> {
+  const raw = await generateContentText({
+    model: GEMINI_MODELS.chat,
+    contents: [{ role: "user" as const, parts: [{ text: message }] }],
+    config: {
+      systemInstruction:
+        "You are a search query rewriter. Given a user question about a website, generate 3 short search phrases that would match factual content on a website. Output the declarative text that would appear on the site, NOT questions. Return a JSON array of strings. Example: user asks 'Can students do research in first year?' → [\"undergraduate research projects first year\", \"students work on research Grand Challenge\", \"BTech research opportunities\"]",
+      temperature: 0.1,
+      maxOutputTokens: 200,
+      responseMimeType: "application/json",
+    },
+  });
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((s): s is string => typeof s === "string" && s.length > 3).slice(0, 4);
+    }
+  } catch {}
+  return [];
 }
 
 const CONTEXT_BUDGET_CHARS = 128_000;
@@ -403,7 +448,7 @@ export async function answerQuestionWithRag(params: {
       })
     : Promise.resolve([]);
 
-  const [{ docs, retrievalMeta }, socialResults] = await Promise.all([
+  let [{ docs, retrievalMeta }, socialResults] = await Promise.all([
     runAgenticRetrieval({ siteId, userMessage: message, history, baseQueries }),
     socialPromise,
   ]);
@@ -413,11 +458,36 @@ export async function answerQuestionWithRag(params: {
   );
   console.log(`[social] Got ${socialResults.length} social results, ${docs.length} vector docs`);
 
-  const NO_MATCH_THRESHOLD = 0.85;
-  const LOW_QUALITY_THRESHOLD = 0.65;
-  const bestDist = retrievalMeta.bestDistance;
+  const REWRITE_THRESHOLD = 0.75;
+  const NO_MATCH_THRESHOLD = 0.92;
+  const LOW_QUALITY_THRESHOLD = 0.70;
+  let bestDist = retrievalMeta.bestDistance;
+
+  if (bestDist >= REWRITE_THRESHOLD && docs.length > 0) {
+    console.log(`[RAG] bestDist=${bestDist.toFixed(4)} >= ${REWRITE_THRESHOLD} — trying LLM query rewrite`);
+    const rewrittenQueries = await rewriteQueryForRetrieval(message).catch((err) => {
+      console.warn("[RAG] Query rewrite failed:", err instanceof Error ? err.message : err);
+      return [] as string[];
+    });
+    if (rewrittenQueries.length > 0) {
+      console.log(`[RAG] Rewritten queries: ${rewrittenQueries.join(" | ")}`);
+      const retryResult = await runAgenticRetrieval({
+        siteId, userMessage: message, history,
+        baseQueries: [...rewrittenQueries, ...baseQueries],
+      });
+      if (retryResult.retrievalMeta.bestDistance < bestDist) {
+        docs = retryResult.docs;
+        bestDist = retryResult.retrievalMeta.bestDistance;
+        console.log(`[RAG] Rewrite improved bestDist to ${bestDist.toFixed(4)}`);
+      }
+    }
+  }
 
   if ((docs.length === 0 && socialResults.length === 0) || bestDist >= NO_MATCH_THRESHOLD) {
+    console.warn(
+      `[RAG] No match for "${message.slice(0, 80)}" (bestDist=${bestDist.toFixed(4)}). Top chunks:`,
+      docs.slice(0, 3).map((d) => ({ url: d.url, dist: d.distance?.toFixed(3), text: d.content.slice(0, 100) }))
+    );
     return {
       answer:
         "I couldn't find relevant information to answer that question. " +
@@ -464,9 +534,15 @@ url2
 [/RELEVANT_PAGES]
 Only include pages whose content you actually used in your answer. Omit for greetings.`;
 
-  let contextMessage = lowConfidence
-    ? `Note: the retrieved pages may not be closely related to the question. Only answer if you find a clear match; otherwise say you don't have that information.\n\nPage content:\n\n${contextString}`
-    : `Page content:\n\n${contextString}`;
+  const veryLowConfidence = bestDist >= 0.85;
+  let contextMessage: string;
+  if (veryLowConfidence) {
+    contextMessage = `IMPORTANT: The retrieved pages may NOT be related to the question. ONLY answer if you find a CLEAR, DIRECT match in the content. If the content does not specifically address the question, respond with: "I don't have that information — please check ${siteId} or contact them directly."\n\nPage content:\n\n${contextString}`;
+  } else if (lowConfidence) {
+    contextMessage = `Note: the retrieved pages may not be closely related to the question. Only answer if you find a clear match; otherwise say you don't have that information.\n\nPage content:\n\n${contextString}`;
+  } else {
+    contextMessage = `Page content:\n\n${contextString}`;
+  }
   if (socialContextString) {
     contextMessage += `\n\n---\n\nRecent social media posts:\n\n${socialContextString}`;
   }
