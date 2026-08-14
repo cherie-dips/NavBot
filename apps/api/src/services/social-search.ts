@@ -1,4 +1,5 @@
 import { getSocialHandles, type SocialHandles } from "./db";
+import { getSiteProfile } from "./site-profile";
 
 function getSerperApiKey(): string {
   return process.env.SERPER_API_KEY?.trim() ?? "";
@@ -177,11 +178,21 @@ export async function searchSocialMedia(
     return [];
   }
 
-  const handles = await getSocialHandles(siteId);
+  // Dashboard-saved handles win; the site profile supplies a verified default so
+  // social search is not silently dead on a site nobody has configured yet.
+  const saved = await getSocialHandles(siteId);
+  const hasSaved = Object.values(saved).some((v) => v?.trim());
+  const handles: SocialHandles = hasSaved
+    ? saved
+    : ((getSiteProfile(siteId).socialHandles ?? {}) as SocialHandles);
+
   const configuredPlatforms = Object.entries(handles).filter(([, v]) => v?.trim());
   if (configuredPlatforms.length === 0) {
     console.warn(`[social-search] No social handles configured for site "${siteId}"`);
     return [];
+  }
+  if (!hasSaved) {
+    console.log(`[social-search] using site-profile default handles for "${siteId}"`);
   }
 
   // Check cache

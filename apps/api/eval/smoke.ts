@@ -1,32 +1,37 @@
 import "dotenv/config";
-import { answerQuestionWithRag } from "../src/services/rag";
+import { searchSocialMedia } from "../src/services/social-search";
+import { answerQuestionStreaming } from "../src/services/rag";
 
 const SITE = "plaksha.edu.in";
 
-const CASES = [
-  "If I have anxiety about moving away from home, what campus support is available?",
-  "I'm stressed about exams, is there anyone I can talk to?",
-  "What mental health support does Plaksha offer?",
-  // Regression guards: out-of-scope must still be declined, facts must stay right.
-  "Who won the FIFA World Cup in 2022?",
-  "How much is the annual tuition fee at Plaksha?",
-];
-
 async function main() {
-  const only = process.argv[2] ? parseInt(process.argv[2], 10) : null;
-  const cases = only !== null ? [CASES[only]!] : CASES;
+  // 1. Does social search return anything now that handles resolve?
+  const t0 = Date.now();
+  const res = await searchSocialMedia(SITE, "events on campus");
+  console.log(`searchSocialMedia -> ${res.length} results in ${Date.now() - t0}ms`);
+  for (const r of res.slice(0, 6)) {
+    console.log(`  [${r.platform}] ${r.title.replace(/\s+/g, " ").slice(0, 78)}`);
+    console.log(`      ${r.url}`);
+  }
 
-  for (const q of cases) {
-    const t0 = Date.now();
-    try {
-      const res = await answerQuestionWithRag({ siteId: SITE, message: q, history: [] });
-      console.log(`\n${"─".repeat(76)}`);
-      console.log(`Q: ${q}   [${Date.now() - t0}ms, path=${res.path}]`);
-      console.log(`A: ${res.answer.replace(/\n/g, "\n   ")}`);
-      console.log(`   links: ${res.pageLinks.map((l) => l.url.split("#")[0]).join(", ") || "(none)"}`);
-      console.log(`   follow-ups: ${res.followUps.join(" | ") || "(none)"}`);
-    } catch (err) {
-      console.log(`\nQ: ${q}\n   FAILED: ${(err as Error).message.slice(0, 200)}`);
+  // 2. Streaming path — the one the widget actually uses.
+  console.log(`\n${"─".repeat(76)}`);
+  const q = "What kind of events are held on campus?";
+  console.log(`Q: ${q}\n`);
+  const t1 = Date.now();
+  let firstDelta = 0;
+  let text = "";
+  for await (const ev of answerQuestionStreaming({ siteId: SITE, message: q, history: [] })) {
+    if (ev.type === "status") console.log(`  [status] ${ev.stage}${ev.detail ? " " + ev.detail : ""} (+${Date.now() - t1}ms)`);
+    else if (ev.type === "delta") {
+      if (!firstDelta) { firstDelta = Date.now() - t1; console.log(`  [first token at ${firstDelta}ms]`); }
+      text += ev.text;
+    } else {
+      console.log(`\nA: ${ev.answer.answer.replace(/\n/g, "\n   ")}`);
+      console.log(`\n   pageLinks: ${ev.answer.pageLinks.map((l) => l.url.split("#")[0]).join(", ") || "(none)"}`);
+      console.log(`   socialLinks: ${ev.answer.socialLinks.map((l) => `${l.platform}:${l.url}`).join(", ") || "(none)"}`);
+      console.log(`   followUps: ${ev.answer.followUps.join(" | ") || "(none)"}`);
+      console.log(`   total: ${Date.now() - t1}ms`);
     }
   }
   process.exit(0);

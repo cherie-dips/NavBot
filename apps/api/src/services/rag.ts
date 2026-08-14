@@ -366,6 +366,13 @@ export async function* answerQuestionStreaming(params: {
 
   yield { type: "status", stage: "planning" };
 
+  // Kicked off before planning so the Serper round trip overlaps retrieval instead
+  // of adding to it. This was omitted when streaming was added, which silently
+  // disabled social search for every visitor, since the widget streams by default.
+  const socialPromise = hasSocialIntent(message)
+    ? searchSocialMedia(siteId, message).catch(() => [] as SocialSearchResult[])
+    : Promise.resolve([] as SocialSearchResult[]);
+
   let plan: QueryPlan;
   try {
     plan = await planQuery({ siteId, message, history });
@@ -382,8 +389,9 @@ export async function* answerQuestionStreaming(params: {
 
   yield { type: "status", stage: "searching" };
   const retrieval = await runRetrieval({ siteId, plan });
+  const socialResults = await socialPromise;
 
-  if (retrieval.docs.length === 0) {
+  if (retrieval.docs.length === 0 && socialResults.length === 0) {
     const fb = buildContactFallback({ siteId, question: plan.standalone, docs: [] });
     yield { type: "delta", text: fb.answer };
     yield {
@@ -405,14 +413,26 @@ export async function* answerQuestionStreaming(params: {
 
   yield { type: "status", stage: "writing" };
 
-  // Buffer so the [RELEVANT_PAGES] / [FOLLOW_UPS] blocks are never shown to the user.
+  // Stream the prose, hide the trailing metadata blocks.
+  //
+  // The stream must be consumed to the END even after the first marker appears:
+  // [RELEVANT_PAGES] and [FOLLOW_UPS] are emitted last, so bailing out at the opening
+  // marker loses every page link and follow-up, and leaves the raw text holding an
+  // unclosed tag that the block parser then cannot strip.
   let raw = "";
   let flushed = 0;
+  let markerSeen = false;
+  // Hold back a little tail so a marker split across two chunks is never displayed.
   const MARKER_LOOKAHEAD = 24;
 
   for await (const delta of generateContentStream({
     model: GEMINI_MODELS.chat,
-    contents: buildContents({ context, socialContext: "", history, message }),
+    contents: buildContents({
+      context,
+      socialContext: buildSocialContextString(socialResults),
+      history,
+      message,
+    }),
     config: {
       systemInstruction: systemPrompt,
       temperature: 0.2,
@@ -421,13 +441,23 @@ export async function* answerQuestionStreaming(params: {
     },
   })) {
     raw += delta;
+    if (markerSeen) continue; // keep collecting, stop displaying
+
     const markerAt = raw.indexOf("[RELEVANT_PAGES]");
-    const safeUpTo = markerAt >= 0 ? markerAt : Math.max(0, raw.length - MARKER_LOOKAHEAD);
+    if (markerAt >= 0) {
+      markerSeen = true;
+      if (markerAt > flushed) {
+        yield { type: "delta", text: raw.slice(flushed, markerAt) };
+        flushed = markerAt;
+      }
+      continue;
+    }
+
+    const safeUpTo = Math.max(0, raw.length - MARKER_LOOKAHEAD);
     if (safeUpTo > flushed) {
       yield { type: "delta", text: raw.slice(flushed, safeUpTo) };
       flushed = safeUpTo;
     }
-    if (markerAt >= 0) break;
   }
 
   if (!raw.trim()) {
@@ -447,18 +477,28 @@ export async function* answerQuestionStreaming(params: {
 
   const formatted = formatAnswer({ raw, siteId, docs: retrieval.docs });
 
-  // Emit whatever the cleanup pass changed or the tail we held back.
-  if (formatted.answer.length > flushed) {
-    yield { type: "delta", text: formatted.answer.slice(flushed) };
+  // No correction delta here: `flushed` indexes the RAW stream while `formatted.answer`
+  // is the cleaned text, so slicing one by the other duplicates or garbles the tail.
+  // The `done` event carries the authoritative answer and the client renders that.
+
+  const sources = dedupeSources(retrieval.docs, siteId);
+  for (const sr of socialResults) {
+    if (!sources.some((x) => x.url === sr.url)) {
+      sources.push({ url: sr.url, title: `${sr.platform}: ${sr.title}` });
+    }
   }
 
   yield {
     type: "done",
     answer: {
       answer: formatted.answer,
-      sources: dedupeSources(retrieval.docs, siteId),
+      sources,
       pageLinks: formatted.pageLinks,
-      socialLinks: [],
+      socialLinks: socialResults.slice(0, 3).map((r) => ({
+        platform: r.platform,
+        title: r.title,
+        url: r.url,
+      })),
       followUps: formatted.followUps,
       path: "answered",
     },

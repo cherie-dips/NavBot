@@ -43,6 +43,13 @@ export interface SiteProfile {
   scopeDescription: string;
   /** Compact section map handed to the planner. */
   sectionMap: string;
+  /**
+   * Default social accounts, used when the dashboard has none saved. Without these
+   * social search silently returns nothing, because query building needs a handle.
+   * Read from the live site footer, not guessed — a wrong handle would make the bot
+   * cite someone else's account.
+   */
+  socialHandles?: Record<string, string>;
 }
 
 const PLAKSHA: SiteProfile = {
@@ -229,6 +236,14 @@ const PLAKSHA: SiteProfile = {
 
   scopeDescription:
     "Plaksha University — its undergraduate (BTech), graduate (MS, Tech Leaders Fellowship, PhD) and high-school programs, admissions, fees and financial aid, curriculum, faculty, research centers, campus and student life, career outcomes, leadership, and university news.",
+
+  // Verified from the plaksha.edu.in footer on 2026-08-14.
+  socialHandles: {
+    instagram: "plakshauniversity",
+    twitter: "PlakshaUniv",
+    linkedin: "plakshauniversity",
+    facebook: "plakshauniversity",
+  },
 
   sectionMap: [
     "/admissions, /admissions/transfer — BTech admission rounds, deadlines, eligibility, application process",
