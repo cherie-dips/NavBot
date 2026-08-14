@@ -1,151 +1,185 @@
-
+/**
+ * Retrieval orchestration.
+ *
+ * Previous shape: up to 14 rule-generated query variants, each embedded and queried,
+ * then an entity-expansion round, then optionally a whole second pass if the first
+ * scored badly. Roughly 30 network round trips and up to 96 chunks handed to the model,
+ * over half of which were navigation boilerplate.
+ *
+ * Current shape, one pass:
+ *   1. 1-4 planner sub-queries, embedded in a single batch, queried in parallel
+ *   2. section expansion for list questions, scoped by the site profile
+ *   3. boilerplate removal (collapse duplicates, drop menus)
+ *   4. one cross-encoder rerank that decides both ordering and confidence
+ */
 import { querySiteDocs, type RetrievedDoc } from "./vectorstore";
-import {
-  expandRetrievalAcrossTrackedPages,
-  isExhaustiveListQuestion,
-} from "./multipage-retrieval";
-import type { ChatHistoryItem } from "./chat-types";
+import { getTrackedUrls } from "./db";
+import { removeBoilerplate, type BoilerplateStats } from "./boilerplate";
+import { rerankDocs, RELEVANCE, type RerankedDoc } from "./reranker";
+import { sectionsForQuestion } from "./site-profile";
+import type { QueryPlan } from "./query-planner";
 
-const MAX_QUERIES_TOTAL = 10;
-const MAX_QUERIES_EXHAUSTIVE = 14;
-const RETRIEVAL_TOP_K = 24;
+/** Candidates pulled from the vector store before reranking. */
+const CANDIDATE_TOP_K = 24;
+const CANDIDATE_TOP_K_EXHAUSTIVE = 32;
+/** Chunks kept after reranking — this is what reaches the prompt. */
+const KEEP_AFTER_RERANK = 14;
+const KEEP_AFTER_RERANK_EXHAUSTIVE = 24;
+/** Extra pages pulled in for "list every X" questions. */
+const SECTION_EXPANSION_URLS = 40;
+const SECTION_EXPANSION_CHUNKS = 40;
 
-export interface AgenticRetrievalParams {
-  siteId: string;
-  userMessage: string;
-  history: ChatHistoryItem[];
-  baseQueries: string[];
+/**
+ * The tracked-URL set changes only on re-crawl, but section expansion needs it on
+ * every list question. Reading 526 rows from Postgres each time was pure latency.
+ */
+const TRACKED_TTL_MS = 5 * 60_000;
+const trackedCache = new Map<string, { at: number; urls: Set<string> }>();
+
+async function getTrackedUrlsCached(siteId: string): Promise<Set<string>> {
+  const hit = trackedCache.get(siteId);
+  if (hit && Date.now() - hit.at < TRACKED_TTL_MS) return hit.urls;
+  const urls = await getTrackedUrls(siteId).catch(() => new Set<string>());
+  trackedCache.set(siteId, { at: Date.now(), urls });
+  return urls;
 }
 
-function uniqueQueries(queries: string[], cap: number): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const q of queries) {
-    const t = q.trim();
-    if (t.length < 2) continue;
-    const key = t.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(t);
-    if (out.length >= cap) break;
-  }
-  return out;
-}
-
-function bestDistance(docs: RetrievedDoc[]): number {
-  if (!docs.length) return 999;
-  return Math.min(...docs.map((d) => d.distance ?? 999));
-}
-
-function lexicalFallbackQueries(userMessage: string): string[] {
-  const stop = new Set([
-    "what", "when", "where", "which", "who", "how", "does", "did", "the", "and", "for", "with", "from",
-    "this", "that", "have", "your", "about", "into", "list", "give", "tell", "name", "all",
-  ]);
-  const words = userMessage
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s-]/gu, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !stop.has(w));
-  const bigrams: string[] = [];
-  for (let i = 0; i < words.length - 1; i++) {
-    bigrams.push(`${words[i]} ${words[i + 1]}`);
-  }
-  const out = [...new Set([...words.slice(0, 6), ...bigrams.slice(0, 4)])];
-  return out.filter((q) => q.length > 2).slice(0, 8);
-}
-
-export type AgenticRetrievalResult = {
-  docs: RetrievedDoc[];
-  retrievalMeta: {
-    ruleQueryCount: number;
-    totalQueriesUsed: number;
-    bestDistance: number;
+export interface RetrievalResult {
+  docs: RerankedDoc[];
+  meta: {
+    queries: string[];
+    candidates: number;
+    boilerplate: BoilerplateStats;
+    kept: number;
+    topScore: number;
+    confidence: "strong" | "weak" | "none";
+    rerankOk: boolean;
+    ms: { retrieve: number; rerank: number; total: number };
   };
-};
-
-function extractEntityQueries(docs: RetrievedDoc[], userMessage: string, cap: number): string[] {
-  const topDocs = docs.slice(0, 8);
-  const text = topDocs.map((d) => d.content).join(" ");
-
-  const properNouns = new Set<string>();
-  const nameRe = /(?:(?:School|Institute|Centre|Center|Lab|Foundation|Department|Dept)\s+(?:of|for)\s+[\w\s&-]{3,40})|(?:[A-Z][a-z]+(?:\s+(?:&\s+)?[A-Z][a-z]+){1,4}(?:\s+(?:School|Institute|Centre|Center|Lab|Foundation|Department|Program|Initiative|Award|Fellowship|Chair))?)/g;
-  for (const m of text.matchAll(nameRe)) {
-    const name = m[0].trim();
-    if (name.length >= 8 && name.length <= 80) properNouns.add(name);
-  }
-
-  const userWords = new Set(userMessage.toLowerCase().split(/\s+/));
-  const queries: string[] = [];
-  for (const name of properNouns) {
-    const words = name.toLowerCase().split(/\s+/);
-    const isJustUserQuery = words.every((w) => userWords.has(w));
-    if (isJustUserQuery) continue;
-    queries.push(name);
-    if (queries.length >= cap) break;
-  }
-  return queries;
 }
 
-function mergeDocSets(primary: RetrievedDoc[], secondary: RetrievedDoc[]): RetrievedDoc[] {
-  const seen = new Set(primary.map((d) => d.id));
-  const out = [...primary];
-  for (const d of secondary) {
-    if (seen.has(d.id)) continue;
-    seen.add(d.id);
-    out.push(d);
-  }
-  return out;
-}
-
-export async function runAgenticRetrieval(
-  params: AgenticRetrievalParams
-): Promise<AgenticRetrievalResult> {
-  const { siteId, userMessage, baseQueries } = params;
-  const exhaustiveList = isExhaustiveListQuestion(userMessage);
-  const queryCap = exhaustiveList ? MAX_QUERIES_EXHAUSTIVE : MAX_QUERIES_TOTAL;
-  const topK = exhaustiveList ? RETRIEVAL_TOP_K + 6 : RETRIEVAL_TOP_K;
-
-  const allQueries = uniqueQueries(
-    [...baseQueries, ...lexicalFallbackQueries(userMessage)],
-    queryCap
-  );
-
-  let docs = await querySiteDocs({
-    siteId,
-    query: allQueries.length ? allQueries : [userMessage],
-    topK,
-    exhaustiveSpread: exhaustiveList,
-  });
-
-  let entityQueryCount = 0;
-  if (!exhaustiveList && docs.length > 0 && bestDistance(docs) < 0.9) {
-    const entityQueries = extractEntityQueries(docs, userMessage, 4);
-    entityQueryCount = entityQueries.length;
-    if (entityQueries.length > 0) {
-      console.log(`[RAG retrieval] entity expansion queries: ${entityQueries.join(" | ")}`);
-      const entityDocs = await querySiteDocs({
-        siteId,
-        query: entityQueries,
-        topK: 12,
-      });
-      docs = mergeDocSets(docs, entityDocs);
+function mergeById(sets: RetrievedDoc[][]): RetrievedDoc[] {
+  const seen = new Set<string>();
+  const out: RetrievedDoc[] = [];
+  for (const set of sets) {
+    for (const d of set) {
+      if (seen.has(d.id)) continue;
+      seen.add(d.id);
+      out.push(d);
     }
   }
+  return out;
+}
 
-  docs = await expandRetrievalAcrossTrackedPages(siteId, docs, userMessage);
+/**
+ * For exhaustive questions, pull in sibling pages from the sections the site profile
+ * maps this question to. Without this, "what research centers are there" only sees
+ * whichever centers happened to rank in the vector search.
+ */
+async function expandBySection(
+  siteId: string,
+  question: string,
+  plannerSections: string[]
+): Promise<RetrievedDoc[]> {
+  const { patterns } = sectionsForQuestion(siteId, question);
 
-  const bestDist = bestDistance(docs);
+  // The planner's own section guesses are treated as path prefixes.
+  const plannerPatterns = plannerSections
+    .map((s) => s.trim())
+    .filter((s) => s.startsWith("/"))
+    .map((s) => new RegExp(`^${s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+
+  const allPatterns = [...patterns, ...plannerPatterns];
+  if (allPatterns.length === 0) return [];
+
+  const tracked = await getTrackedUrlsCached(siteId);
+  if (tracked.size === 0) return [];
+
+  const candidates: string[] = [];
+  for (const url of tracked) {
+    let path: string;
+    try {
+      path = new URL(url).pathname;
+    } catch {
+      continue;
+    }
+    if (allPatterns.some((p) => p.test(path))) candidates.push(url);
+    if (candidates.length >= SECTION_EXPANSION_URLS) break;
+  }
+
+  if (candidates.length === 0) return [];
+
+  // One metadata-filtered vector query, rather than a list+fetch per URL. On the
+  // live index that replaced ~1.5-4.6s of round trips with a single ~0.8s query,
+  // and returns the most relevant chunks from those pages instead of the first few.
+  return querySiteDocs({
+    siteId,
+    query: [question],
+    topK: SECTION_EXPANSION_CHUNKS,
+    restrictToUrls: candidates,
+  }).catch(() => []);
+}
+
+export async function runRetrieval(params: {
+  siteId: string;
+  plan: QueryPlan;
+}): Promise<RetrievalResult> {
+  const { siteId, plan } = params;
+  const t0 = Date.now();
+
+  const queries = plan.subQueries.length ? plan.subQueries : [plan.standalone];
+  const topK = plan.exhaustive ? CANDIDATE_TOP_K_EXHAUSTIVE : CANDIDATE_TOP_K;
+
+  // The vector search and the section expansion are independent, so they run
+  // together. Doing them in sequence was costing ~5s on every list question.
+  const [primary, extra] = await Promise.all([
+    querySiteDocs({
+      siteId,
+      query: queries,
+      topK,
+      exhaustiveSpread: plan.exhaustive,
+    }),
+    plan.exhaustive
+      ? expandBySection(siteId, plan.standalone, plan.sections)
+      : Promise.resolve([] as RetrievedDoc[]),
+  ]);
+
+  // Primary first so vector-ranked chunks win ties during dedupe.
+  const candidates = extra.length ? mergeById([primary, extra]) : primary;
+
+  const retrieveMs = Date.now() - t0;
+
+  const { docs: cleaned, stats } = removeBoilerplate(candidates, siteId);
+
+  const keep = plan.exhaustive ? KEEP_AFTER_RERANK_EXHAUSTIVE : KEEP_AFTER_RERANK;
+  const { docs: ranked, ok: rerankOk, ms: rerankMs } = await rerankDocs(
+    plan.standalone,
+    cleaned,
+    keep
+  );
+
+  const topScore = ranked[0]?.rerankScore ?? 0;
+  const confidence: "strong" | "weak" | "none" =
+    topScore >= RELEVANCE.STRONG ? "strong" : topScore >= RELEVANCE.WEAK ? "weak" : "none";
+
   console.log(
-    `[RAG retrieval] site="${siteId}" queries=${allQueries.length}+${entityQueryCount}entity exhaustiveList=${exhaustiveList} chunks=${docs.length} bestDistance=${bestDist.toFixed(4)}`
+    `[retrieval] site=${siteId} q=${queries.length} cand=${candidates.length} ` +
+      `boilerplate(-${stats.navDropped}nav -${stats.collapsed}dup) -> ${cleaned.length} ` +
+      `-> kept ${ranked.length} top=${topScore.toFixed(3)} ${confidence} ` +
+      `[retrieve ${retrieveMs}ms, rerank ${rerankMs}ms]`
   );
 
   return {
-    docs,
-    retrievalMeta: {
-      ruleQueryCount: baseQueries.length,
-      totalQueriesUsed: allQueries.length + entityQueryCount,
-      bestDistance: bestDist,
+    docs: ranked,
+    meta: {
+      queries,
+      candidates: candidates.length,
+      boilerplate: stats,
+      kept: ranked.length,
+      topScore,
+      confidence,
+      rerankOk,
+      ms: { retrieve: retrieveMs, rerank: rerankMs, total: Date.now() - t0 },
     },
   };
 }

@@ -4,7 +4,13 @@
     "outDir": "dist",
     "declaration": true,
     "declarationDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    // The widget streams answers over fetch + ReadableStream and already relies on
+    // MediaRecorder and mediaDevices, so it targets the same modern browsers Vite
+    // emits for. Without this, tsc falls back to its ES5 default and rejects
+    // async/await and String.startsWith.
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"]
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]

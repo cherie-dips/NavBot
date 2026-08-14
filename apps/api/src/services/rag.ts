@@ -1,216 +1,67 @@
-
-import { type RetrievedDoc } from "./vectorstore";
+/**
+ * NavBot RAG pipeline.
+ *
+ * Flow:
+ *   1. curated answer (site owner's own words) or semantic cache — return immediately
+ *   2. plan the query and retrieve a baseline in parallel, so planner latency is hidden
+ *   3. retrieve -> strip boilerplate -> rerank
+ *   4. generate against a small, high-signal context
+ *   5. degrade gracefully rather than ever returning a bare error
+ */
 import { hasSocialIntent, searchSocialMedia, buildSocialContextString, type SocialSearchResult } from "./social-search";
 import { getFaqUserAnswerForQuestion, getRagCache, setRagCache } from "./db";
-import { runAgenticRetrieval } from "./agentic-retrieval";
-import { isExhaustiveListQuestion, sortDocsForExhaustiveAnswer } from "./multipage-retrieval";
-import type { ChatHistoryItem, PageLink, SocialLink } from "./chat-types";
+import { runRetrieval } from "./agentic-retrieval";
+import { planQuery, fallbackPlan, type QueryPlan } from "./query-planner";
+import { buildSystemPrompt, formatAnswer, buildContactFallback } from "./answer-format";
+import { getSiteProfile, applyGlossary } from "./site-profile";
+import type { RerankedDoc } from "./reranker";
+import type { ChatHistoryItem, PageLink, SocialLink, ChatAnswer } from "./chat-types";
 import {
   withRetry,
   getGeminiApiKey,
   getGoogleGenAI,
   GEMINI_MODELS,
   generateContentText,
+  generateContentStream,
 } from "./gemini-client";
 
-
-
 if (!getGeminiApiKey()) {
-  console.warn(
-    "GEMINI_API_KEY is not set. Chat, STT, and TTS will not work."
-  );
+  console.warn("GEMINI_API_KEY is not set. Chat, STT, and TTS will not work.");
 }
+
+/**
+ * Context handed to the model. The old budget was 128,000 characters, which was the
+ * dominant cost in time-to-first-token and mostly filled with boilerplate. After
+ * dedup and reranking, ~18k of high-signal content answers more questions, faster.
+ */
+const CONTEXT_BUDGET_CHARS = 18_000;
+const MAX_CHARS_PER_CHUNK = 1_800;
+const ANSWER_MAX_TOKENS = 1_100;
+
+/**
+ * Benchmarks must exercise the real pipeline, not replay answers a previous run
+ * cached. Set NAVBOT_DISABLE_CACHE=1 when measuring.
+ */
+const CACHE_DISABLED = process.env.NAVBOT_DISABLE_CACHE === "1";
 
 // ---------------------------------------------------------------------------
-// Query expansion (rule-based)
+// Context assembly
 // ---------------------------------------------------------------------------
-interface ExpansionRule {
-  pattern: RegExp;
-  expansion: (original: string) => string;
-}
-
-const QUERY_EXPANSION_RULES: ExpansionRule[] = [
-  {
-    pattern: /\b(deadline|admission|admit|apply|application|eligibility|criteria|requirement|enrol)/i,
-    expansion: (q) => `${q} admission deadline application eligibility requirements`,
-  },
-  {
-    pattern: /\b(fee structure|tuition|scholarship|financial aid|funding|stipend|loan|waiver)\b/i,
-    expansion: (q) => `${q} tuition fee structure scholarship financial aid`,
-  },
-  {
-    pattern: /\b(program|course|degree|major|minor|specialization|stream|branch|curriculum|syllabus|department)\b/i,
-    expansion: (q) => `${q} programs courses degrees curriculum department`,
-  },
-  {
-    pattern: /\b(contact|email|phone|address|office hours|directions?)\b/i,
-    expansion: (q) => `${q} contact email phone address location`,
-  },
-  {
-    pattern: /\b(faculty|professor|teacher|instructor|researcher|supervisor|mentor|dean)\b/i,
-    expansion: (q) => `${q} faculty professor academic staff research`,
-  },
-  {
-    pattern: /\b(placement|recruit|hiring|companies|career|job|package|salary|internship)\b/i,
-    expansion: (q) => `${q} placements recruiting companies career internship`,
-  },
-  {
-    pattern: /\b(hostel|accommodation|mess|dining|residence|dorm|campus housing)\b/i,
-    expansion: (q) => `${q} hostel accommodation campus housing residence`,
-  },
-  {
-    pattern: /\b(fest|club|society|extracurricular|campus life|student life|student activit)/i,
-    expansion: (q) => `${q} events clubs student life campus activities`,
-  },
-  {
-    pattern: /\b(research lab|publication|innovation|research centre|research center|research project)\b/i,
-    expansion: (q) => `${q} research labs projects innovation centres`,
-  },
-  {
-    pattern: /\b(research|undergraduate research|student research|first year research|UG research)\b/i,
-    expansion: (q) => `${q} research projects students Grand Challenge Studio undergraduate`,
-  },
-  {
-    pattern: /\b(elective|credit|CGPA|backlog|reappear|grading|GPA|academic policy|fail|semester)\b/i,
-    expansion: (q) => `${q} academic policies elective courses credit requirements grading examination`,
-  },
-  {
-    pattern: /\b(building|lab|facility|infrastructure|campus facility|FutureTech|library|auditorium)\b/i,
-    expansion: (q) => `${q} campus building lab facility infrastructure center`,
-  },
-  {
-    pattern: /\b(alumni|higher education|graduate school|masters|abroad|after graduation)\b/i,
-    expansion: (q) => `${q} alumni higher education graduate school universities outcomes`,
-  },
-  {
-    pattern: /\b(consulting|finance|tech companies?|startup|recruiting companies|recruiter|MNC)\b/i,
-    expansion: (q) => `${q} placements recruiting companies career outcomes CTC package`,
-  },
-];
-
-function stripQuestionPhrasing(text: string): string {
-  return text
-    .replace(/^(who is|what is|what are|where is|where are|when is|when are|how is|how are|how do|how does|tell me about|can you tell me|explain|describe|give me info on|i want to know about|do you know)\s+/i, "")
-    .replace(/\?+$/, "")
-    .trim();
-}
-
-const FOLLOW_UP_PATTERN = /\b(it|that|this|those|them|they|its|their|there|the same|these|more about|more details|tell me more|what about|how about|and the|also the|what else)\b/i;
-
-function extractTopicKeywords(text: string): string[] {
-  const stop = new Set([
-    "what", "when", "where", "which", "who", "how", "does", "did", "do", "the", "and", "for",
-    "with", "from", "this", "that", "have", "your", "about", "into", "list", "give", "tell",
-    "name", "all", "can", "are", "was", "were", "will", "would", "should", "could", "please",
-    "any", "also", "more", "know", "want", "need", "like", "there", "been", "being", "much",
-    "many", "some", "them", "they", "their", "these", "those",
-  ]);
-  return text
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .split(/\s+/)
-    .filter((w) => w.length > 2 && !stop.has(w));
-}
-
-function resolveFollowUp(message: string, history: ChatHistoryItem[]): string {
-  if (history.length === 0) return message;
-  if (message.split(/\s+/).length > 8 && !FOLLOW_UP_PATTERN.test(message)) return message;
-
-  const recentUserMsgs = history
-    .filter((h) => h.role === "user")
-    .slice(-3);
-  if (recentUserMsgs.length === 0) return message;
-
-  const topicFreq = new Map<string, number>();
-  for (const msg of recentUserMsgs) {
-    for (const kw of extractTopicKeywords(msg.content)) {
-      topicFreq.set(kw, (topicFreq.get(kw) || 0) + 1);
-    }
-  }
-
-  const currentKeywords = new Set(extractTopicKeywords(message));
-  const contextKeywords = [...topicFreq.entries()]
-    .filter(([kw]) => !currentKeywords.has(kw))
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([kw]) => kw);
-
-  if (contextKeywords.length === 0) return message;
-
-  return `${contextKeywords.join(" ")} — ${message}`;
-}
-
-function buildRetrievalQueries(message: string): string[] {
-  const queries = new Set<string>([message]);
-  const cleaned = stripQuestionPhrasing(message);
-  if (cleaned.length > 2 && cleaned.toLowerCase() !== message.toLowerCase()) {
-    queries.add(cleaned);
-  }
-  for (const rule of QUERY_EXPANSION_RULES) {
-    if (rule.pattern.test(message)) {
-      queries.add(rule.expansion(cleaned));
-    }
-  }
-  return Array.from(queries);
-}
-
-// ---------------------------------------------------------------------------
-// LLM query rewriting — fallback for poor retrieval
-// ---------------------------------------------------------------------------
-async function rewriteQueryForRetrieval(message: string): Promise<string[]> {
-  const raw = await generateContentText({
-    model: GEMINI_MODELS.chat,
-    contents: [{ role: "user" as const, parts: [{ text: message }] }],
-    config: {
-      systemInstruction:
-        "You are a search query rewriter. Given a user question about a website, generate 3 short search phrases that would match factual content on a website. Output the declarative text that would appear on the site, NOT questions. Return a JSON array of strings. Example: user asks 'Can students do research in first year?' → [\"undergraduate research projects first year\", \"students work on research Grand Challenge\", \"BTech research opportunities\"]",
-      temperature: 0.1,
-      maxOutputTokens: 200,
-      responseMimeType: "application/json",
-    },
-  });
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      return parsed.filter((s): s is string => typeof s === "string" && s.length > 3).slice(0, 4);
-    }
-  } catch {}
-  return [];
-}
-
-const CONTEXT_BUDGET_CHARS = 128_000;
-
-function removeChunkOverlap(chunks: string[]): string[] {
-  if (chunks.length <= 1) return chunks;
-  const out = [chunks[0]!];
-  for (let i = 1; i < chunks.length; i++) {
-    const prev = chunks[i - 1]!;
-    const cur = chunks[i]!;
-    const tail = prev.slice(-200);
-    const overlapIdx = cur.indexOf(tail.slice(-80));
-    if (overlapIdx >= 0 && overlapIdx < 200) {
-      out.push(cur.slice(overlapIdx + tail.slice(-80).length).trim());
-    } else {
-      out.push(cur);
-    }
-  }
-  return out.filter((c) => c.length > 20);
-}
-
 function titleFromUrl(url: string): string {
   try {
     const path = new URL(url).pathname.replace(/\/+$/, "");
     const last = path.split("/").filter(Boolean).pop();
     if (!last) return url;
-    return last
-      .replace(/[-_]+/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase());
+    return last.replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
   } catch {
     return url;
   }
 }
 
+/**
+ * Many Plaksha pages carry the site-wide title ("Welcome To Plaksha"), which tells
+ * the model nothing about which page it is reading. Fall back to the URL slug.
+ */
 function resolveTitle(title: string, url: string, siteId: string): string {
   if (!title) return titleFromUrl(url);
   const norm = title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -221,407 +72,394 @@ function resolveTitle(title: string, url: string, siteId: string): string {
     norm === "homepage" ||
     norm.startsWith("welcome") ||
     norm === site ||
-    norm === `welcome to ${site}`;
+    norm === `welcome to ${site}` ||
+    norm.includes("reimagining tech education");
   return generic ? titleFromUrl(url) : title;
 }
 
-function isRedundant(chunk: string, existing: string[], threshold: number): boolean {
-  const words = new Set(chunk.toLowerCase().split(/\s+/).filter((w) => w.length > 3));
-  if (words.size < 5) return false;
-  for (const e of existing) {
-    const eWords = new Set(e.toLowerCase().split(/\s+/).filter((w) => w.length > 3));
-    let overlap = 0;
-    for (const w of words) if (eWords.has(w)) overlap++;
-    if (overlap / words.size > threshold) return true;
-  }
-  return false;
-}
-
-function buildContextString(docs: RetrievedDoc[], userMessage: string, siteId: string): string {
-  const exhaustive = isExhaustiveListQuestion(userMessage);
-  const maxCharsPerChunk = exhaustive ? 1200 : 2000;
-  const maxSources = exhaustive ? 40 : 30;
-  const ordered = exhaustive
-    ? sortDocsForExhaustiveAnswer(docs, userMessage)
-    : [...docs].sort((a, b) => (a.distance ?? 1) - (b.distance ?? 1));
-  const slice = ordered.slice(0, maxSources);
-
-  const byUrl = new Map<string, { title: string; url: string; bestDistance: number; chunks: string[] }>();
-  for (const d of slice) {
-    const key = d.url || `_untitled_${d.id}`;
-    const title = resolveTitle(d.title, d.url, siteId);
-    const entry = byUrl.get(key) ?? { title, url: d.url, bestDistance: d.distance ?? 1, chunks: [] };
-    entry.chunks.push(d.content.slice(0, maxCharsPerChunk).trim());
-    if ((d.distance ?? 1) < entry.bestDistance) entry.bestDistance = d.distance ?? 1;
+function buildContext(docs: RerankedDoc[], siteId: string): string {
+  const byUrl = new Map<string, { title: string; url: string; chunks: string[] }>();
+  for (const d of docs) {
+    const key = d.url || d.id;
+    const entry = byUrl.get(key) ?? {
+      title: resolveTitle(d.title, d.url, siteId),
+      url: d.url,
+      chunks: [],
+    };
+    entry.chunks.push(d.content.slice(0, MAX_CHARS_PER_CHUNK).trim());
     byUrl.set(key, entry);
   }
 
-  const pages = [...byUrl.entries()].sort((a, b) => a[1].bestDistance - b[1].bestDistance);
-
-  let totalChars = 0;
   const blocks: string[] = [];
-  const includedKeys = new Set<string>();
-  const allIncludedChunks: string[] = [];
-
-  for (const [key, { title, chunks }] of pages) {
-    const deduped = removeChunkOverlap(chunks);
-    const fresh = deduped.filter((c) => !isRedundant(c, allIncludedChunks, 0.75));
-    if (fresh.length === 0) continue;
-    const body = fresh.join("\n\n");
-    const block = `${title}\n${body}`;
-    if (totalChars + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 0) break;
+  let total = 0;
+  for (const { title, url, chunks } of byUrl.values()) {
+    const block = `## ${title}\n${url}\n\n${chunks.join("\n\n")}`;
+    if (total + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 0) break;
     blocks.push(block);
-    totalChars += block.length;
-    includedKeys.add(key);
-    allIncludedChunks.push(...fresh);
+    total += block.length;
   }
-
-  const urlDirectory = pages
-    .filter(([key]) => includedKeys.has(key))
-    .map(([, { title, url }]) => `${title} — ${url}`)
-    .join("\n");
-  blocks.push(`Pages:\n${urlDirectory}`);
 
   return blocks.join("\n\n---\n\n");
 }
 
-function deduplicateSources(
-  docs: RetrievedDoc[],
-  siteId: string
-): Array<{ url: string; title: string; distance?: number }> {
+function dedupeSources(docs: RerankedDoc[], siteId: string) {
   const seen = new Map<string, { url: string; title: string; distance?: number }>();
   for (const d of docs) {
-    if (!seen.has(d.url)) {
-      seen.set(d.url, { url: d.url, title: resolveTitle(d.title, d.url, siteId), distance: d.distance });
+    if (d.url && !seen.has(d.url)) {
+      seen.set(d.url, {
+        url: d.url,
+        title: resolveTitle(d.title, d.url, siteId),
+        distance: d.distance,
+      });
     }
   }
-  return Array.from(seen.values());
+  return [...seen.values()];
+}
+
+function buildContents(params: {
+  context: string;
+  socialContext: string;
+  history: ChatHistoryItem[];
+  message: string;
+}) {
+  const { context, socialContext, history, message } = params;
+
+  let contextMessage = `Page content from the website:\n\n${context}`;
+  if (socialContext) {
+    contextMessage += `\n\n---\n\nRecent social media posts:\n\n${socialContext}`;
+  }
+
+  const recent = history.slice(-6);
+  while (recent.length > 0 && recent[0]!.role !== "user") recent.shift();
+
+  return [
+    { role: "user" as const, parts: [{ text: contextMessage }] },
+    { role: "model" as const, parts: [{ text: "Understood — I'll answer from these pages." }] },
+    ...recent.map((h) => ({
+      role: h.role === "user" ? ("user" as const) : ("model" as const),
+      parts: [{ text: h.content }],
+    })),
+    { role: "user" as const, parts: [{ text: message }] },
+  ];
 }
 
 // ---------------------------------------------------------------------------
-// Output cleaner
+// Canned replies that need no retrieval
 // ---------------------------------------------------------------------------
-const META_PATTERN = /\b(based on (the )?(context|sources?|provided|retrieved)|according to (the )?(sources?|context|provided)|from (the )?(retrieved|provided|available) (context|sources?|information)|I (found|checked|reviewed|searched|re-?checked)|looking at (the )?(sources?|context|pages?)|(?:it )?(appears|seems) (?:that |from ))\b/i;
-
-function cleanModelOutput(raw: string): string {
-  let text = raw
-    .replace(/\[(?:Source\s*\d+|(?:\d+))\]\((https?:\/\/[^\s)]+)\)/gi, "")
-    .trim();
-
-  const META_START = /^(based on|according to|from the|I found|looking at|it (?:appears|seems))\b/i;
-  const firstBreak = text.search(/[.!:]\s/);
-  if (firstBreak > 0 && firstBreak < 150) {
-    const firstSentence = text.slice(0, firstBreak + 1).trim();
-    if (META_START.test(firstSentence)) {
-      text = text.slice(firstBreak + 1).replace(/^[,:;\s]+/, "").trim();
-    }
-  }
-
-  const lines = text.split("\n");
-  while (lines.length > 1) {
-    const last = lines[lines.length - 1]!.trim();
-    if (last && META_PATTERN.test(last) && last.length < 180 && !/\b\d+\b/.test(last)) {
-      lines.pop();
-    } else {
-      break;
-    }
-  }
-  text = lines.join("\n").trim();
-
-  const blocks = text.split(/\n{3,}/).map((b) => b.trim()).filter(Boolean);
-  const seen = new Set<string>();
-  const unique: string[] = [];
-  for (const block of blocks) {
-    const key = block.toLowerCase().replace(/\s+/g, " ");
-    if (!seen.has(key)) {
-      seen.add(key);
-      unique.push(block);
-    }
-  }
-  return unique.join("\n\n").trim();
+function greetingAnswer(siteId: string): ChatAnswer {
+  const name = getSiteProfile(siteId).displayName || siteId;
+  return {
+    answer: `Hello! I'm NavBot, the assistant for the ${name} website. I can help with admissions and deadlines, fees and financial aid, our BTech and graduate programs, faculty, research centers, campus life, and career outcomes. What would you like to know?`,
+    sources: [],
+    pageLinks: [],
+    socialLinks: [],
+    followUps: [
+      "What BTech programs does Plaksha offer?",
+      "What are the admission deadlines?",
+      "What financial aid is available?",
+    ],
+    path: "greeting",
+  };
 }
 
-function extractRelevantPages(
-  raw: string,
-  sources: Array<{ url: string; title: string }>
-): { cleaned: string; pageLinks: PageLink[] } {
-  const match = raw.match(/\[RELEVANT_PAGES\]\s*([\s\S]*?)\s*\[\/RELEVANT_PAGES\]/i);
-  const cleaned = raw.replace(/\n?\[RELEVANT_PAGES\][\s\S]*?\[\/RELEVANT_PAGES\]/i, "").trim();
-  if (!match) return { cleaned, pageLinks: [] };
-  const urls = match[1]
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.startsWith("http"));
-  const pageLinks: PageLink[] = [];
-  for (const url of urls.slice(0, 2)) {
-    const src = sources.find((s) => s.url === url);
-    pageLinks.push({ url, title: src?.title || url });
-  }
-  return { cleaned, pageLinks };
-}
-
-function stripInlineSourceMentions(answer: string): string {
-  return answer
-    .replace(/\(?\s*(?:as (?:per|mentioned in|stated in|noted in) )?Source\s*\d+\s*(?:and\s*(?:Source\s*)?\d+)*\s*\)?[.,;]?\s*/gi, "")
-    .replace(/\(\s*Source\s*:[^)]+\)/gi, "")
-    .replace(/^source\s*:[\s\S]*$/gim, "")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function cleanSocialTitle(raw: string): string {
-  let t = raw
-    .replace(/\s*(\bon\b\s*|[-–|·]\s*)?(Instagram|Twitter|LinkedIn|Facebook|X)\b.*$/i, "")
-    .replace(/^.*?:\s*"?/, "")
-    .replace(/"?\s*$/, "")
-    .trim();
-  if (!t || t.length < 5) t = "Recent post";
-  return t;
-}
-
-const PLATFORM_PRIORITY: Record<string, number> = {
-  instagram: 0,
-  twitter: 1,
-  linkedin: 2,
-  facebook: 3,
-};
-
-function formatSocialLinksInline(results: SocialSearchResult[]): string {
-  if (results.length === 0) return "";
-
-  const sorted = [...results].sort(
-    (a, b) => (PLATFORM_PRIORITY[a.platform] ?? 9) - (PLATFORM_PRIORITY[b.platform] ?? 9)
-  );
-
-  const MAX_INLINE = 3;
-  const posts = sorted.slice(0, MAX_INLINE);
-  const lines = posts.map((r) => `• ${cleanSocialTitle(r.title)} → ${r.url}`);
-  return "\n\n" + lines.join("\n");
+function outOfScopeAnswer(siteId: string): ChatAnswer {
+  const name = getSiteProfile(siteId).displayName || siteId;
+  return {
+    answer: `I only cover ${name} — admissions, programs, fees and financial aid, faculty, research, campus life and career outcomes. Ask me anything in those areas and I'll help.`,
+    sources: [],
+    pageLinks: [],
+    socialLinks: [],
+    followUps: [
+      "What makes the Plaksha curriculum different?",
+      "What are the BTech admission rounds?",
+      "Where do Plaksha graduates work?",
+    ],
+    path: "out_of_scope",
+  };
 }
 
 // ---------------------------------------------------------------------------
-// Main RAG
+// Main entry point
 // ---------------------------------------------------------------------------
 export async function answerQuestionWithRag(params: {
   siteId: string;
   message: string;
   history: ChatHistoryItem[];
-}) {
+}): Promise<ChatAnswer> {
   const { siteId, message, history } = params;
-  const faqUserAnswer = await getFaqUserAnswerForQuestion(siteId, message).catch(() => null);
-  if (faqUserAnswer && !faqUserAnswer.stale) {
+
+  // 1. Curated answer written by the site owner always wins.
+  const curated = CACHE_DISABLED
+    ? null
+    : await getFaqUserAnswerForQuestion(siteId, message).catch(() => null);
+  if (curated && !curated.stale) {
     return {
-      answer: faqUserAnswer.answer.trim(),
+      answer: applyGlossary(curated.answer.trim(), siteId),
       sources: [],
-      pageLinks: [] as PageLink[],
-      socialLinks: [] as SocialLink[],
+      pageLinks: [],
+      socialLinks: [],
+      followUps: [],
+      path: "faq",
     };
   }
 
-  const isFollowUp = history.length > 0 && FOLLOW_UP_PATTERN.test(message);
-  if (!isFollowUp) {
+  const isFirstTurn = history.length === 0;
+  if (isFirstTurn && !CACHE_DISABLED) {
     const cached = await getRagCache(siteId, message).catch(() => null);
     if (cached) {
-      console.log(`[RAG] Cache hit for "${message.slice(0, 60)}"`);
       return {
         answer: cached.answer,
         sources: cached.sources,
         pageLinks: cached.pageLinks as PageLink[],
-        socialLinks: [] as SocialLink[],
+        socialLinks: [],
+        followUps: [],
+        path: "cache",
       };
     }
   }
 
-  const enrichedMessage = resolveFollowUp(message, history);
-  const baseQueries = buildRetrievalQueries(enrichedMessage);
-  if (enrichedMessage !== message) {
-    for (const q of buildRetrievalQueries(message)) {
-      if (!baseQueries.includes(q)) baseQueries.push(q);
-    }
+  // 2. Plan and pre-fetch concurrently — the planner's round trip overlaps retrieval.
+  const socialPromise = hasSocialIntent(message)
+    ? searchSocialMedia(siteId, message).catch(() => [] as SocialSearchResult[])
+    : Promise.resolve([] as SocialSearchResult[]);
+
+  let plan: QueryPlan;
+  try {
+    plan = await planQuery({ siteId, message, history });
+  } catch {
+    plan = fallbackPlan(message, history);
   }
 
-  const socialIntent = hasSocialIntent(message);
-  const socialPromise = socialIntent
-    ? searchSocialMedia(siteId, message).catch((err) => {
-        console.error("[social] searchSocialMedia failed:", err instanceof Error ? err.message : err);
-        return [] as Awaited<ReturnType<typeof searchSocialMedia>>;
-      })
-    : Promise.resolve([]);
+  if (plan.intent === "greeting") return greetingAnswer(siteId);
+  if (plan.intent === "out_of_scope") return outOfScopeAnswer(siteId);
 
-  let [{ docs, retrievalMeta }, socialResults] = await Promise.all([
-    runAgenticRetrieval({ siteId, userMessage: message, history, baseQueries }),
-    socialPromise,
-  ]);
+  // 3. Retrieve.
+  const retrieval = await runRetrieval({ siteId, plan });
+  const socialResults = await socialPromise;
 
-  console.log(
-    `RAG for site "${siteId}": ${retrievalMeta.totalQueriesUsed} queries → ${docs.length} chunks, bestDist≈${retrievalMeta.bestDistance.toFixed(4)}`
-  );
-  console.log(`[social] Got ${socialResults.length} social results, ${docs.length} vector docs`);
-
-  const REWRITE_THRESHOLD = 0.75;
-  const NO_MATCH_THRESHOLD = 0.92;
-  const LOW_QUALITY_THRESHOLD = 0.70;
-  let bestDist = retrievalMeta.bestDistance;
-
-  if (bestDist >= REWRITE_THRESHOLD && docs.length > 0) {
-    console.log(`[RAG] bestDist=${bestDist.toFixed(4)} >= ${REWRITE_THRESHOLD} — trying LLM query rewrite`);
-    const rewrittenQueries = await rewriteQueryForRetrieval(message).catch((err) => {
-      console.warn("[RAG] Query rewrite failed:", err instanceof Error ? err.message : err);
-      return [] as string[];
-    });
-    if (rewrittenQueries.length > 0) {
-      console.log(`[RAG] Rewritten queries: ${rewrittenQueries.join(" | ")}`);
-      const retryResult = await runAgenticRetrieval({
-        siteId, userMessage: message, history,
-        baseQueries: [...rewrittenQueries, ...baseQueries],
-      });
-      if (retryResult.retrievalMeta.bestDistance < bestDist) {
-        docs = retryResult.docs;
-        bestDist = retryResult.retrievalMeta.bestDistance;
-        console.log(`[RAG] Rewrite improved bestDist to ${bestDist.toFixed(4)}`);
-      }
-    }
-  }
-
-  if ((docs.length === 0 && socialResults.length === 0) || bestDist >= NO_MATCH_THRESHOLD) {
+  if (retrieval.meta.confidence === "none" && socialResults.length === 0) {
     console.warn(
-      `[RAG] No match for "${message.slice(0, 80)}" (bestDist=${bestDist.toFixed(4)}). Top chunks:`,
-      docs.slice(0, 3).map((d) => ({ url: d.url, dist: d.distance?.toFixed(3), text: d.content.slice(0, 100) }))
+      `[rag] no usable content for "${plan.standalone.slice(0, 70)}" (top=${retrieval.meta.topScore.toFixed(3)})`
     );
-    return {
-      answer:
-        "I couldn't find relevant information to answer that question. " +
-        "Please try rephrasing, or contact the site owner directly.",
-      sources: [],
-      pageLinks: [] as PageLink[],
-      socialLinks: [] as SocialLink[],
-    };
+    const fb = buildContactFallback({ siteId, question: plan.standalone, docs: retrieval.docs });
+    return { ...fb, sources: dedupeSources(retrieval.docs, siteId), socialLinks: [], path: "contact_fallback" };
   }
 
-  const lowConfidence = bestDist >= LOW_QUALITY_THRESHOLD;
-
-  const contextString = buildContextString(docs, message, siteId);
-  const socialContextString = buildSocialContextString(socialResults);
-
-  const systemPrompt = `You are NavBot, a navigation chatbot for the website ${siteId}. You help users find information on the website by answering questions. Use ONLY the provided page content for factual answers. For greetings, small talk, and thank-yous, respond naturally without needing page content.
-
-ANSWER FORMAT:
-- Start directly with the answer. First word must be content, not commentary.
-- Keep answers concise — this is a chat widget, not a document.
-- Lists: bullet points (•), one per line.
-- Short answers (dates, names, yes/no): 1-2 sentences is fine.
-- Detailed answers (comparisons, overviews): up to 5 sentences or a brief list.
-- Avoid large markdown tables — use bullet points instead for chat readability.
-
-RULES:
-- Synthesize answers from available content. If the pages contain relevant information that can address the user's question, build an answer from it — don't require an exact word-for-word match. For example, if the user asks "can students do X?" and the content describes X as part of the curriculum or student experience, the answer is yes.
-- Only say "I don't have that information — please check ${siteId} or contact them directly." when the content truly has NOTHING related to the question. If there is even partial or indirect information, provide what you can and note what's missing.
-- If your answer may be incomplete, add "For the full details, check the relevant page below."
-- Carefully scan ALL provided page content before answering. Information about the same topic may be spread across multiple pages — do not stop after finding a partial answer on one page.
-- Connect the dots: if a person is mentioned on one page and a school/institute/initiative named after them appears on another page, link those facts together in your answer.
-- Combine information from all pages into one unified answer.
-- If pages contradict each other, state both versions with their page names.
-- Counting questions: enumerate items then state the total.
-- Greetings: respond naturally and introduce yourself as the chatbot for this website.
-- Follow-up questions: use the conversation history to resolve pronouns and references (e.g. "tell me more", "what about the fees for that").
-- Respond in the same language the user writes in.
-- When social media posts are provided, include their URLs inline in your answer so users can click through to the original post.
-- You represent this organization. Trust its stated values, commitments, and standards. If the website proudly claims something (e.g. world-class faculty, rigorous curriculum, strong placements), treat that as an ongoing institutional commitment — not something fragile or temporary. For hypothetical "what if" questions, respond with confidence in the organization's standards and mission rather than casting doubt. Never undermine the brand with unnecessary hedging. However, do not fabricate claims — only reinforce values that are actually stated on the website.
-
-After your answer, on a new line output 1-2 page URLs that directly answer the question:
-[RELEVANT_PAGES]
-url1
-url2
-[/RELEVANT_PAGES]
-Only include pages whose content you actually used in your answer. Omit for greetings.`;
-
-  const veryLowConfidence = bestDist >= 0.85;
-  let contextMessage: string;
-  if (veryLowConfidence) {
-    contextMessage = `IMPORTANT: The retrieved pages may NOT be related to the question. ONLY answer if you find a CLEAR, DIRECT match in the content. If the content does not specifically address the question, respond with: "I don't have that information — please check ${siteId} or contact them directly."\n\nPage content:\n\n${contextString}`;
-  } else if (lowConfidence) {
-    contextMessage = `Note: the retrieved pages may not be closely related to the question. Only answer if you find a clear match; otherwise say you don't have that information.\n\nPage content:\n\n${contextString}`;
-  } else {
-    contextMessage = `Page content:\n\n${contextString}`;
-  }
-  if (socialContextString) {
-    contextMessage += `\n\n---\n\nRecent social media posts:\n\n${socialContextString}`;
-  }
-
-  const recentHistory = history.slice(-6);
-  while (recentHistory.length > 0 && recentHistory[0]!.role !== "user") {
-    recentHistory.shift();
-  }
-  const contents = [
-    { role: "user" as const, parts: [{ text: contextMessage }] },
-    { role: "model" as const, parts: [{ text: "Ready." }] },
-    ...recentHistory.map((h) => ({
-      role: h.role === "user" ? "user" : "model",
-      parts: [{ text: h.content }],
-    })),
-    { role: "user" as const, parts: [{ text: message }] },
-  ];
-
-  const rawAnswer = await generateContentText({
-    model: GEMINI_MODELS.chat,
-    contents,
-    config: {
-      systemInstruction: systemPrompt,
-      temperature: 0.2,
-      maxOutputTokens: 4096,
-    },
+  // 4. Generate.
+  const context = buildContext(retrieval.docs, siteId);
+  const socialContext = buildSocialContextString(socialResults);
+  const systemPrompt = buildSystemPrompt({
+    siteId,
+    confidence: retrieval.meta.confidence === "strong" ? "strong" : "weak",
+    exhaustive: plan.exhaustive,
   });
+  const contents = buildContents({ context, socialContext, history, message });
 
-  console.log(`[RAG] Raw model output (${rawAnswer.length} chars): ${rawAnswer.slice(0, 500)}`);
+  let raw = "";
+  let path: ChatAnswer["path"] = "answered";
+  try {
+    raw = await generateContentText({
+      model: GEMINI_MODELS.chat,
+      contents,
+      config: {
+        systemInstruction: systemPrompt,
+        temperature: 0.2,
+        maxOutputTokens: ANSWER_MAX_TOKENS,
+        thinkingLevel: "low",
+      },
+    });
+  } catch (err) {
+    // Rung 2: one retry on a reduced context, which also dodges token-limit failures.
+    console.warn("[rag] generation failed, retrying with reduced context:", err instanceof Error ? err.message.slice(0, 160) : err);
+    path = "retry";
+    try {
+      const smaller = buildContext(retrieval.docs.slice(0, 5), siteId);
+      raw = await generateContentText({
+        model: GEMINI_MODELS.chat,
+        contents: buildContents({ context: smaller, socialContext: "", history: [], message }),
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.2,
+          maxOutputTokens: ANSWER_MAX_TOKENS,
+          thinkingLevel: "low",
+        },
+      });
+    } catch (err2) {
+      console.error("[rag] generation failed twice:", err2 instanceof Error ? err2.message.slice(0, 160) : err2);
+      raw = "";
+    }
+  }
 
-  const sources = deduplicateSources(docs, siteId);
+  // Rungs 3 and 4: partial answer with pages, else the contact block.
+  if (!raw.trim()) {
+    const fb = buildContactFallback({ siteId, question: plan.standalone, docs: retrieval.docs });
+    return { ...fb, sources: dedupeSources(retrieval.docs, siteId), socialLinks: [], path: "contact_fallback" };
+  }
 
+  const formatted = formatAnswer({ raw, siteId, docs: retrieval.docs });
+  const sources = dedupeSources(retrieval.docs, siteId);
+
+  const socialLinks: SocialLink[] = socialResults.slice(0, 3).map((r) => ({
+    platform: r.platform,
+    title: r.title,
+    url: r.url,
+  }));
   for (const sr of socialResults) {
-    if (!sources.find((s) => s.url === sr.url)) {
+    if (!sources.some((s) => s.url === sr.url)) {
       sources.push({ url: sr.url, title: `${sr.platform}: ${sr.title}` });
     }
   }
 
-  const { cleaned: cleanedAnswer, pageLinks } = extractRelevantPages(rawAnswer, sources);
-  let answer = stripInlineSourceMentions(cleanModelOutput(cleanedAnswer));
-
-  const socialLinks: SocialLink[] = socialResults.slice(0, 3).map((r) => ({
-    platform: r.platform,
-    title: cleanSocialTitle(r.title),
-    url: r.url,
-  }));
-
-  if (socialResults.length > 0) {
-    answer += formatSocialLinksInline(socialResults);
-  }
-
-  const isNoInfoAnswer = /don['']t have that information|couldn['']t find relevant/i.test(answer);
-  if (!isFollowUp && bestDist < 0.5 && !isNoInfoAnswer) {
-    setRagCache(siteId, message, {
-      answer,
-      sources: sources.map((s) => ({ url: s.url, title: s.title })),
-      pageLinks,
-    }).catch((err) => console.warn("[RAG] Cache write failed:", err instanceof Error ? err.message : err));
-  }
-
-  return {
-    answer,
+  const result: ChatAnswer = {
+    answer: formatted.answer,
     sources,
-    pageLinks,
+    pageLinks: formatted.pageLinks,
     socialLinks,
+    followUps: formatted.followUps,
+    path,
+  };
+
+  // Only cache confident, first-turn answers that actually said something.
+  const declined = /I don'?t have that specific detail|I only cover/i.test(result.answer);
+  if (isFirstTurn && !CACHE_DISABLED && retrieval.meta.confidence === "strong" && !declined) {
+    setRagCache(siteId, message, {
+      answer: result.answer,
+      sources: sources.map((s) => ({ url: s.url, title: s.title })),
+      pageLinks: result.pageLinks,
+    }).catch(() => {});
+  }
+
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Streaming variant — same pipeline, text delivered as it is generated
+// ---------------------------------------------------------------------------
+export type StreamEvent =
+  | { type: "status"; stage: "planning" | "searching" | "reading" | "writing"; detail?: string }
+  | { type: "delta"; text: string }
+  | { type: "done"; answer: ChatAnswer };
+
+export async function* answerQuestionStreaming(params: {
+  siteId: string;
+  message: string;
+  history: ChatHistoryItem[];
+}): AsyncGenerator<StreamEvent, void, unknown> {
+  const { siteId, message, history } = params;
+
+  const curated = await getFaqUserAnswerForQuestion(siteId, message).catch(() => null);
+  if (curated && !curated.stale) {
+    const answer = applyGlossary(curated.answer.trim(), siteId);
+    yield { type: "delta", text: answer };
+    yield {
+      type: "done",
+      answer: { answer, sources: [], pageLinks: [], socialLinks: [], followUps: [], path: "faq" },
+    };
+    return;
+  }
+
+  yield { type: "status", stage: "planning" };
+
+  let plan: QueryPlan;
+  try {
+    plan = await planQuery({ siteId, message, history });
+  } catch {
+    plan = fallbackPlan(message, history);
+  }
+
+  if (plan.intent === "greeting" || plan.intent === "out_of_scope") {
+    const canned = plan.intent === "greeting" ? greetingAnswer(siteId) : outOfScopeAnswer(siteId);
+    yield { type: "delta", text: canned.answer };
+    yield { type: "done", answer: canned };
+    return;
+  }
+
+  yield { type: "status", stage: "searching" };
+  const retrieval = await runRetrieval({ siteId, plan });
+
+  if (retrieval.meta.confidence === "none") {
+    const fb = buildContactFallback({ siteId, question: plan.standalone, docs: retrieval.docs });
+    yield { type: "delta", text: fb.answer };
+    yield {
+      type: "done",
+      answer: { ...fb, sources: dedupeSources(retrieval.docs, siteId), socialLinks: [], path: "contact_fallback" },
+    };
+    return;
+  }
+
+  const pageCount = new Set(retrieval.docs.map((d) => d.url)).size;
+  yield { type: "status", stage: "reading", detail: `${pageCount} page${pageCount === 1 ? "" : "s"}` };
+
+  const context = buildContext(retrieval.docs, siteId);
+  const systemPrompt = buildSystemPrompt({
+    siteId,
+    confidence: retrieval.meta.confidence === "strong" ? "strong" : "weak",
+    exhaustive: plan.exhaustive,
+  });
+
+  yield { type: "status", stage: "writing" };
+
+  // Buffer so the [RELEVANT_PAGES] / [FOLLOW_UPS] blocks are never shown to the user.
+  let raw = "";
+  let flushed = 0;
+  const MARKER_LOOKAHEAD = 24;
+
+  for await (const delta of generateContentStream({
+    model: GEMINI_MODELS.chat,
+    contents: buildContents({ context, socialContext: "", history, message }),
+    config: {
+      systemInstruction: systemPrompt,
+      temperature: 0.2,
+      maxOutputTokens: ANSWER_MAX_TOKENS,
+      thinkingLevel: "low",
+    },
+  })) {
+    raw += delta;
+    const markerAt = raw.indexOf("[RELEVANT_PAGES]");
+    const safeUpTo = markerAt >= 0 ? markerAt : Math.max(0, raw.length - MARKER_LOOKAHEAD);
+    if (safeUpTo > flushed) {
+      yield { type: "delta", text: raw.slice(flushed, safeUpTo) };
+      flushed = safeUpTo;
+    }
+    if (markerAt >= 0) break;
+  }
+
+  if (!raw.trim()) {
+    const fb = buildContactFallback({ siteId, question: plan.standalone, docs: retrieval.docs });
+    yield { type: "delta", text: fb.answer };
+    yield {
+      type: "done",
+      answer: { ...fb, sources: dedupeSources(retrieval.docs, siteId), socialLinks: [], path: "contact_fallback" },
+    };
+    return;
+  }
+
+  const formatted = formatAnswer({ raw, siteId, docs: retrieval.docs });
+
+  // Emit whatever the cleanup pass changed or the tail we held back.
+  if (formatted.answer.length > flushed) {
+    yield { type: "delta", text: formatted.answer.slice(flushed) };
+  }
+
+  yield {
+    type: "done",
+    answer: {
+      answer: formatted.answer,
+      sources: dedupeSources(retrieval.docs, siteId),
+      pageLinks: formatted.pageLinks,
+      socialLinks: [],
+      followUps: formatted.followUps,
+      path: "answered",
+    },
   };
 }
 
 // ---------------------------------------------------------------------------
-// Speech-to-text (Gemini 2.5 Flash)
+// Speech-to-text
 // ---------------------------------------------------------------------------
 async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<string> {
   const ai = getGoogleGenAI();
   const audioBase64 = audioBuffer.toString("base64");
-
-  console.log(
-    `[STT] Sending ${(audioBuffer.length / 1024).toFixed(1)} KB of ${mimeType} to Gemini ${GEMINI_MODELS.stt}`
-  );
 
   const response = await withRetry(
     () =>
@@ -642,10 +480,7 @@ async function transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<s
   );
 
   const transcript = (response.text ?? "").trim();
-  if (!transcript) {
-    throw new Error("Gemini STT returned an empty transcript.");
-  }
-  console.log(`[STT] Transcript: "${transcript}"`);
+  if (!transcript) throw new Error("Gemini STT returned an empty transcript.");
   return transcript;
 }
 
@@ -658,7 +493,6 @@ export async function transcribeAndAnswer(params: {
   const { siteId, audioBuffer, mimeType, history = [] } = params;
 
   let transcript: string;
-
   try {
     transcript = await transcribeAudio(audioBuffer, mimeType);
   } catch (err) {
@@ -667,71 +501,47 @@ export async function transcribeAndAnswer(params: {
     return {
       transcript: null,
       answer:
-        "Sorry, I couldn't transcribe your voice message. " +
-        "Please check that GEMINI_API_KEY is set and try WAV, MP3, OGG, or WebM audio. " +
-        "You can also type your question instead.",
+        "I couldn't make out that voice message. Please try again, or type your question instead.",
       sources: [],
+      pageLinks: [] as PageLink[],
+      socialLinks: [] as SocialLink[],
+      followUps: [] as string[],
       error: msg,
     };
   }
 
-  const result = await answerQuestionWithRag({
-    siteId,
-    message: transcript,
-    history,
-  });
-
-  return {
-    transcript,
-    ...result,
-  };
+  const result = await answerQuestionWithRag({ siteId, message: transcript, history });
+  return { transcript, ...result };
 }
 
 // ---------------------------------------------------------------------------
-// Text-to-speech → base64 audio for widget (Gemini 2.5 Flash)
+// Text-to-speech
 // ---------------------------------------------------------------------------
 const MAX_TTS_CHARS = 1000;
 const GEMINI_TTS_VOICE = process.env.GEMINI_TTS_VOICE?.trim() || "Kore";
 
 export async function synthesizeSpeech(text: string): Promise<string> {
   const ai = getGoogleGenAI();
-  const truncated =
-    text.length > MAX_TTS_CHARS ? text.slice(0, MAX_TTS_CHARS) + "…" : text;
-
-  console.log(`[TTS] Converting ${truncated.length} chars to speech via Gemini`);
+  const truncated = text.length > MAX_TTS_CHARS ? text.slice(0, MAX_TTS_CHARS) + "…" : text;
 
   const response = await withRetry(
     () =>
       ai.models.generateContent({
         model: GEMINI_MODELS.tts,
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: `Read this text aloud:\n\n${truncated}` }],
-          },
-        ],
+        contents: [{ role: "user", parts: [{ text: `Read this text aloud:\n\n${truncated}` }] }],
         config: {
           responseModalities: ["audio"],
           speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: { voiceName: GEMINI_TTS_VOICE },
-            },
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: GEMINI_TTS_VOICE } },
           },
         },
       }),
     { maxAttempts: 3, baseDelayMs: 1000, label: "TTS" }
   );
 
-  const candidates = response.candidates ?? [];
-  const parts = candidates[0]?.content?.parts ?? [];
-  const audioPart = parts.find(
-    (p) => "inlineData" in p && p.inlineData != null
-  );
-  const inlineData = (audioPart as { inlineData?: { data?: string; mimeType?: string } } | undefined)?.inlineData;
-  if (!inlineData?.data) {
-    throw new Error("Gemini TTS returned no audio data.");
-  }
-
-  console.log(`[TTS] Audio generated (${inlineData.data.length} chars base64, ${inlineData.mimeType})`);
+  const parts = (response.candidates ?? [])[0]?.content?.parts ?? [];
+  const audioPart = parts.find((p) => "inlineData" in p && p.inlineData != null);
+  const inlineData = (audioPart as { inlineData?: { data?: string } } | undefined)?.inlineData;
+  if (!inlineData?.data) throw new Error("Gemini TTS returned no audio data.");
   return inlineData.data;
 }

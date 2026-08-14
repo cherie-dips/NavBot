@@ -1,0 +1,113 @@
+{
+  "note": "Partial salvage of pre-change (baseline) answers. NOT a clean benchmark: judge scores were lost, console_log entries are truncated at 500 chars, and questions are unknown for console_log entries.",
+  "siteId": "plaksha.edu.in",
+  "recoveredAt": "2026-08-14T04:03:54.507Z",
+  "counts": {
+    "rag_cache": 6,
+    "console_log": 11
+  },
+  "entries": [
+    {
+      "question": "What scholarships are available at Plaksha?",
+      "answer": "Plaksha University offers several scholarship and financial aid options for deserving students:\n\n• **Merit Scholarships**: Tuition waivers ranging from 25% to 100% based on high academic performance (typically 95%+ in boards or 95%ile+ in JEE) and extracurricular achievements.\n• **Need-Based Financial Aid**: Available to students with a gross annual family income below INR 50 lakh, providing waivers from 25% to 100% depending on specific income slabs.\n• **Bharti Scholarship**: A prestigious program that fully supports up to 20 undergraduate students who demonstrate both merit and financial need.\n• **PhD Fellowships**: Monthly stipends ranging from ₹42,000 to ₹48,000, with special fellowships for Computer Science and AI starting at ₹80,000 and rising to ₹1,00,000 by the fifth year.\n• **SP Dutt Award**: An award available to students as part of the university's recognition programs.\n\nFor the full details, check the relevant pages below.",
+      "truncated": false,
+      "source": "rag_cache"
+    },
+    {
+      "question": "What is the average placement package at Plaksha?",
+      "answer": "The average placement package (CTC) at Plaksha University for the B.Tech Class of 2025 is ₹20 lakh per annum. Other key placement statistics include:\n• Median CTC: ₹17 lakh per annum\n• Highest CTC: ₹65 lakh per annum\n• Top 25% Average: ₹34 lakh per annum\n• Top 10% Average: ₹48 lakh per annum",
+      "truncated": false,
+      "source": "rag_cache"
+    },
+    {
+      "question": "When was Plaksha University founded?",
+      "answer": "Plaksha University was established in 2021, with the campus opening its doors in August of that year. The journey began in 2015 as a conversation among friends, followed by the formation of the Reimagining Higher Education Foundation in 2017 and the groundbreaking of the Mohali campus in February 2019.",
+      "truncated": false,
+      "source": "rag_cache"
+    },
+    {
+      "question": "What BTech programs does Plaksha University offer?",
+      "answer": "Plaksha University offers four interdisciplinary BTech degrees:\n• BTech in Computer Science & Artificial Intelligence\n• BTech in Robotics & Autonomous Systems (also referred to as Robotics & Cyber-Physical Systems)\n• BTech in Biological Systems Engineering\n• BTech in Data Science, Economics & Business\n\nThe curriculum is designed to be flexible, allowing students to explore different majors during their first three semesters before officially declaring their choice.",
+      "truncated": false,
+      "source": "rag_cache"
+    },
+    {
+      "question": "What are the BTech admission deadlines for 2026?",
+      "answer": "BTech application submission deadlines for the 2026 intake are:\n• Round 1: Dec 20, 2025\n• Round 2: Feb 15, 2026\n• Round 3: Mar 21, 2026\n• Round 4: Apr 30, 2026\n• Round 5: June 7, 2026\n• Transfer Students: May 17, 2026\n\nThe last date to enroll is July 30, 2026. Applicants who require a visa to study at Plaksha University are strongly recommended to apply by Round 3.",
+      "truncated": false,
+      "source": "rag_cache"
+    },
+    {
+      "question": "How much is the annual tuition fee at Plaksha?",
+      "answer": "Annual tuition fees at Plaksha University vary by program and intake year:\n• **BTech (Aug 2026 intake):** ₹8,40,000 per year.\n• **BTech (2025 intake):** ₹7.8 lakh per year.\n• **PhD:** ₹5,000 per semester (this is a nominal fee after a 95% tuition waiver provided for teaching assistance).\n\nFor BTech students, the actual amount paid may be lower as approximately 67% of students receive financial aid or scholarships ranging from 25% to 100% waivers. Fees are also subject to an annual revision of 5% to 8%.",
+      "truncated": false,
+      "source": "rag_cache"
+    },
+    {
+      "question": null,
+      "answer": "The annual tuition fee at Plaksha University varies by program and intake year:",
+      "truncated": true,
+      "source": "console_log"
+    },
+    {
+      "question": null,
+      "answer": "Plaksha University was established in 2021, with its campus opening in August of that year. The journey originally began in 2015 as a conversation among friends, and the Reimagining Higher Education Foundation was set up in 2017 to convert the vision into a plan.",
+      "truncated": true,
+      "source": "console_log"
+    },
+    {
+      "question": null,
+      "answer": "Regular BTech admission deadlines for the 2026 intake are organized into five rounds:",
+      "truncated": true,
+      "source": "console_log"
+    },
+    {
+      "question": null,
+      "answer": "Plaksha University offers 4 interdisciplinary BTech programs:",
+      "truncated": true,
+      "source": "console_log"
+    },
+    {
+      "question": null,
+      "answer": "Plaksha University has established four interdisciplinary research centers dedicated to addressing global grand challenges:",
+      "truncated": true,
+      "source": "console_log"
+    },
+    {
+      "question": null,
+      "answer": "Plaksha University graduates have been recruited by several leading global companies, consulting firms, financial institutions, and high-growth startups, including:",
+      "truncated": true,
+      "source": "console_log"
+    },
+    {
+      "question": null,
+      "answer": "Plaksha’s need-based financial aid is designed to bridge the gap between what a family can afford and the actual cost of education. The admissions process is entirely \"need-blind,\" meaning applying for aid does not influence admission decisions.",
+      "truncated": true,
+      "source": "console_log"
+    },
+    {
+      "question": null,
+      "answer": "The PhD application deadline for the Monsoon 2026 semester is April 15, 2026, which has been extended to April 30, 2026. The application portal opens on March 1, 2026.",
+      "truncated": true,
+      "source": "console_log"
+    },
+    {
+      "question": null,
+      "answer": "69% of students have been supported by merit scholarships and financial aid till date (as of September 30, 2025). Additionally, 33.7% of students are on a full tuition waiver under these programs.",
+      "truncated": true,
+      "source": "console_log"
+    },
+    {
+      "question": null,
+      "answer": "Plaksha University collaborates with several banks and financial institutions to offer customized education loan options for students:",
+      "truncated": true,
+      "source": "console_log"
+    },
+    {
+      "question": null,
+      "answer": "Plaksha University provides a comprehensive, two-pronged wellbeing support system focusing on both preventive skill-building and corrective interventions:",
+      "truncated": true,
+      "source": "console_log"
+    }
+  ]
+}

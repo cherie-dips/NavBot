@@ -23,6 +23,9 @@ apps/web/public/chat-widget.iife.js
 *.db-wal
 *.db-shm
 
+# Client-facing drafts (not part of the build)
+/client-response/
+
 # IDE & OS
 .DS_Store
 .vscode

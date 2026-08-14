@@ -1,6 +1,11 @@
 import { Router, type Request, type Response } from "express";
 import multer from "multer";
-import { answerQuestionWithRag, transcribeAndAnswer, synthesizeSpeech } from "../services/rag";
+import {
+  answerQuestionWithRag,
+  answerQuestionStreaming,
+  transcribeAndAnswer,
+  synthesizeSpeech,
+} from "../services/rag";
 import { logChatTurn } from "../services/db";
 
 export const router: Router = Router();
@@ -70,6 +75,87 @@ router.post("/", async (req: Request, res: Response) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "chat_failed" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Streaming text chat (Server-Sent Events)
+//
+// Same pipeline as POST /, but text is delivered as it is generated so the widget
+// shows words in about a second instead of a spinner for the whole answer.
+// ---------------------------------------------------------------------------
+router.post("/stream", async (req: Request, res: Response) => {
+  const { siteId, message, history } = req.body as {
+    siteId?: string;
+    message?: string;
+    history?: Array<{ role: "user" | "assistant"; content: string }>;
+  };
+
+  if (!siteId || !message) {
+    return res.status(400).json({ error: "siteId and message are required" });
+  }
+
+  const rateKey = `${req.ip || "unknown"}:${siteId}`;
+  if (checkRateLimit(rateKey)) {
+    return res.status(429).json({ error: "Too many requests. Please try again shortly." });
+  }
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  // Defeat proxy buffering, which would otherwise hold the stream until it completes.
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders?.();
+
+  const send = (event: string, data: unknown) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  const t0 = Date.now();
+  let finalAnswer: string | null = null;
+  let sourceCount = 0;
+  let aborted = false;
+  req.on("close", () => { aborted = true; });
+
+  try {
+    for await (const ev of answerQuestionStreaming({
+      siteId,
+      message,
+      history: history || [],
+    })) {
+      if (aborted) break;
+      if (ev.type === "status") send("status", { stage: ev.stage, detail: ev.detail });
+      else if (ev.type === "delta") send("delta", { text: ev.text });
+      else {
+        finalAnswer = ev.answer.answer;
+        sourceCount = ev.answer.sources.length;
+        send("done", {
+          answer: ev.answer.answer,
+          pageLinks: ev.answer.pageLinks,
+          socialLinks: ev.answer.socialLinks,
+          followUps: ev.answer.followUps,
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[chat/stream]", err);
+    // The client may already have partial text, so send a usable close-out
+    // rather than an HTTP error it can no longer receive.
+    send("error", {
+      message: "I had trouble completing that answer. Please try asking again.",
+    });
+  } finally {
+    res.end();
+    if (!aborted && finalAnswer) {
+      logChatTurn({
+        siteId,
+        query: message,
+        channel: "text",
+        answerPreview: finalAnswer,
+        latencyMs: Date.now() - t0,
+        sourceCount,
+      }).catch((e) => console.error("[chat/stream] logChatTurn failed:", e.message));
+    }
   }
 });
 

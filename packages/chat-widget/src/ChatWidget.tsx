@@ -17,6 +17,10 @@ interface Message {
   voiceReply?: boolean;
   pageLinks?: Array<{ url: string; title: string }>;
   socialLinks?: SocialLink[];
+  /** Suggested next questions, shown as chips under the answer. */
+  followUps?: string[];
+  /** True while tokens are still arriving for this message. */
+  streaming?: boolean;
 }
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -830,6 +834,9 @@ export const ChatWidget: React.FC = () => {
   });
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  /** What the bot is doing right now ("Reading 4 pages"), shown instead of bare dots. */
+  const [statusStage, setStatusStage] = useState<string | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -997,31 +1004,150 @@ export const ChatWidget: React.FC = () => {
     xhr.send(JSON.stringify({ text }));
   };
 
-  const sendText = (text: string) => {
+  /**
+   * Streams the answer over SSE so text appears while it is still being written.
+   * Falls back to the non-streaming endpoint if streaming is unavailable, so an
+   * older server or a proxy that buffers events still produces an answer.
+   */
+  const sendText = async (text: string) => {
     if (!text.trim()) return;
     setError(null);
     setFaqDismissed(true);
+
     const userMessage: Message = { id: Date.now(), text: text.trim(), sender: "user", timestamp: new Date().toISOString() };
     const messagesWithUser = [...messages, userMessage];
     addMessage(userMessage);
     setInputValue("");
     setIsTyping(true);
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", `${apiBase}/api/chat`);
-    xhr.setRequestHeader("Content-Type", "application/json");
-    xhr.onload = () => {
+    setStatusStage("Searching pages");
+
+    const botId = Date.now() + 1;
+    const payload = JSON.stringify({ siteId, message: userMessage.text, history: buildApiHistory(messagesWithUser) });
+
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+
+    try {
+      const res = await fetch(`${apiBase}/api/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: payload,
+        signal: controller.signal,
+      });
+
+      if (!res.ok || !res.body) throw new Error(`stream unavailable (${res.status})`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let acc = "";
+      let started = false;
+
+      const handleEvent = (name: string, dataRaw: string) => {
+        let data: Record<string, unknown>;
+        try { data = JSON.parse(dataRaw); } catch { return; }
+
+        if (name === "status") {
+          const stage = String(data.stage ?? "");
+          const detail = data.detail ? ` ${String(data.detail)}` : "";
+          setStatusStage(
+            stage === "planning" ? "Understanding your question"
+              : stage === "searching" ? "Searching pages"
+              : stage === "reading" ? `Reading${detail}`
+              : "Writing"
+          );
+        } else if (name === "delta") {
+          acc += String(data.text ?? "");
+          if (!started) {
+            started = true;
+            setIsTyping(false);
+            setStatusStage(null);
+            setMessages((prev) => {
+              const next = [...prev, { id: botId, text: acc, sender: "bot" as const, timestamp: new Date().toISOString(), streaming: true }];
+              return next;
+            });
+          } else {
+            setMessages((prev) => prev.map((m) => (m.id === botId ? { ...m, text: acc } : m)));
+          }
+        } else if (name === "done") {
+          const finalText = String(data.answer ?? acc);
+          setMessages((prev) => {
+            const exists = prev.some((m) => m.id === botId);
+            const finished: Message = {
+              id: botId,
+              text: finalText,
+              sender: "bot",
+              timestamp: new Date().toISOString(),
+              pageLinks: data.pageLinks as Message["pageLinks"],
+              socialLinks: data.socialLinks as SocialLink[] | undefined,
+              followUps: data.followUps as string[] | undefined,
+              streaming: false,
+            };
+            const next = exists ? prev.map((m) => (m.id === botId ? finished : m)) : [...prev, finished];
+            saveHistory(siteId, next);
+            return next;
+          });
+        } else if (name === "error") {
+          if (!started) throw new Error(String(data.message ?? "stream error"));
+        }
+      };
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // SSE frames are separated by a blank line.
+        let sep: number;
+        while ((sep = buffer.indexOf("\n\n")) >= 0) {
+          const frame = buffer.slice(0, sep);
+          buffer = buffer.slice(sep + 2);
+          let name = "message";
+          const dataLines: string[] = [];
+          for (const line of frame.split("\n")) {
+            if (line.startsWith("event:")) name = line.slice(6).trim();
+            else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+          }
+          if (dataLines.length) handleEvent(name, dataLines.join("\n"));
+        }
+      }
+
+      if (!started) throw new Error("stream produced no text");
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      console.warn("Streaming failed, falling back:", err);
       try {
-        if (xhr.status < 200 || xhr.status >= 300) throw new Error(`Chat request failed with status ${xhr.status}`);
-        const data = JSON.parse(xhr.responseText) as { answer: string; pageLinks?: Array<{ url: string; title: string }>; socialLinks?: SocialLink[] };
-        addMessage({ id: Date.now() + 1, text: data.answer || "Sorry, I couldn't generate a response.", sender: "bot", timestamp: new Date().toISOString(), pageLinks: data.pageLinks, socialLinks: data.socialLinks });
-      } catch (e) {
-        console.error("Chat error:", e);
-        setError("Something went wrong talking to the assistant. Please try again.");
-        addMessage({ id: Date.now() + 2, text: "I'm having trouble connecting right now. Please try again in a moment.", sender: "bot", timestamp: new Date().toISOString() });
-      } finally { setIsTyping(false); }
-    };
-    xhr.onerror = () => { console.error("Chat network error"); setError("Something went wrong talking to the assistant."); setIsTyping(false); };
-    xhr.send(JSON.stringify({ siteId, message: userMessage.text, history: buildApiHistory(messagesWithUser) }));
+        const res = await fetch(`${apiBase}/api/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+        });
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        const data = await res.json();
+        addMessage({
+          id: botId,
+          text: data.answer || "I couldn't put together an answer for that. Please try rephrasing.",
+          sender: "bot",
+          timestamp: new Date().toISOString(),
+          pageLinks: data.pageLinks,
+          socialLinks: data.socialLinks,
+          followUps: data.followUps,
+        });
+      } catch (e2) {
+        console.error("Chat error:", e2);
+        setError("I'm having trouble reaching the assistant. Please try again in a moment.");
+        addMessage({
+          id: botId + 1,
+          text: "I'm having trouble connecting right now. Please try again in a moment — or reach the team directly at info@plaksha.edu.in.",
+          sender: "bot",
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } finally {
+      streamAbortRef.current = null;
+      setIsTyping(false);
+      setStatusStage(null);
+    }
   };
 
   const handleSend = () => sendText(inputValue);
@@ -1206,6 +1332,39 @@ export const ChatWidget: React.FC = () => {
                 {message.sender === "bot" && message.socialLinks && renderSocialLinks(message.socialLinks, setSocialEmbed)}
                 {message.sender === "bot" && message.pageLinks && renderPageLinks(message.pageLinks)}
               </div>
+              {/* Suggested next questions — the model emits these with the answer, so they cost no extra latency. */}
+              {message.sender === "bot" && !message.streaming && message.followUps && message.followUps.length > 0 && (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px", maxWidth: "100%" }}>
+                  {message.followUps.map((q, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => {
+                        setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, followUps: [] } : m)));
+                        void sendText(q);
+                      }}
+                      style={{
+                        all: "unset",
+                        cursor: "pointer",
+                        fontSize: "12.5px",
+                        lineHeight: 1.35,
+                        padding: "6px 11px",
+                        borderRadius: "14px",
+                        background: "rgba(255,255,255,0.55)",
+                        border: `1px solid ${theme.iconColor}33`,
+                        color: "#334155",
+                        fontWeight: 500,
+                        maxWidth: "100%",
+                        overflowWrap: "break-word",
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.9)"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "rgba(255,255,255,0.55)"; }}
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
               {/* Play audio button for voice-triggered bot replies */}
               {message.voiceReply && message.sender === "bot" && (
                 <button
@@ -1297,10 +1456,17 @@ export const ChatWidget: React.FC = () => {
 
           {isTyping && (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
-              <div style={{ background: theme.botBubbleBg, border: "1px solid rgba(255,255,255,0.2)", padding: "10px 14px", borderRadius: "2px 16px 16px 16px", display: "flex", gap: "5px", alignItems: "center" }}>
-                {[0, 1, 2].map((i) => (
-                  <span key={i} style={{ width: "6px", height: "6px", background: theme.iconColor, borderRadius: "50%", animation: "bounce 1s infinite", animationDelay: `${i * 0.15}s` }} />
-                ))}
+              <div style={{ background: theme.botBubbleBg, border: "1px solid rgba(255,255,255,0.2)", padding: "10px 14px", borderRadius: "2px 16px 16px 16px", display: "flex", gap: "8px", alignItems: "center" }}>
+                <span style={{ display: "flex", gap: "5px", alignItems: "center" }}>
+                  {[0, 1, 2].map((i) => (
+                    <span key={i} style={{ width: "6px", height: "6px", background: theme.iconColor, borderRadius: "50%", animation: "bounce 1s infinite", animationDelay: `${i * 0.15}s` }} />
+                  ))}
+                </span>
+                {statusStage && (
+                  <span aria-live="polite" style={{ fontSize: "12px", color: theme.iconColor, opacity: 0.75 }}>
+                    {statusStage}…
+                  </span>
+                )}
               </div>
             </div>
           )}
