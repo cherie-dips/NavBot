@@ -181,9 +181,14 @@ const PLAKSHA: SiteProfile = {
       page: "https://plaksha.edu.in/financial-aid",
     },
     {
-      topic: /\b(student life|wellbeing|well-being|counsel|hostel|campus life|club)\b/i,
-      label: "Student Life",
+      // Wellbeing questions are often asked in the first person and emotionally
+      // ("I'm anxious about moving away from home"), so this matches how students
+      // actually write, not just the institutional vocabulary on the page.
+      topic:
+        /\b(student life|well-?being|counsel(?:l)?(?:or|ing)|therapy|therapist|mental health|anxiety|anxious|stress(?:ed)?|depress|lonely|loneliness|homesick|overwhelmed|burn ?out|support (?:system|service)|pastoral|hostel|campus life|club|settling in|first ?year)\b/i,
+      label: "Student Life and Wellbeing",
       email: "studentlife@plaksha.edu.in",
+      phone: "+91 98759 90805",
       page: "https://plaksha.edu.in/well-being",
     },
     {

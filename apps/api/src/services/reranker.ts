@@ -41,16 +41,24 @@ export interface RerankedDoc extends RetrievedDoc {
 }
 
 /**
- * Confidence bands. Derived from observed behaviour on this index: genuinely
- * relevant chunks land above 0.9, tangential ones in the 0.2-0.6 range, and
- * unrelated ones below 0.01.
+ * The score is reliable for ORDERING and unreliable as an absolute answerability
+ * threshold, because its scale shifts with how the question is phrased. Measured on
+ * this index, the same wellbeing pages scored:
+ *
+ *   "What mental health support does Plaksha offer?"                    0.9388
+ *   "If I have anxiety about moving away from home, what support...?"   0.0303
+ *
+ * Both retrieved the correct pages in the correct order. Only the absolute value
+ * collapsed, because a cross-encoder matches first-person emotional phrasing poorly
+ * against third-person institutional prose.
+ *
+ * So this threshold selects how much the answer should hedge. It must NEVER be used
+ * to refuse — gating on it reproduces exactly the "failed to answer questions the
+ * site can answer" defect it was introduced to fix.
  */
 export const RELEVANCE = {
-  /** At or above this, answer normally. */
+  /** At or above this, answer plainly. Below it, answer but flag what is unconfirmed. */
   STRONG: 0.55,
-  /** Between WEAK and STRONG, answer but flag possible incompleteness. */
-  WEAK: 0.12,
-  /** Below WEAK, we have nothing useful — go to the fallback ladder. */
 } as const;
 
 async function rerankBatch(

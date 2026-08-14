@@ -237,12 +237,13 @@ export async function answerQuestionWithRag(params: {
   const retrieval = await runRetrieval({ siteId, plan });
   const socialResults = await socialPromise;
 
-  if (retrieval.meta.confidence === "none" && socialResults.length === 0) {
-    console.warn(
-      `[rag] no usable content for "${plan.standalone.slice(0, 70)}" (top=${retrieval.meta.topScore.toFixed(3)})`
-    );
-    const fb = buildContactFallback({ siteId, question: plan.standalone, docs: retrieval.docs });
-    return { ...fb, sources: dedupeSources(retrieval.docs, siteId), socialLinks: [], path: "contact_fallback" };
+  // Only bail out when there is genuinely nothing to read. A low rerank score on
+  // real pages means the phrasing is unusual, not that the answer is missing, so the
+  // model gets to see the pages and decide.
+  if (retrieval.docs.length === 0 && socialResults.length === 0) {
+    console.warn(`[rag] retrieved nothing for "${plan.standalone.slice(0, 70)}"`);
+    const fb = buildContactFallback({ siteId, question: plan.standalone, docs: [] });
+    return { ...fb, sources: [], socialLinks: [], path: "contact_fallback" };
   }
 
   // 4. Generate.
@@ -292,7 +293,12 @@ export async function answerQuestionWithRag(params: {
 
   // Rungs 3 and 4: partial answer with pages, else the contact block.
   if (!raw.trim()) {
-    const fb = buildContactFallback({ siteId, question: plan.standalone, docs: retrieval.docs });
+    const fb = buildContactFallback({
+      siteId,
+      question: plan.standalone,
+      docs: retrieval.docs,
+      reason: "generation_failed",
+    });
     return { ...fb, sources: dedupeSources(retrieval.docs, siteId), socialLinks: [], path: "contact_fallback" };
   }
 
@@ -377,12 +383,12 @@ export async function* answerQuestionStreaming(params: {
   yield { type: "status", stage: "searching" };
   const retrieval = await runRetrieval({ siteId, plan });
 
-  if (retrieval.meta.confidence === "none") {
-    const fb = buildContactFallback({ siteId, question: plan.standalone, docs: retrieval.docs });
+  if (retrieval.docs.length === 0) {
+    const fb = buildContactFallback({ siteId, question: plan.standalone, docs: [] });
     yield { type: "delta", text: fb.answer };
     yield {
       type: "done",
-      answer: { ...fb, sources: dedupeSources(retrieval.docs, siteId), socialLinks: [], path: "contact_fallback" },
+      answer: { ...fb, sources: [], socialLinks: [], path: "contact_fallback" },
     };
     return;
   }
@@ -425,7 +431,12 @@ export async function* answerQuestionStreaming(params: {
   }
 
   if (!raw.trim()) {
-    const fb = buildContactFallback({ siteId, question: plan.standalone, docs: retrieval.docs });
+    const fb = buildContactFallback({
+      siteId,
+      question: plan.standalone,
+      docs: retrieval.docs,
+      reason: "generation_failed",
+    });
     yield { type: "delta", text: fb.answer };
     yield {
       type: "done",

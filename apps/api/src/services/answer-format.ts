@@ -48,6 +48,11 @@ You answer about ${profile.scopeDescription || name}. For anything outside that,
 VOICE
 - American English spelling throughout (program, center, organize, analyze).
 - Write like a knowledgeable member of staff: direct, warm, factual. No corporate filler.
+- Sensitive questions — mental health, anxiety, homesickness, stress, money worries,
+  failing a course — come from a real person who may be struggling. Acknowledge the
+  concern in one short human sentence before the practical information, name the
+  specific service and how to reach it, and never reply with only a list of links.
+  Do not give clinical or medical advice; point to the people whose job this is.
 - Never open with "Based on the provided content", "According to the sources", "I found that", or any description of your own process. Open with the answer.
 - Never mention "context", "sources", "chunks", "the documents", or "the pages provided". The visitor cannot see them.
 - You represent ${name}. State what the university offers with confidence. Do not hedge about its quality or commitments, but never invent facts.
@@ -263,20 +268,28 @@ export function buildContactFallback(params: {
   siteId: string;
   question: string;
   docs: RerankedDoc[];
+  /** Why we ended up here — the wording must not contradict what is on screen. */
+  reason?: "no_content" | "generation_failed";
 }): FormattedAnswer {
-  const { siteId, question, docs } = params;
+  const { siteId, question, docs, reason = "no_content" } = params;
   const profile = getSiteProfile(siteId);
   const contact = contactForQuestion(siteId, question);
   const name = profile.displayName || siteId;
 
-  const lines: string[] = [
-    `I don't have that specific detail on the ${name} website yet.`,
-    "",
-  ];
-
   const nearest = docs.slice(0, 2).filter((d) => d.url);
+
+  // Saying "I don't have that detail" above a list of clearly relevant page titles
+  // reads as broken. Only claim absence when nothing was actually found.
+  const opener =
+    reason === "generation_failed"
+      ? "I couldn't finish putting that answer together, but these pages cover it:"
+      : nearest.length > 0
+        ? "I couldn't find a direct answer to that, but these pages look closest:"
+        : `I don't have that on the ${name} website yet.`;
+
+  const lines: string[] = [opener, ""];
+
   if (nearest.length > 0) {
-    lines.push("These pages are the closest I found:");
     for (const d of nearest) lines.push(`• ${d.title || d.url}`);
     lines.push("");
   }

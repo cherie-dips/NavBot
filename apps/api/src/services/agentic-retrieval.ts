@@ -10,7 +10,7 @@
  *   1. 1-4 planner sub-queries, embedded in a single batch, queried in parallel
  *   2. section expansion for list questions, scoped by the site profile
  *   3. boilerplate removal (collapse duplicates, drop menus)
- *   4. one cross-encoder rerank that decides both ordering and confidence
+ *   4. one cross-encoder rerank that decides ordering (and how much to hedge)
  */
 import { querySiteDocs, type RetrievedDoc } from "./vectorstore";
 import { getTrackedUrls } from "./db";
@@ -52,6 +52,7 @@ export interface RetrievalResult {
     boilerplate: BoilerplateStats;
     kept: number;
     topScore: number;
+    /** "none" means we retrieved nothing at all — never "the score looked low". */
     confidence: "strong" | "weak" | "none";
     rerankOk: boolean;
     ms: { retrieve: number; rerank: number; total: number };
@@ -159,8 +160,10 @@ export async function runRetrieval(params: {
   );
 
   const topScore = ranked[0]?.rerankScore ?? 0;
+  // Confidence sets how much the answer hedges. Only an empty result set counts as
+  // "none": a low score on a well-retrieved page means unusual phrasing, not absence.
   const confidence: "strong" | "weak" | "none" =
-    topScore >= RELEVANCE.STRONG ? "strong" : topScore >= RELEVANCE.WEAK ? "weak" : "none";
+    ranked.length === 0 ? "none" : topScore >= RELEVANCE.STRONG ? "strong" : "weak";
 
   console.log(
     `[retrieval] site=${siteId} q=${queries.length} cand=${candidates.length} ` +
