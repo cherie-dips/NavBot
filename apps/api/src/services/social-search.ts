@@ -248,13 +248,25 @@ export async function searchSocialMedia(
     ? saved
     : ((getSiteProfile(siteId).socialHandles ?? {}) as SocialHandles);
 
-  const configuredPlatforms = Object.entries(handles).filter(([, v]) => v?.trim());
+  // A site can disable platforms whose links do not hold up, independently of which
+  // handles are saved.
+  const allowed = getSiteProfile(siteId).enabledSocialPlatforms;
+  const usable: SocialHandles = allowed
+    ? (Object.fromEntries(
+        Object.entries(handles).filter(([platform]) => allowed.includes(platform))
+      ) as SocialHandles)
+    : handles;
+
+  const configuredPlatforms = Object.entries(usable).filter(([, v]) => v?.trim());
   if (configuredPlatforms.length === 0) {
-    console.warn(`[social-search] No social handles configured for site "${siteId}"`);
+    console.warn(`[social-search] No usable social handles for site "${siteId}"`);
     return [];
   }
   if (!hasSaved) {
     console.log(`[social-search] using site-profile default handles for "${siteId}"`);
+  }
+  if (allowed) {
+    console.log(`[social-search] platforms limited to: ${configuredPlatforms.map(([p]) => p).join(", ")}`);
   }
 
   // Check cache
@@ -265,7 +277,7 @@ export async function searchSocialMedia(
     return cached;
   }
 
-  const searchQueries = buildSearchQueries(userQuery, handles);
+  const searchQueries = buildSearchQueries(userQuery, usable);
   console.log(`[social-search] Searching ${searchQueries.length} platform(s) for "${userQuery}"`);
 
   // Run all platform searches in parallel

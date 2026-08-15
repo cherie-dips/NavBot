@@ -87,5 +87,21 @@ check("removes all bare social URLs", !/instagram\.com\/reel\/(A|B|C)/.test(m.an
 check("resolved POST tag survives URL stripping", m.answer.includes("[POST:https://instagram.com/reel/A]"), m.answer);
 check("no empty brackets or parens left", !/\[\s*\]|\(\s*\)/.test(m.answer), m.answer);
 
+// --- One chip per line -------------------------------------------------------
+// The model has emitted four tags on one bullet, rendering as
+// "preview, preview, preview, preview", which tells the reader nothing.
+const many = "• Orientation week for the new class. [POST:1] [POST:2] [POST:3]";
+const mm = formatAnswer({ raw: many, siteId: "plaksha.edu.in", docs: [], posts });
+const chipCount = (mm.answer.match(/\[POST:https?:\/\//g) ?? []).length;
+check("keeps only the first chip on a line", chipCount === 1, mm.answer);
+check("cited list matches surviving chips", mm.citedPosts?.length === 1, JSON.stringify(mm.citedPosts));
+
+const twoLines = [
+  "• First point. [POST:1] [POST:2]",
+  "• Second point. [POST:3]",
+].join("\n");
+const tl = formatAnswer({ raw: twoLines, siteId: "plaksha.edu.in", docs: [], posts });
+check("allows one chip per separate line", (tl.answer.match(/\[POST:https?:\/\//g) ?? []).length === 2, tl.answer);
+
 console.log(`\n${failures === 0 ? "all checks passed" : failures + " check(s) failed"}`);
 process.exit(failures === 0 ? 0 : 1);

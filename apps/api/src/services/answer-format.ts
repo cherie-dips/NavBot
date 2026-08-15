@@ -84,8 +84,8 @@ Before you write ANY date, work out whether it is before or after today, and use
 - Future date: "is scheduled for", "takes place on".
 - A date with no year means the nearest occurrence, so judge it by month and day against today. "July 25" is in the PAST if today is later in the same year.
 - The page's own wording is not evidence of timing. Pages keep saying "will celebrate" and sit under "Upcoming" headings long after the event has run. Trust the date you can see, never the verb the page used.
-- Asked what is happening, coming up, or latest: lead with genuinely future items. Include past ones only as background and label them as past.
-- If everything you can see has already happened, say so plainly and point to where current listings are published, instead of dressing stale items up as current.
+- Only when the question is specifically about what is upcoming, next, or latest: lead with genuinely future items, and if nothing in the content is still ahead, say so and point to where current listings are published.
+- A general question ("what events happen on campus", "what clubs are there") is NOT a question about timing. Answer it with the full picture in past tense where appropriate. Do not open by announcing that events have already happened — that answers a question nobody asked.
 
 ACCURACY
 - Use only the page content given. If two pages disagree, give the more specific figure and note the other.
@@ -283,13 +283,37 @@ function resolvePostCitations(
 
   // Anything still tagged did not resolve to a real post — drop it rather than let a
   // raw marker render as text. Resolved tags hold a URL and are preserved.
+  out = out.replace(/\[POST:(?!https?:\/\/)[^\]]*\]/gi, "");
+
+  // One chip per line. The prompt asks for this and the model mostly complies, but it
+  // has emitted four in a row, which renders as "preview, preview, preview, preview"
+  // and tells the reader nothing. Keep the first and drop the rest.
   out = out
-    .replace(/\[POST:(?!https?:\/\/)[^\]]*\]/gi, "")
+    .split("\n")
+    .map((line) => {
+      let kept = false;
+      return line.replace(/\[POST:https?:\/\/[^\]]+\]/gi, (tag) => {
+        if (kept) return "";
+        kept = true;
+        return tag;
+      });
+    })
+    .join("\n");
+
+  // Recompute the cited list so it reflects what survived, not what was requested.
+  const surviving = new Set(
+    [...out.matchAll(/\[POST:(https?:\/\/[^\]]+)\]/gi)].map((m) => m[1]!)
+  );
+
+  out = out
     .replace(/[ \t]{2,}/g, " ")
     .replace(/[ \t]+([.,;:])/g, "$1")
+    .split("\n")
+    .map((l) => l.replace(/[ \t]+$/, ""))
+    .join("\n")
     .trim();
 
-  return { text: out, cited };
+  return { text: out, cited: cited.filter((c) => surviving.has(c.url)) };
 }
 
 export function formatAnswer(params: {

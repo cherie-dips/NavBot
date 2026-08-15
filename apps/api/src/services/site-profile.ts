@@ -50,6 +50,12 @@ export interface SiteProfile {
    * cite someone else's account.
    */
   socialHandles?: Record<string, string>;
+  /**
+   * Platforms allowed to supply posts, whatever the dashboard has saved. Omit to
+   * allow all. Use this when a platform's links are unreliable rather than deleting
+   * the handle, so the account is still on record.
+   */
+  enabledSocialPlatforms?: string[];
 }
 
 const PLAKSHA: SiteProfile = {
@@ -244,6 +250,11 @@ const PLAKSHA: SiteProfile = {
     linkedin: "plakshauniversity",
     facebook: "plakshauniversity",
   },
+
+  // Facebook and X links returned by search were dead on arrival — Facebook permalinks
+  // frequently 404 or demand a login, and X status URLs often point at removed posts.
+  // Both accounts stay recorded above; they are simply not used as answer sources.
+  enabledSocialPlatforms: ["instagram", "linkedin"],
 
   sectionMap: [
     "/admissions, /admissions/transfer — BTech admission rounds, deadlines, eligibility, application process",
