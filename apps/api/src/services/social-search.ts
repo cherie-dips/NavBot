@@ -1,5 +1,5 @@
 import { getSocialHandles, type SocialHandles } from "./db";
-import { getSiteProfile } from "./site-profile";
+import { getSiteProfile, DEFAULT_SOCIAL_PLATFORMS } from "./site-profile";
 
 function getSerperApiKey(): string {
   return process.env.SERPER_API_KEY?.trim() ?? "";
@@ -248,14 +248,12 @@ export async function searchSocialMedia(
     ? saved
     : ((getSiteProfile(siteId).socialHandles ?? {}) as SocialHandles);
 
-  // A site can disable platforms whose links do not hold up, independently of which
-  // handles are saved.
-  const allowed = getSiteProfile(siteId).enabledSocialPlatforms;
-  const usable: SocialHandles = allowed
-    ? (Object.fromEntries(
-        Object.entries(handles).filter(([platform]) => allowed.includes(platform))
-      ) as SocialHandles)
-    : handles;
+  // Instagram and LinkedIn unless the site opts into more — see DEFAULT_SOCIAL_PLATFORMS.
+  const allowed: readonly string[] =
+    getSiteProfile(siteId).enabledSocialPlatforms ?? DEFAULT_SOCIAL_PLATFORMS;
+  const usable: SocialHandles = Object.fromEntries(
+    Object.entries(handles).filter(([platform]) => allowed.includes(platform))
+  ) as SocialHandles;
 
   const configuredPlatforms = Object.entries(usable).filter(([, v]) => v?.trim());
   if (configuredPlatforms.length === 0) {
@@ -265,9 +263,7 @@ export async function searchSocialMedia(
   if (!hasSaved) {
     console.log(`[social-search] using site-profile default handles for "${siteId}"`);
   }
-  if (allowed) {
-    console.log(`[social-search] platforms limited to: ${configuredPlatforms.map(([p]) => p).join(", ")}`);
-  }
+  console.log(`[social-search] platforms in use: ${configuredPlatforms.map(([p]) => p).join(", ")}`);
 
   // Check cache
   const cacheKey = `${siteId}:${userQuery.toLowerCase().trim()}`;

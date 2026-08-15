@@ -51,12 +51,22 @@ export interface SiteProfile {
    */
   socialHandles?: Record<string, string>;
   /**
-   * Platforms allowed to supply posts, whatever the dashboard has saved. Omit to
-   * allow all. Use this when a platform's links are unreliable rather than deleting
-   * the handle, so the account is still on record.
+   * Platforms allowed to supply posts, whatever the dashboard has saved. Omit to take
+   * DEFAULT_SOCIAL_PLATFORMS; set it explicitly to opt a site into more. Prefer this
+   * over deleting a handle, so the account stays on record.
    */
   enabledSocialPlatforms?: string[];
 }
+
+/**
+ * Instagram and LinkedIn only, unless a site opts into more.
+ *
+ * Facebook and X links coming back from search were routinely dead: Facebook
+ * permalinks 404 or demand a login, and X status URLs often point at removed posts.
+ * Citing a link that does not open is worse than not citing one, so these two are the
+ * default and the others are opt-in per site.
+ */
+export const DEFAULT_SOCIAL_PLATFORMS = ["instagram", "linkedin"] as const;
 
 const PLAKSHA: SiteProfile = {
   siteId: "plaksha.edu.in",
@@ -250,11 +260,6 @@ const PLAKSHA: SiteProfile = {
     linkedin: "plakshauniversity",
     facebook: "plakshauniversity",
   },
-
-  // Facebook and X links returned by search were dead on arrival — Facebook permalinks
-  // frequently 404 or demand a login, and X status URLs often point at removed posts.
-  // Both accounts stay recorded above; they are simply not used as answer sources.
-  enabledSocialPlatforms: ["instagram", "linkedin"],
 
   sectionMap: [
     "/admissions, /admissions/transfer — BTech admission rounds, deadlines, eligibility, application process",
