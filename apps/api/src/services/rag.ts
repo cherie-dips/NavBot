@@ -18,7 +18,12 @@ import {
 import { getFaqUserAnswerForQuestion, getRagCache, setRagCache } from "./db";
 import { runRetrieval } from "./agentic-retrieval";
 import { planQuery, fallbackPlan, type QueryPlan } from "./query-planner";
-import { buildSystemPrompt, formatAnswer, buildContactFallback } from "./answer-format";
+import {
+  buildSystemPrompt,
+  formatAnswer,
+  buildContactFallback,
+  adaptForClient,
+} from "./answer-format";
 import { getSiteProfile, applyGlossary } from "./site-profile";
 import type { RerankedDoc } from "./reranker";
 import type { ChatHistoryItem, PageLink, SocialLink, ChatAnswer } from "./chat-types";
@@ -210,8 +215,10 @@ export async function answerQuestionWithRag(params: {
   siteId: string;
   message: string;
   history: ChatHistoryItem[];
+  /** Rendering capabilities the client advertises, e.g. ["post-chips"]. */
+  features?: string[];
 }): Promise<ChatAnswer> {
-  const { siteId, message, history } = params;
+  const { siteId, message, history, features } = params;
 
   // 1. Curated answer written by the site owner always wins.
   const curated = CACHE_DISABLED
@@ -347,16 +354,21 @@ export async function answerQuestionWithRag(params: {
     }
   }
 
+  const adapted = adaptForClient(formatted.answer, formatted.citedPosts, features);
   const result: ChatAnswer = {
-    answer: formatted.answer,
+    answer: adapted.answer,
     sources,
     pageLinks: resolveMoreInfoLinks({
       citedPosts: formatted.citedPosts,
       socialResults,
       pageLinks: formatted.pageLinks,
     }),
-    // Previews now render inline beside the point they support, so no trailing list.
-    socialLinks: [],
+    // Empty for clients that render inline chips; older bundles get the list back.
+    socialLinks: adapted.trailingPosts.map((p) => ({
+      platform: p.platform,
+      title: p.title,
+      url: p.url,
+    })),
     followUps: formatted.followUps,
     path,
   };
@@ -386,8 +398,9 @@ export async function* answerQuestionStreaming(params: {
   siteId: string;
   message: string;
   history: ChatHistoryItem[];
+  features?: string[];
 }): AsyncGenerator<StreamEvent, void, unknown> {
-  const { siteId, message, history } = params;
+  const { siteId, message, history, features } = params;
 
   const curated = await getFaqUserAnswerForQuestion(siteId, message).catch(() => null);
   if (curated && !curated.stale) {
@@ -456,11 +469,21 @@ export async function* answerQuestionStreaming(params: {
   // [RELEVANT_PAGES] and [FOLLOW_UPS] are emitted last, so bailing out at the opening
   // marker loses every page link and follow-up, and leaves the raw text holding an
   // unclosed tag that the block parser then cannot strip.
+  //
+  // What is displayed is recomputed from the whole buffer each tick rather than
+  // tracked incrementally. Incremental bookkeeping leaked "[POST:1" whenever a tag
+  // straddled a chunk boundary; deriving the visible text from scratch cannot, because
+  // stripping is deterministic and the visible prefix only ever grows.
   let raw = "";
-  let flushed = 0;
+  let emitted = 0;
   let markerSeen = false;
   // Hold back a little tail so a marker split across two chunks is never displayed.
   const MARKER_LOOKAHEAD = 24;
+
+  const visibleText = (upTo: string): string =>
+    upTo
+      .replace(/\s*\[POST:[^\]]*\]/gi, "") // complete citation tags
+      .replace(/\s*\[POST:[^\]]*$/i, ""); // a tag still arriving
 
   for await (const delta of generateContentStream({
     model: GEMINI_MODELS.chat,
@@ -481,19 +504,13 @@ export async function* answerQuestionStreaming(params: {
     if (markerSeen) continue; // keep collecting, stop displaying
 
     const markerAt = raw.indexOf("[RELEVANT_PAGES]");
-    if (markerAt >= 0) {
-      markerSeen = true;
-      if (markerAt > flushed) {
-        yield { type: "delta", text: raw.slice(flushed, markerAt) };
-        flushed = markerAt;
-      }
-      continue;
-    }
+    if (markerAt >= 0) markerSeen = true;
 
-    const safeUpTo = Math.max(0, raw.length - MARKER_LOOKAHEAD);
-    if (safeUpTo > flushed) {
-      yield { type: "delta", text: raw.slice(flushed, safeUpTo) };
-      flushed = safeUpTo;
+    const limit = markerAt >= 0 ? markerAt : Math.max(0, raw.length - MARKER_LOOKAHEAD);
+    const visible = visibleText(raw.slice(0, limit));
+    if (visible.length > emitted) {
+      yield { type: "delta", text: visible.slice(emitted) };
+      emitted = visible.length;
     }
   }
 
@@ -529,18 +546,23 @@ export async function* answerQuestionStreaming(params: {
       sources.push({ url: sr.url, title: `${sr.platform}: ${sr.title}` });
     }
   }
+  const adaptedStream = adaptForClient(formatted.answer, formatted.citedPosts, features);
 
   yield {
     type: "done",
     answer: {
-      answer: formatted.answer,
+      answer: adaptedStream.answer,
       sources,
       pageLinks: resolveMoreInfoLinks({
         citedPosts: formatted.citedPosts,
         socialResults,
         pageLinks: formatted.pageLinks,
       }),
-      socialLinks: [],
+      socialLinks: adaptedStream.trailingPosts.map((p) => ({
+        platform: p.platform,
+        title: p.title,
+        url: p.url,
+      })),
       followUps: formatted.followUps,
       path: "answered",
     },

@@ -1,39 +1,48 @@
 import "dotenv/config";
-import { searchSocialMedia } from "../src/services/social-search";
 import { answerQuestionStreaming } from "../src/services/rag";
 
 const SITE = "plaksha.edu.in";
+const Q = "What are the top events that have happened at Plaksha?";
 
-async function main() {
-  // 1. Does social search return anything now that handles resolve?
-  const t0 = Date.now();
-  const res = await searchSocialMedia(SITE, "events on campus");
-  console.log(`searchSocialMedia -> ${res.length} results in ${Date.now() - t0}ms`);
-  for (const r of res.slice(0, 6)) {
-    console.log(`  [${r.platform}] ${r.title.replace(/\s+/g, " ").slice(0, 78)}`);
-    console.log(`      ${r.url}`);
-  }
+async function run(label: string, features?: string[]) {
+  console.log(`\n${"═".repeat(76)}\n${label}\n${"═".repeat(76)}`);
+  let streamed = "";
+  let sawRawTagMidStream = false;
 
-  // 2. Streaming path — the one the widget actually uses.
-  console.log(`\n${"─".repeat(76)}`);
-  const q = "What kind of events are held on campus?";
-  console.log(`Q: ${q}\n`);
-  const t1 = Date.now();
-  let firstDelta = 0;
-  let text = "";
-  for await (const ev of answerQuestionStreaming({ siteId: SITE, message: q, history: [] })) {
-    if (ev.type === "status") console.log(`  [status] ${ev.stage}${ev.detail ? " " + ev.detail : ""} (+${Date.now() - t1}ms)`);
-    else if (ev.type === "delta") {
-      if (!firstDelta) { firstDelta = Date.now() - t1; console.log(`  [first token at ${firstDelta}ms]`); }
-      text += ev.text;
-    } else {
-      console.log(`\nA: ${ev.answer.answer.replace(/\n/g, "\n   ")}`);
-      console.log(`\n   pageLinks: ${ev.answer.pageLinks.map((l) => l.url.split("#")[0]).join(", ") || "(none)"}`);
-      console.log(`   socialLinks: ${ev.answer.socialLinks.map((l) => `${l.platform}:${l.url}`).join(", ") || "(none)"}`);
-      console.log(`   followUps: ${ev.answer.followUps.join(" | ") || "(none)"}`);
-      console.log(`   total: ${Date.now() - t1}ms`);
+  for await (const ev of answerQuestionStreaming({
+    siteId: SITE,
+    message: Q,
+    history: [],
+    features,
+  })) {
+    if (ev.type === "delta") {
+      streamed += ev.text;
+      if (/\[POST:/i.test(ev.text)) sawRawTagMidStream = true;
+    } else if (ev.type === "done") {
+      console.log(ev.answer.answer.replace(/^/gm, "  "));
+      console.log(`\n  more-info: ${ev.answer.pageLinks.map((l) => l.url).join(", ") || "(none)"}`);
+      console.log(`  trailing posts: ${ev.answer.socialLinks.length}`);
+      console.log(`  follow-ups: ${ev.answer.followUps.length}`);
+
+      const a = ev.answer.answer;
+      const problems: string[] = [];
+      if (/\[POST:(?!https?:\/\/)/i.test(a)) problems.push("unresolved POST tag");
+      if (/^\s*\[\s*$/m.test(a)) problems.push("dangling bracket line");
+      if (/\[\s*\]|\(\s*\)/.test(a)) problems.push("empty brackets/parens");
+      if (features?.includes("post-chips")) {
+        if (!/\[POST:https?:\/\//i.test(a)) problems.push("expected inline chips, found none");
+      } else if (/\[POST:/i.test(a)) {
+        problems.push("old client received POST tags");
+      }
+      if (sawRawTagMidStream) problems.push("raw tag flushed mid-stream");
+      console.log(`  ${problems.length ? "PROBLEMS: " + problems.join("; ") : "clean"}`);
     }
   }
+}
+
+async function main() {
+  await run("NEW client (features: post-chips)", ["post-chips"]);
+  await run("OLD client (no features — cached bundle)", undefined);
   process.exit(0);
 }
 

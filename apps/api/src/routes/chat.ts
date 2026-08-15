@@ -40,10 +40,11 @@ setInterval(() => {
 // ---------------------------------------------------------------------------
 router.post("/", async (req: Request, res: Response) => {
   try {
-    const { siteId, message, history } = req.body as {
+    const { siteId, message, history, features } = req.body as {
       siteId?: string;
       message?: string;
       history?: Array<{ role: "user" | "assistant"; content: string }>;
+      features?: string[];
     };
 
     if (!siteId || !message) {
@@ -60,6 +61,7 @@ router.post("/", async (req: Request, res: Response) => {
       siteId,
       message,
       history: history || [],
+      features,
     });
 
     res.json(result);
@@ -85,10 +87,11 @@ router.post("/", async (req: Request, res: Response) => {
 // shows words in about a second instead of a spinner for the whole answer.
 // ---------------------------------------------------------------------------
 router.post("/stream", async (req: Request, res: Response) => {
-  const { siteId, message, history } = req.body as {
+  const { siteId, message, history, features } = req.body as {
     siteId?: string;
     message?: string;
     history?: Array<{ role: "user" | "assistant"; content: string }>;
+    features?: string[];
   };
 
   if (!siteId || !message) {
@@ -122,6 +125,7 @@ router.post("/stream", async (req: Request, res: Response) => {
       siteId,
       message,
       history: history || [],
+      features,
     })) {
       if (aborted) break;
       if (ev.type === "status") send("status", { stage: ev.stage, detail: ev.detail });

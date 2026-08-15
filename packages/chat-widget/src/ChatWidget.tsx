@@ -1001,7 +1001,15 @@ export const ChatWidget: React.FC = () => {
     setStatusStage("Searching pages");
 
     const botId = Date.now() + 1;
-    const payload = JSON.stringify({ siteId, message: userMessage.text, history: buildApiHistory(messagesWithUser) });
+    // Tells the server this bundle can render [POST:<url>] as an inline preview chip.
+    // Without it the server strips the tags and returns a trailing list instead, so a
+    // cached older bundle degrades cleanly rather than printing raw markers.
+    const payload = JSON.stringify({
+      siteId,
+      message: userMessage.text,
+      history: buildApiHistory(messagesWithUser),
+      features: ["post-chips"],
+    });
 
     const controller = new AbortController();
     streamAbortRef.current = controller;

@@ -70,5 +70,22 @@ const truncated = [
 const t = formatAnswer({ raw: truncated, siteId: "plaksha.edu.in", docs: [], posts: [] });
 check("drops only the final unterminated line", t.answer.includes("Meal plan costs") && !t.answer.includes("5 KM run"), t.answer);
 
+// --- Markdown links and bare URLs -------------------------------------------
+// A dangling "[" shipped to users because the bare-URL pattern did not exclude "]"
+// and swallowed the "](" between a markdown link's label and target.
+const md = [
+  "Fitoor Fest highlights. [https://www.instagram.com/reel/A](https://www.instagram.com/reel/A)",
+  "See [this reel](https://www.instagram.com/reel/B) for the fashion show.",
+  "Bare https://www.instagram.com/reel/C link.",
+  "Cited properly. [POST:1]",
+].join("\n");
+const m = formatAnswer({ raw: md, siteId: "plaksha.edu.in", docs: [], posts });
+console.log("--- markdown case ---\n" + m.answer + "\n---------------------\n");
+check("no dangling bracket from [url](url)", !/^\s*\[\s*$/m.test(m.answer) && !/\[\s*$/.test(m.answer), m.answer);
+check("keeps markdown link label text", m.answer.includes("this reel"), m.answer);
+check("removes all bare social URLs", !/instagram\.com\/reel\/(A|B|C)/.test(m.answer.replace(/\[POST:[^\]]+\]/g, "")), m.answer);
+check("resolved POST tag survives URL stripping", m.answer.includes("[POST:https://instagram.com/reel/A]"), m.answer);
+check("no empty brackets or parens left", !/\[\s*\]|\(\s*\)/.test(m.answer), m.answer);
+
 console.log(`\n${failures === 0 ? "all checks passed" : failures + " check(s) failed"}`);
 process.exit(failures === 0 ? 0 : 1);

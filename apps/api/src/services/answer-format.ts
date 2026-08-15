@@ -79,10 +79,13 @@ FORMAT
 - No markdown tables. No headings. Bullets use "•".
 
 DATES — today is ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Kolkata" })} (IST).
-- Compare every date you mention against today before describing it. A date in the past is "was held on", never "is happening" or "is coming up".
-- Website pages are not always updated after an event runs, so a date sitting under a heading like "Upcoming" may still be in the past. Trust the date, not the heading.
-- If the question asks what is happening, coming up, or latest, lead with genuinely future or recent items. Mention past editions only as background, and label them as past.
-- If everything you can see is in the past, say so plainly and point to where current listings are published, rather than presenting stale items as current.
+Before you write ANY date, work out whether it is before or after today, and use the matching tense. This is the single most common mistake, so do it every time.
+- Past date: "was held on 25 July", "took place in June". NEVER "is happening", "will be", "is coming up", "upcoming".
+- Future date: "is scheduled for", "takes place on".
+- A date with no year means the nearest occurrence, so judge it by month and day against today. "July 25" is in the PAST if today is later in the same year.
+- The page's own wording is not evidence of timing. Pages keep saying "will celebrate" and sit under "Upcoming" headings long after the event has run. Trust the date you can see, never the verb the page used.
+- Asked what is happening, coming up, or latest: lead with genuinely future items. Include past ones only as background and label them as past.
+- If everything you can see has already happened, say so plainly and point to where current listings are published, instead of dressing stale items up as current.
 
 ACCURACY
 - Use only the page content given. If two pages disagree, give the more specific figure and note the other.
@@ -213,6 +216,39 @@ export function buildDeepLink(url: string, chunk: string | undefined): string {
   return `${url}#:~:text=${encodeURIComponent(sentence.slice(0, 200))}`;
 }
 
+const SOCIAL_HOST = String.raw`(?:www\.)?(?:instagram\.com|twitter\.com|x\.com|facebook\.com|linkedin\.com)`;
+
+/**
+ * Remove social URLs the model pasted despite being told to use [POST:n] tags.
+ *
+ * Markdown links are handled FIRST and as a whole. A previous version matched the
+ * bare URL with `[^\s)]+`, which does not exclude `]`, so in
+ * `[https://insta../A](https://insta../A)` the match ran from the first `h` through
+ * `](https://insta../A)` and left a dangling `[` in the answer. That literally
+ * shipped: bullets rendered as a lone "[".
+ */
+function stripSocialUrls(text: string): string {
+  const mdLink = new RegExp(String.raw`\[([^\]]*)\]\(\s*https?:\/\/${SOCIAL_HOST}\/[^\s)]*\s*\)`, "gi");
+  const bareUrl = new RegExp(String.raw`\(?\s*https?:\/\/${SOCIAL_HOST}\/[^\s)\]]*\s*\)?`, "gi");
+
+  return (
+    text
+      // Keep the human-readable label; drop it when the label is just the URL again.
+      .replace(mdLink, (_m, label: string) => (/^\s*https?:\/\//i.test(label) ? " " : label))
+      .replace(bareUrl, " ")
+      // Tidy the seams left behind.
+      .replace(/\(\s*\)/g, "")
+      .replace(/\[\s*\]/g, "")
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/[ \t]+([.,;:!?])/g, "$1")
+      .split("\n")
+      .map((l) => l.replace(/[ \t]+$/, ""))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim()
+  );
+}
+
 /**
  * Turn the model's `[POST:n]` citations into `[POST:<url>]`, which is what the widget
  * renders as an inline preview beside the point it supports.
@@ -285,20 +321,7 @@ export function formatAnswer(params: {
 
   // Strip any social URL the model pasted despite instructions, so a bare link never
   // renders in the prose; citations are carried by [POST:...] tags alone.
-  answer = answer
-    // Replaced with a space, not nothing: the pattern eats the whitespace on both
-    // sides, so removing it outright welds the neighbouring words together.
-    .replace(
-      /\(?\s*https?:\/\/(?:www\.)?(?:instagram\.com|twitter\.com|x\.com|facebook\.com|linkedin\.com)\/[^\s)]+\s*\)?/gi,
-      " "
-    )
-    .replace(/[ \t]{2,}/g, " ")
-    .replace(/[ \t]+([.,;:!?])/g, "$1")
-    .split("\n")
-    .map((l) => l.replace(/[ \t]+$/, ""))
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  answer = stripSocialUrls(answer);
 
   const { text: withPosts, cited: citedPosts } = resolvePostCitations(answer, posts);
   answer = withPosts;
@@ -348,6 +371,32 @@ export function formatAnswer(params: {
     .slice(0, MAX_FOLLOW_UPS);
 
   return { answer, pageLinks, followUps, citedPosts };
+}
+
+/**
+ * Older widget bundles do not understand `[POST:<url>]` and render it as raw text.
+ * Browsers cache the widget script, so that skew survives a deploy — which is exactly
+ * how a bullet ending in "[POST:https://..." reached a user.
+ *
+ * Clients that understand the tag say so. Everything else gets the tags removed and
+ * the posts returned as a trailing list, which every older bundle already renders.
+ */
+export const POST_CHIP_FEATURE = "post-chips";
+
+export function adaptForClient(
+  answer: string,
+  citedPosts: Array<{ url: string; platform: string; title: string }> | undefined,
+  features: string[] | undefined
+): { answer: string; trailingPosts: Array<{ url: string; platform: string; title: string }> } {
+  if (features?.includes(POST_CHIP_FEATURE)) {
+    return { answer, trailingPosts: [] };
+  }
+  const stripped = answer
+    .replace(/\s*\[POST:[^\]]*\]/gi, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([.,;:!?])/g, "$1")
+    .trim();
+  return { answer: stripped, trailingPosts: citedPosts ?? [] };
 }
 
 // ---------------------------------------------------------------------------
