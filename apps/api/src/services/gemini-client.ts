@@ -131,7 +131,10 @@ export function parseGemini429RetryDelayMs(err: unknown): number | null {
  * a 400: Gemini 2.x takes `thinkingConfig.thinkingBudget`, Gemini 3.x takes
  * `thinkingLevel`. Both were verified against the live API.
  */
-const THINKING_HEADROOM_TOKENS = 2048;
+// Reasoning and the answer share one pool, so headroom is a cushion, not a guarantee.
+// Measured truncations at 2048 on multi-part answers; 3072 leaves the answer intact
+// without a meaningful latency cost, since unused budget is never billed or spent.
+const THINKING_HEADROOM_TOKENS = 3072;
 
 function isGemini3(model: string): boolean {
   return /gemini-3/i.test(model);

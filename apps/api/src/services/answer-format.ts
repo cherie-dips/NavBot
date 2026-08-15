@@ -14,6 +14,8 @@ export interface FormattedAnswer {
   answer: string;
   pageLinks: PageLink[];
   followUps: string[];
+  /** Posts the answer actually cited, in the order they appear. */
+  citedPosts?: Array<{ url: string; platform: string; title: string }>;
 }
 
 const MAX_PAGE_LINKS = 5;
@@ -26,13 +28,25 @@ export function buildSystemPrompt(params: {
   siteId: string;
   confidence: "strong" | "weak";
   exhaustive: boolean;
+  hasSocial?: boolean;
 }): string {
-  const { siteId, confidence, exhaustive } = params;
+  const { siteId, confidence, exhaustive, hasSocial = false } = params;
   const profile = getSiteProfile(siteId);
   const name = profile.displayName || siteId;
 
   const completeness = exhaustive
     ? `\nThis is a list question. Enumerate every item you can find across ALL the provided pages, then state the total. If different pages list different items, merge them into one list and do not stop at the first page that has some.`
+    : "";
+
+  const social = hasSocial
+    ? `
+SOCIAL POSTS
+- Posts are supplied as "[POST:n] (platform) caption". Cite one by ending the sentence
+  or bullet it supports with that exact tag, e.g. "• Fitoor, the annual cultural fest. [POST:3]"
+- Put the tag on the line it belongs to. Never gather posts into a list at the end.
+- NEVER write a social media URL in your answer. The tag is the only way to reference a post.
+- At most one tag per line, and only where the post genuinely shows that thing.
+- Describe what the post shows in your own words; do not quote the caption verbatim.`
     : "";
 
   const hedging =
@@ -74,7 +88,7 @@ ACCURACY
 - Use only the page content given. If two pages disagree, give the more specific figure and note the other.
 - Combine facts across pages into one answer — the answer to a question is often split across several pages.
 - If a fact is genuinely absent, say what you do know, then name the exact page or contact that has the rest.
-- Never state a fee, deadline, or eligibility rule that is not written in the content.${completeness}${hedging}
+- Never state a fee, deadline, or eligibility rule that is not written in the content.${completeness}${hedging}${social}
 
 After the answer, emit these two blocks exactly:
 
@@ -152,13 +166,17 @@ function stripMeta(text: string): string {
  */
 function trimIncompleteTail(text: string, wasTruncated: boolean): string {
   if (!wasTruncated) return text;
+
   const lines = text.split("\n");
+  // Only the final line was mid-flight when the budget ran out; everything above it
+  // finished. Bullets are NOT exempt — this model often ends a bullet without
+  // punctuation, so "• ...a 5 KM run to support workers" is indistinguishable from a
+  // complete one by shape alone, and only its position makes it suspect.
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!.trim();
     if (!line) continue;
-    // Terminal punctuation, or a bullet that at least reads as a whole item.
-    if (/[.!?:;)\]]$/.test(line) || (/^[•\-*]/.test(line) && line.length > 12)) break;
-    lines.splice(i, 1);
+    if (!/[.!?:;)\]]$/.test(line)) lines.splice(i, 1);
+    break;
   }
   return lines.join("\n").trim();
 }
@@ -195,13 +213,58 @@ export function buildDeepLink(url: string, chunk: string | undefined): string {
   return `${url}#:~:text=${encodeURIComponent(sentence.slice(0, 200))}`;
 }
 
+/**
+ * Turn the model's `[POST:n]` citations into `[POST:<url>]`, which is what the widget
+ * renders as an inline preview beside the point it supports.
+ *
+ * Resolving the index here rather than letting the model write URLs means a
+ * hallucinated or mistyped URL cannot reach the client: an index with no matching
+ * post is simply dropped.
+ */
+function resolvePostCitations(
+  text: string,
+  posts: Array<{ url: string; platform: string; title: string }>
+): { text: string; cited: Array<{ url: string; platform: string; title: string }> } {
+  const cited: Array<{ url: string; platform: string; title: string }> = [];
+  const seen = new Set<string>();
+
+  // The model sometimes cites several posts at once ("[POST:2, 8]") despite being told
+  // one per line. Accept the list and keep the first that resolves.
+  let out = text.replace(/\[POST:\s*([\d\s,]+?)\s*\]/gi, (_m, group: string) => {
+    for (const part of group.split(",")) {
+      const idx = parseInt(part.trim(), 10);
+      if (!Number.isFinite(idx)) continue;
+      const post = posts[idx - 1];
+      if (!post) continue;
+      if (!seen.has(post.url)) {
+        seen.add(post.url);
+        cited.push(post);
+      }
+      return `[POST:${post.url}]`;
+    }
+    return "";
+  });
+
+  // Anything still tagged did not resolve to a real post — drop it rather than let a
+  // raw marker render as text. Resolved tags hold a URL and are preserved.
+  out = out
+    .replace(/\[POST:(?!https?:\/\/)[^\]]*\]/gi, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([.,;:])/g, "$1")
+    .trim();
+
+  return { text: out, cited };
+}
+
 export function formatAnswer(params: {
   raw: string;
   siteId: string;
   docs: RerankedDoc[];
   deepLink?: boolean;
+  /** Social posts in the same order they were numbered for the model. */
+  posts?: Array<{ url: string; platform: string; title: string }>;
 }): FormattedAnswer {
-  const { raw, siteId, docs, deepLink = true } = params;
+  const { raw, siteId, docs, deepLink = true, posts = [] } = params;
 
   const pagesBlock = extractBlock(raw, "RELEVANT_PAGES");
   const followBlock = extractBlock(pagesBlock.rest, "FOLLOW_UPS");
@@ -219,6 +282,26 @@ export function formatAnswer(params: {
   answer = trimIncompleteTail(answer, wasTruncated);
   answer = dedupeBlocks(answer);
   answer = applyGlossary(answer, siteId);
+
+  // Strip any social URL the model pasted despite instructions, so a bare link never
+  // renders in the prose; citations are carried by [POST:...] tags alone.
+  answer = answer
+    // Replaced with a space, not nothing: the pattern eats the whitespace on both
+    // sides, so removing it outright welds the neighbouring words together.
+    .replace(
+      /\(?\s*https?:\/\/(?:www\.)?(?:instagram\.com|twitter\.com|x\.com|facebook\.com|linkedin\.com)\/[^\s)]+\s*\)?/gi,
+      " "
+    )
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+([.,;:!?])/g, "$1")
+    .split("\n")
+    .map((l) => l.replace(/[ \t]+$/, ""))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const { text: withPosts, cited: citedPosts } = resolvePostCitations(answer, posts);
+  answer = withPosts;
 
   // Page links: what the model cited, in its order, restricted to real retrieved URLs.
   const retrievedByUrl = new Map<string, RerankedDoc>();
@@ -264,7 +347,7 @@ export function formatAnswer(params: {
     .filter((l) => l.length > 8 && l.length < 120)
     .slice(0, MAX_FOLLOW_UPS);
 
-  return { answer, pageLinks, followUps };
+  return { answer, pageLinks, followUps, citedPosts };
 }
 
 // ---------------------------------------------------------------------------

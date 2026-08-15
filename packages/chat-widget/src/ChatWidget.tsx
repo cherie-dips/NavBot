@@ -110,7 +110,64 @@ function renderBotText(raw: string, onSocialClick?: (link: SocialLink) => void):
     listType = null;
   };
 
+  /**
+   * `[POST:<url>]` marks the social post that supports this line. It renders as a
+   * compact preview chip right there, so a reel sits beside the point it illustrates
+   * instead of in a list at the end of the answer.
+   */
+  const renderPostChip = (url: string, keyPrefix: string): React.ReactNode => {
+    const platform = detectSocialPlatform(url) ?? "instagram";
+    const color = PLATFORM_COLORS[platform] || "#2563eb";
+    const canEmbed = getSocialEmbedUrl(url, platform) !== null;
+    return (
+      <button
+        key={`${keyPrefix}-post`}
+        type="button"
+        title={canEmbed ? "Open preview" : "Open post"}
+        onClick={(e) => {
+          e.preventDefault();
+          if (canEmbed && onSocialClick) onSocialClick({ platform, title: "", url });
+          else window.open(url, "_blank", "noopener,noreferrer");
+        }}
+        style={{
+          all: "unset",
+          cursor: "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "4px",
+          verticalAlign: "middle",
+          margin: "0 0 0 6px",
+          padding: "1px 7px 1px 5px",
+          borderRadius: "10px",
+          border: `1px solid ${color}44`,
+          background: `${color}14`,
+          fontSize: "11px",
+          lineHeight: 1.6,
+          color,
+          fontWeight: 600,
+          fontFamily: "inherit",
+          whiteSpace: "nowrap" as const,
+        }}
+      >
+        <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: color, flexShrink: 0 }} />
+        preview
+      </button>
+    );
+  };
+
   const linkifyText = (text: string, keyPrefix: string): React.ReactNode[] => {
+    const segments = text.split(/(\[POST:https?:\/\/[^\]]+\])/g);
+    if (segments.length > 1) {
+      return segments.flatMap((seg, i) => {
+        const m = seg.match(/^\[POST:(https?:\/\/[^\]]+)\]$/);
+        if (m) return [renderPostChip(m[1]!, `${keyPrefix}-${i}`)];
+        return seg ? linkifyPlain(seg, `${keyPrefix}-${i}`) : [];
+      });
+    }
+    return linkifyPlain(text, keyPrefix);
+  };
+
+  const linkifyPlain = (text: string, keyPrefix: string): React.ReactNode[] => {
     const parts = text.split(/(https?:\/\/[^\s]+)/g);
     return parts.map((part, idx) => {
       if (/^https?:\/\/[^\s]+$/i.test(part)) {
@@ -560,84 +617,6 @@ function SocialEmbedModal({ url, platform, title, onClose, fontFamily }: {
       </div>
     </div>,
     document.body
-  );
-}
-
-function stripInlineSocialLinks(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => !(/^•\s+.+→\s+https?:\/\/(www\.)?(instagram\.com|twitter\.com|x\.com|facebook\.com|linkedin\.com)\//i.test(line.trim())))
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function renderSocialLinks(
-  links: SocialLink[],
-  onEmbedClick: (link: SocialLink) => void,
-) {
-  if (!links || links.length === 0) return null;
-  return (
-    <div style={{
-      marginTop: "8px",
-      paddingTop: "6px",
-      borderTop: "1px solid rgba(0,0,0,0.06)",
-      fontSize: "12px",
-      fontFamily: "inherit",
-    }}>
-      <span style={{ fontWeight: 600, color: "#475569", fontSize: "11px" }}>
-        Related Posts
-      </span>
-      {links.map((link, i) => {
-        const canEmbed = getSocialEmbedUrl(link.url, link.platform) !== null;
-        return (
-          <div key={`sl-${i}`} style={{ marginTop: "6px", display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{
-              width: "6px", height: "6px", borderRadius: "50%",
-              background: PLATFORM_COLORS[link.platform] || "#64748b",
-              flexShrink: 0,
-            }} />
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                if (canEmbed) {
-                  onEmbedClick(link);
-                } else {
-                  window.open(link.url, "_blank", "noopener,noreferrer");
-                }
-              }}
-              style={{
-                all: "unset",
-                cursor: "pointer",
-                color: "#2563eb",
-                fontSize: "12px",
-                fontFamily: "inherit",
-                textDecoration: "underline",
-                textUnderlineOffset: "2px",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap" as const,
-              }}
-            >
-              {link.title}
-            </button>
-            {canEmbed && (
-              <span style={{
-                fontSize: "9px",
-                color: "#94a3b8",
-                background: "rgba(0,0,0,0.04)",
-                padding: "1px 5px",
-                borderRadius: "4px",
-                flexShrink: 0,
-              }}>
-                preview
-              </span>
-            )}
-          </div>
-        );
-      })}
-    </div>
   );
 }
 
@@ -1327,9 +1306,8 @@ export const ChatWidget: React.FC = () => {
                 fontFamily: "inherit",
               }}>
                 {message.sender === "bot" && !message.isVoice
-                  ? renderBotText(message.socialLinks?.length ? stripInlineSocialLinks(message.text) : message.text, setSocialEmbed)
+                  ? renderBotText(message.text, setSocialEmbed)
                   : message.text}
-                {message.sender === "bot" && message.socialLinks && renderSocialLinks(message.socialLinks, setSocialEmbed)}
                 {message.sender === "bot" && message.pageLinks && renderPageLinks(message.pageLinks)}
               </div>
               {/* Suggested next questions — the model emits these with the answer, so they cost no extra latency. */}

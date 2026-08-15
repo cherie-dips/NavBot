@@ -75,11 +75,25 @@ const PLATFORM_PROFILE_URL: Record<string, (handle: string) => string> = {
   facebook: (h) => `https://facebook.com/${encodeURIComponent(h)}`,
 };
 
+/**
+ * Dashboard handle fields are free text, so they arrive as "@handle", a full profile
+ * URL, or a display name like "Plaksha University". A display name cannot go into a
+ * URL path — encoding it produced facebook.com/Plaksha%20University, a dead link — so
+ * anything not already URL-safe is collapsed to a slug.
+ *
+ * Handles that are already valid are left exactly as typed, because case can matter
+ * (x.com/PlakshaUniv).
+ */
+function handleToSlug(handle: string): string {
+  if (/^[A-Za-z0-9._-]+$/.test(handle)) return handle;
+  return handle.toLowerCase().replace(/[^a-z0-9._-]/g, "");
+}
+
 function buildSearchQueries(
   query: string,
   handles: SocialHandles
-): Array<{ platform: string; searchQuery: string; profileUrl: string }> {
-  const queries: Array<{ platform: string; searchQuery: string; profileUrl: string }> = [];
+): Array<{ platform: string; searchQuery: string; profileUrl: string; handle: string }> {
+  const queries: Array<{ platform: string; searchQuery: string; profileUrl: string; handle: string }> = [];
 
   for (const [platform, username] of Object.entries(handles)) {
     if (!username?.trim()) continue;
@@ -101,13 +115,16 @@ function buildSearchQueries(
       if (slug) handle = slug;
     } catch {
       const buildUrl = PLATFORM_PROFILE_URL[platform];
-      profileUrl = buildUrl ? buildUrl(handle) : "";
+      profileUrl = buildUrl ? buildUrl(handleToSlug(handle)) : "";
     }
 
     queries.push({
       platform,
+      // The raw value stays in the search phrase — a display name is a perfectly good
+      // search term, even though it cannot be part of a profile URL.
       searchQuery: `${siteFilter} "${handle}" ${query}`,
       profileUrl,
+      handle: handleToSlug(handle),
     });
   }
 
@@ -156,6 +173,51 @@ async function serperSearch(
 // ---------------------------------------------------------------------------
 // Filter out results that are not real posts (profile pages, generic uploads)
 // ---------------------------------------------------------------------------
+/**
+ * Serper's `site:` filter plus a quoted handle is a text match, not an account match,
+ * so a post from someone who merely mentioned the university comes back looking
+ * official — a live search returned x.com/EconChopra for a Plaksha query.
+ *
+ * Where the URL identifies its author, it must be the configured account. Where it
+ * does not (instagram.com/reel/<id> carries no username), the post is kept, because
+ * the alternative is discarding most legitimate reels.
+ */
+function belongsToAccount(url: string, platform: string, handle: string): boolean {
+  const slug = handle.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!slug) return true;
+
+  let segments: string[];
+  try {
+    segments = new URL(url).pathname.split("/").filter(Boolean);
+  } catch {
+    return true;
+  }
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const first = norm(segments[0] ?? "");
+  if (!first) return true;
+
+  switch (platform) {
+    case "twitter":
+      // x.com/<user>/status/<id> — the author is unambiguous.
+      return first === slug;
+    case "facebook":
+      // facebook.com/<page>/posts/<id>, or an opaque permalink we cannot attribute.
+      return segments.length < 2 || first === slug || norm(url).includes(slug);
+    case "instagram":
+      // /p/<id> and /reel/<id> are anonymous; /<user>/p/<id> is not.
+      if (first === "p" || first === "reel" || first === "tv") return true;
+      return first === slug;
+    case "linkedin":
+      // /posts/<author-slug>_<id> — the author slug prefixes the path.
+      if (first === "posts" || first === "pulse") {
+        return norm(segments[1] ?? "").includes(slug) || norm(url).includes(slug);
+      }
+      return norm(url).includes(slug);
+    default:
+      return true;
+  }
+}
+
 function isUselessSocialResult(r: SocialSearchResult): boolean {
   const title = r.title.toLowerCase();
   if (/added a new (photo|video)\b/i.test(title)) return true;
@@ -208,15 +270,17 @@ export async function searchSocialMedia(
 
   // Run all platform searches in parallel
   const allResults = await Promise.all(
-    searchQueries.map(async ({ platform, searchQuery, profileUrl }) => {
+    searchQueries.map(async ({ platform, searchQuery, profileUrl, handle }) => {
       const raw = await serperSearch(searchQuery);
-      return raw.map((r) => ({
-        platform,
-        title: r.title,
-        url: r.link,
-        snippet: r.snippet,
-        profileUrl,
-      }));
+      return raw
+        .filter((r) => belongsToAccount(r.link, platform, handle))
+        .map((r) => ({
+          platform,
+          title: r.title,
+          url: r.link,
+          snippet: r.snippet,
+          profileUrl,
+        }));
     })
   );
 
@@ -245,27 +309,45 @@ export async function searchSocialMedia(
 // ---------------------------------------------------------------------------
 // Format social results into a context block for the RAG LLM
 // ---------------------------------------------------------------------------
+/**
+ * Posts are numbered across the whole list, not per platform, so the model can refer
+ * to one with a single stable index. Post URLs are deliberately NOT shown: the model
+ * cites `[POST:n]` and the server resolves n back to a URL, which keeps long URLs out
+ * of the prose and out of reach of transcription errors.
+ */
 export function buildSocialContextString(results: SocialSearchResult[]): string {
   if (results.length === 0) return "";
 
-  const byPlatform = new Map<string, { profileUrl: string; items: SocialSearchResult[] }>();
+  const lines = results.map(
+    (r, i) => `[POST:${i + 1}] (${r.platform}) ${r.title}\n     ${r.snippet}`
+  );
+
+  const profiles = new Map<string, string>();
   for (const r of results) {
-    const entry = byPlatform.get(r.platform) ?? { profileUrl: r.profileUrl ?? "", items: [] };
-    entry.items.push(r);
-    if (!entry.profileUrl && r.profileUrl) entry.profileUrl = r.profileUrl;
-    byPlatform.set(r.platform, entry);
+    if (r.profileUrl && !profiles.has(r.platform)) profiles.set(r.platform, r.profileUrl);
   }
+  const profileLine = profiles.size
+    ? `\n\nOfficial accounts: ${[...profiles.entries()].map(([p, u]) => `${p} ${u}`).join(" · ")}`
+    : "";
 
-  const blocks: string[] = [];
-  for (const [platform, { profileUrl, items }] of byPlatform) {
-    const header = profileUrl
-      ? `[Social Media - ${platform}]\nProfile: ${profileUrl}`
-      : `[Social Media - ${platform}]`;
-    const posts = items
-      .map((r, i) => `  ${i + 1}. ${r.title}\n     Post URL: ${r.url}\n     ${r.snippet}`)
-      .join("\n");
-    blocks.push(`${header}\n${posts}`);
+  return `${lines.join("\n")}${profileLine}`;
+}
+
+/** Distinct official profile URLs, most-referenced platform first. */
+export function socialProfileLinks(
+  results: SocialSearchResult[]
+): Array<{ url: string; title: string; platform: string }> {
+  const counts = new Map<string, number>();
+  const urls = new Map<string, string>();
+  for (const r of results) {
+    counts.set(r.platform, (counts.get(r.platform) ?? 0) + 1);
+    if (r.profileUrl && !urls.has(r.platform)) urls.set(r.platform, r.profileUrl);
   }
-
-  return blocks.join("\n\n---\n\n");
+  return [...urls.entries()]
+    .sort((a, b) => (counts.get(b[0]) ?? 0) - (counts.get(a[0]) ?? 0))
+    .map(([platform, url]) => ({
+      platform,
+      url,
+      title: `${platform.charAt(0).toUpperCase()}${platform.slice(1)}`,
+    }));
 }

@@ -8,7 +8,13 @@
  *   4. generate against a small, high-signal context
  *   5. degrade gracefully rather than ever returning a bare error
  */
-import { hasSocialIntent, searchSocialMedia, buildSocialContextString, type SocialSearchResult } from "./social-search";
+import {
+  hasSocialIntent,
+  searchSocialMedia,
+  buildSocialContextString,
+  socialProfileLinks,
+  type SocialSearchResult,
+} from "./social-search";
 import { getFaqUserAnswerForQuestion, getRagCache, setRagCache } from "./db";
 import { runRetrieval } from "./agentic-retrieval";
 import { planQuery, fallbackPlan, type QueryPlan } from "./query-planner";
@@ -143,6 +149,25 @@ function buildContents(params: {
   ];
 }
 
+
+/**
+ * When the answer actually cites social posts, "For More Info" should point at the
+ * official accounts rather than website pages — the visitor is being shown reels, so
+ * the useful next step is the feed they came from, not a prospectus page.
+ */
+function resolveMoreInfoLinks(params: {
+  citedPosts: Array<{ url: string }> | undefined;
+  socialResults: SocialSearchResult[];
+  pageLinks: PageLink[];
+}): PageLink[] {
+  const { citedPosts, socialResults, pageLinks } = params;
+  if (!citedPosts?.length) return pageLinks;
+  const profiles = socialProfileLinks(socialResults);
+  return profiles.length
+    ? profiles.map((p) => ({ url: p.url, title: p.title }))
+    : pageLinks;
+}
+
 // ---------------------------------------------------------------------------
 // Canned replies that need no retrieval
 // ---------------------------------------------------------------------------
@@ -253,6 +278,7 @@ export async function answerQuestionWithRag(params: {
     siteId,
     confidence: retrieval.meta.confidence === "strong" ? "strong" : "weak",
     exhaustive: plan.exhaustive,
+    hasSocial: socialResults.length > 0,
   });
   const contents = buildContents({ context, socialContext, history, message });
 
@@ -302,7 +328,12 @@ export async function answerQuestionWithRag(params: {
     return { ...fb, sources: dedupeSources(retrieval.docs, siteId), socialLinks: [], path: "contact_fallback" };
   }
 
-  const formatted = formatAnswer({ raw, siteId, docs: retrieval.docs });
+  const formatted = formatAnswer({
+    raw,
+    siteId,
+    docs: retrieval.docs,
+    posts: socialResults,
+  });
   const sources = dedupeSources(retrieval.docs, siteId);
 
   const socialLinks: SocialLink[] = socialResults.slice(0, 3).map((r) => ({
@@ -319,8 +350,13 @@ export async function answerQuestionWithRag(params: {
   const result: ChatAnswer = {
     answer: formatted.answer,
     sources,
-    pageLinks: formatted.pageLinks,
-    socialLinks,
+    pageLinks: resolveMoreInfoLinks({
+      citedPosts: formatted.citedPosts,
+      socialResults,
+      pageLinks: formatted.pageLinks,
+    }),
+    // Previews now render inline beside the point they support, so no trailing list.
+    socialLinks: [],
     followUps: formatted.followUps,
     path,
   };
@@ -409,6 +445,7 @@ export async function* answerQuestionStreaming(params: {
     siteId,
     confidence: retrieval.meta.confidence === "strong" ? "strong" : "weak",
     exhaustive: plan.exhaustive,
+    hasSocial: socialResults.length > 0,
   });
 
   yield { type: "status", stage: "writing" };
@@ -475,7 +512,12 @@ export async function* answerQuestionStreaming(params: {
     return;
   }
 
-  const formatted = formatAnswer({ raw, siteId, docs: retrieval.docs });
+  const formatted = formatAnswer({
+    raw,
+    siteId,
+    docs: retrieval.docs,
+    posts: socialResults,
+  });
 
   // No correction delta here: `flushed` indexes the RAW stream while `formatted.answer`
   // is the cleaned text, so slicing one by the other duplicates or garbles the tail.
@@ -493,12 +535,12 @@ export async function* answerQuestionStreaming(params: {
     answer: {
       answer: formatted.answer,
       sources,
-      pageLinks: formatted.pageLinks,
-      socialLinks: socialResults.slice(0, 3).map((r) => ({
-        platform: r.platform,
-        title: r.title,
-        url: r.url,
-      })),
+      pageLinks: resolveMoreInfoLinks({
+        citedPosts: formatted.citedPosts,
+        socialResults,
+        pageLinks: formatted.pageLinks,
+      }),
+      socialLinks: [],
       followUps: formatted.followUps,
       path: "answered",
     },
