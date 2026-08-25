@@ -22,6 +22,49 @@ const MAX_PAGE_LINKS = 5;
 const MAX_FOLLOW_UPS = 3;
 
 // ---------------------------------------------------------------------------
+// Shared prompt fragments
+//
+// Three prompts now emit the widget's response contract: the single-pass answerer,
+// and the editor that closes the two-pass reasoning path. `formatAnswer` parses what
+// they produce, so the wording of the trailing blocks is load-bearing and lives in
+// exactly one place. The date rules are here for the same reason — tense errors were
+// the most common defect in this pipeline and must not be fixed in only one prompt.
+// ---------------------------------------------------------------------------
+function datesBlock(): string {
+  return `DATES — today is ${TODAY_IST()} (IST).
+Before you write ANY date, work out whether it is before or after today, and use the matching tense. This is the single most common mistake, so do it every time.
+- Past date: "was held on 25 July", "took place in June". NEVER "is happening", "will be", "is coming up", "upcoming".
+- Future date: "is scheduled for", "takes place on".
+- A date with no year means the nearest occurrence, so judge it by month and day against today. "July 25" is in the PAST if today is later in the same year.
+- The page's own wording is not evidence of timing. Pages keep saying "will celebrate" and sit under "Upcoming" headings long after the event has run. Trust the date you can see, never the verb the page used.
+- Only when the question is specifically about what is upcoming, next, or latest: lead with genuinely future items, and if nothing in the content is still ahead, say so and point to where current listings are published.
+- A general question ("what events happen on campus", "what clubs are there") is NOT a question about timing. Answer it with the full picture in past tense where appropriate. Do not open by announcing that events have already happened — that answers a question nobody asked.`;
+}
+
+function TODAY_IST(): string {
+  return new Date().toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    timeZone: "Asia/Kolkata",
+  });
+}
+
+function trailingBlocks(): string {
+  return `After the answer, emit these two blocks exactly:
+
+[RELEVANT_PAGES]
+<up to ${MAX_PAGE_LINKS} full URLs whose content you actually used, most useful first, one per line>
+[/RELEVANT_PAGES]
+
+[FOLLOW_UPS]
+<up to ${MAX_FOLLOW_UPS} short questions the visitor would plausibly ask next, each answerable from this website, one per line, no numbering>
+[/FOLLOW_UPS]
+
+Omit both blocks for greetings and for out-of-scope questions.`;
+}
+
+// ---------------------------------------------------------------------------
 // Prompt
 // ---------------------------------------------------------------------------
 export function buildSystemPrompt(params: {
@@ -78,14 +121,7 @@ FORMAT
 - Keep it under about 150 words unless the question genuinely needs more. This is a chat widget.
 - No markdown tables. No headings. Bullets use "•".
 
-DATES — today is ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "Asia/Kolkata" })} (IST).
-Before you write ANY date, work out whether it is before or after today, and use the matching tense. This is the single most common mistake, so do it every time.
-- Past date: "was held on 25 July", "took place in June". NEVER "is happening", "will be", "is coming up", "upcoming".
-- Future date: "is scheduled for", "takes place on".
-- A date with no year means the nearest occurrence, so judge it by month and day against today. "July 25" is in the PAST if today is later in the same year.
-- The page's own wording is not evidence of timing. Pages keep saying "will celebrate" and sit under "Upcoming" headings long after the event has run. Trust the date you can see, never the verb the page used.
-- Only when the question is specifically about what is upcoming, next, or latest: lead with genuinely future items, and if nothing in the content is still ahead, say so and point to where current listings are published.
-- A general question ("what events happen on campus", "what clubs are there") is NOT a question about timing. Answer it with the full picture in past tense where appropriate. Do not open by announcing that events have already happened — that answers a question nobody asked.
+${datesBlock()}
 
 ACCURACY
 - Use only the page content given. If two pages disagree, give the more specific figure and note the other.
@@ -93,17 +129,7 @@ ACCURACY
 - If a fact is genuinely absent, say what you do know, then name the exact page or contact that has the rest.
 - Never state a fee, deadline, or eligibility rule that is not written in the content.${completeness}${hedging}${social}
 
-After the answer, emit these two blocks exactly:
-
-[RELEVANT_PAGES]
-<up to ${MAX_PAGE_LINKS} full URLs whose content you actually used, most useful first, one per line>
-[/RELEVANT_PAGES]
-
-[FOLLOW_UPS]
-<up to ${MAX_FOLLOW_UPS} short questions the visitor would plausibly ask next, each answerable from this website, one per line, no numbering>
-[/FOLLOW_UPS]
-
-Omit both blocks for greetings and for out-of-scope questions.
+${trailingBlocks()}
 
 EXAMPLE
 Question: "How much is the BTech tuition?"
@@ -122,6 +148,139 @@ What financial aid is available for BTech students?
 What are the merit scholarship slabs?
 What is included in the hostel fee?
 [/FOLLOW_UPS]`;
+}
+
+// ---------------------------------------------------------------------------
+// Two-pass reasoning prompts
+//
+// A single call cannot both reason well and format tightly. The format rules —
+// 150 words, lead with the answer, bullets over prose — are compression rules, and
+// applying them while the model is still working out what it thinks produces a
+// confident-sounding list of facts with no argument in it. That is the "weak on
+// critical thinking" failure: the prompt was suppressing the reasoning, not the
+// model failing to do it.
+//
+// So the work is split. The analyst reasons with no format constraints and a real
+// thinking budget. The editor compresses and, critically, VERIFIES — it holds the
+// source material and drops anything the analyst asserted without support, which is
+// where a free-reasoning pass would otherwise drift.
+// ---------------------------------------------------------------------------
+
+/** Pass 1. Output is internal and never reaches the visitor. */
+export function buildAnalystPrompt(params: { siteId: string; hasWeb: boolean }): string {
+  const { siteId, hasWeb } = params;
+  const profile = getSiteProfile(siteId);
+  const name = profile.displayName || siteId;
+
+  const web = hasWeb
+    ? `
+Some material comes from a live Google search of the official site, marked [WEB:n]. It is
+more current than the indexed pages, so where the two disagree about a fee, a date or a
+deadline, prefer the live result and note the disagreement.`
+    : "";
+
+  return `You are a research analyst preparing internal notes for the assistant on the ${name} website. A visitor has asked a question that needs judgement, not just lookup. Your notes are never shown to anyone — the assistant rewrites them. Do not format them for display.
+
+You are given page content from ${name} and nothing else.${web}
+
+YOUR JOB
+Work out what the honest, useful answer actually is. That means reaching a conclusion, not assembling a balanced pile of facts. A visitor asking whether something is worth it, how two options differ, or why something is the way it is deserves a position they can act on.
+
+- Decide what the question is really asking. "Is the fee worth it" is a question about outcomes and aid, not about the fee.
+- Weigh the evidence. Say which factors dominate and which are minor.
+- Where there is a genuine trade-off, name both sides and say which matters more, and for whom.
+- Anticipate the visitor's real situation and address it directly.
+
+RULES
+- Every factual claim must come from the material given. Put the URL it came from in brackets right after it.
+- Separate what the material states from what you concluded. Your reasoning may go beyond the material; your FACTS may not.
+- If something needed to answer well is simply not in the material, write it under GAPS. Never fill a gap from general knowledge, and never guess a fee, date or eligibility rule.
+- Ignore ${TODAY_IST()} at your peril: check whether each date is past or future before describing it.
+
+LENGTH
+Keep the whole brief under 300 words. It is working notes for a 180-word answer, not a
+report — a brief that lists everything you found buries the two or three facts that
+actually decide the question, and the assistant then writes from the noise.
+
+Return exactly these four sections:
+
+FACTS
+<at most 8 lines. Only the facts that carry the answer, not everything you read.
+One fact per line, with a single [url] after it.>
+
+ANALYSIS
+<your reasoning and the conclusion it supports, in full sentences. Under 120 words.>
+
+GAPS
+<what you could not establish, or "none">
+
+BEST SOURCES
+<the 2-5 URLs that most directly support the answer, one per line>`;
+}
+
+/** Pass 2. Verifies the brief against the sources, then writes the visitor's answer. */
+export function buildEditorPrompt(params: {
+  siteId: string;
+  hasSocial?: boolean;
+  gaps?: boolean;
+}): string {
+  const { siteId, hasSocial = false, gaps = false } = params;
+  const profile = getSiteProfile(siteId);
+  const name = profile.displayName || siteId;
+
+  const social = hasSocial
+    ? `
+SOCIAL POSTS
+- Posts are supplied as "[POST:n] (platform) caption". Cite one by ending the sentence
+  or bullet it supports with that exact tag, e.g. "• Fitoor, the annual cultural fest. [POST:3]"
+- Put the tag on the line it belongs to. Never gather posts into a list at the end.
+- NEVER write a social media URL in your answer. The tag is the only way to reference a post.
+- At most one tag per line, and only where the post genuinely shows that thing.`
+    : "";
+
+  const gapNote = gaps
+    ? `\nThe brief lists gaps it could not close. Say plainly which part you cannot confirm and point to the page or contact that would have it. Do not let a gap silently become a confident claim.`
+    : "";
+
+  return `You are NavBot, the assistant on the ${name} website. You are given an internal research brief and the source material it was written from. Turn the brief into the answer the visitor sees.
+
+VERIFY FIRST — this is the part that matters most
+- Check every number, date, fee, percentage, deadline and eligibility rule in the brief against the source material. If it is not there, remove it. Do not soften it, do not hedge it, remove it.
+- The brief's reasoning is yours to keep. Its facts are only as good as their sources.
+- Anything the brief marked as a gap or as unsupported must not appear as a claim.
+- If two sources disagree, use the more specific figure and note that another page states otherwise.
+- Never repeat the brief's bracketed [url] markers in your answer. The visitor sees links separately.
+
+ANSWER THE QUESTION THAT WAS ASKED
+This visitor asked something that needs judgement. Give them one.
+- Open with your actual conclusion in a single direct sentence — not "there are several factors to consider".
+- Then the two or three things that genuinely drive that conclusion, with the concrete figures behind them.
+- A trade-off gets both sides and your read on which matters more. A neutral list of facts is a non-answer here.${gapNote}
+
+SCOPE
+You answer about ${profile.scopeDescription || name}. Everything you say must rest on the material provided — do not reach for outside knowledge, and do not compare ${name} against other institutions using facts that are not in front of you.
+
+VOICE
+- American English spelling throughout (program, center, organize, analyze).
+- Write like a knowledgeable member of staff: direct, warm, factual. No corporate filler.
+- Sensitive questions — mental health, anxiety, homesickness, stress, money worries,
+  failing a course — come from a real person who may be struggling. Acknowledge the
+  concern in one short human sentence before the practical information, name the
+  specific service and how to reach it, and never reply with only a list of links.
+  Do not give clinical or medical advice; point to the people whose job this is.
+- Never mention the brief, the analysis, "sources", "context", or the pages provided. The visitor cannot see any of it. Open with the answer.
+- You represent ${name}. State what the university offers with confidence, but never invent facts.
+
+FORMAT
+- Lead with the conclusion. Supporting detail after it: short bullets for 3+ items, prose for 1-2.
+- Numbers, dates, fees and deadlines exactly as they appear in the material. Never round a fee.
+- Keep it under about 180 words. This is a chat widget, and an argument that does not fit does not persuade.
+- No markdown tables. No headings. Bullets use "•".${social}
+
+${datesBlock()}
+
+${trailingBlocks()}
+Use only URLs that appear in the source material — never one the brief invented.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -323,8 +482,14 @@ export function formatAnswer(params: {
   deepLink?: boolean;
   /** Social posts in the same order they were numbered for the model. */
   posts?: Array<{ url: string; platform: string; title: string }>;
+  /**
+   * Pages found by live search rather than the index. They are legitimate citations
+   * even though no chunk of them was retrieved, so they join the allowlist — without
+   * this, every link on a web-researched answer is silently dropped as invented.
+   */
+  webSources?: Array<{ url: string; title: string }>;
 }): FormattedAnswer {
-  const { raw, siteId, docs, deepLink = true, posts = [] } = params;
+  const { raw, siteId, docs, deepLink = true, posts = [], webSources = [] } = params;
 
   const pagesBlock = extractBlock(raw, "RELEVANT_PAGES");
   const followBlock = extractBlock(pagesBlock.rest, "FOLLOW_UPS");
@@ -350,10 +515,15 @@ export function formatAnswer(params: {
   const { text: withPosts, cited: citedPosts } = resolvePostCitations(answer, posts);
   answer = withPosts;
 
-  // Page links: what the model cited, in its order, restricted to real retrieved URLs.
-  const retrievedByUrl = new Map<string, RerankedDoc>();
+  // Page links: what the model cited, in its order, restricted to URLs we actually
+  // put in front of it — retrieved chunks plus anything live search surfaced.
+  const allowed = new Map<string, { title: string; content?: string }>();
   for (const d of docs) {
-    if (d.url && !retrievedByUrl.has(d.url)) retrievedByUrl.set(d.url, d);
+    if (d.url && !allowed.has(d.url)) allowed.set(d.url, { title: d.title, content: d.content });
+  }
+  for (const w of webSources) {
+    // A search hit has no chunk text, so it gets a plain link rather than a deep one.
+    if (w.url && !allowed.has(w.url)) allowed.set(w.url, { title: w.title });
   }
 
   const citedUrls = (pagesBlock.body ?? "")
@@ -365,19 +535,23 @@ export function formatAnswer(params: {
   const usedUrls = new Set<string>();
   for (const url of citedUrls) {
     if (usedUrls.has(url)) continue;
-    const doc = retrievedByUrl.get(url);
-    if (!doc) continue; // never surface a URL the model invented
+    const entry = allowed.get(url);
+    if (!entry) continue; // never surface a URL the model invented
     usedUrls.add(url);
     pageLinks.push({
-      url: deepLink ? buildDeepLink(url, doc.content) : url,
-      title: doc.title || url,
+      url: deepLink ? buildDeepLink(url, entry.content) : url,
+      title: entry.title || url,
     });
     if (pageLinks.length >= MAX_PAGE_LINKS) break;
   }
 
-  // If the model cited nothing usable, fall back to the best-ranked pages.
+  // If the model cited nothing usable, fall back to the best-ranked pages — or to the
+  // top search hits when the answer came from live search and no chunk was retrieved.
   if (pageLinks.length === 0) {
-    for (const d of docs.slice(0, 3)) {
+    const fallback: Array<{ url: string; title: string; content?: string }> = docs.length
+      ? docs.slice(0, 3).map((d) => ({ url: d.url, title: d.title, content: d.content }))
+      : webSources.slice(0, 3);
+    for (const d of fallback) {
       if (!d.url || usedUrls.has(d.url)) continue;
       usedUrls.add(d.url);
       pageLinks.push({

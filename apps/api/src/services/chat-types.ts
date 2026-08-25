@@ -21,6 +21,17 @@ export interface ChatAnswer {
   socialLinks: SocialLink[];
   /** Suggested next questions, rendered as chips under the answer. */
   followUps: string[];
-  /** Which rung of the fallback ladder produced this, for monitoring. */
-  path?: "cache" | "faq" | "greeting" | "out_of_scope" | "answered" | "retry" | "contact_fallback";
+  /**
+   * Which route produced this, for monitoring. "reasoned" is the two-pass analytical
+   * path; "answered" is the single-pass one.
+   */
+  path?:
+    | "cache"
+    | "faq"
+    | "greeting"
+    | "out_of_scope"
+    | "answered"
+    | "reasoned"
+    | "retry"
+    | "contact_fallback";
 }

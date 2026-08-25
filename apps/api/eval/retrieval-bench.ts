@@ -24,7 +24,16 @@ const CASES: Array<{ q: string; exhaustive: boolean }> = [
 ];
 
 function plan(q: string, exhaustive: boolean): QueryPlan {
-  return { standalone: q, intent: exhaustive ? "simple" : "simple", subQueries: [q], sections: [], exhaustive };
+  // `analytical` is false throughout: this benchmark measures retrieval, and the flag
+  // only selects how the answer is written, which this harness never reaches.
+  return {
+    standalone: q,
+    intent: "simple",
+    subQueries: [q],
+    sections: [],
+    exhaustive,
+    analytical: false,
+  };
 }
 
 async function main() {

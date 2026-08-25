@@ -134,7 +134,11 @@ export function parseGemini429RetryDelayMs(err: unknown): number | null {
 // Reasoning and the answer share one pool, so headroom is a cushion, not a guarantee.
 // Measured truncations at 2048 on multi-part answers; 3072 leaves the answer intact
 // without a meaningful latency cost, since unused budget is never billed or spent.
-const THINKING_HEADROOM_TOKENS = 3072;
+//
+// "high" gets far more, because the whole point of asking for more reasoning is that
+// it spends more of the pool thinking — leaving it on the low cushion would truncate
+// the answer precisely on the questions that needed the reasoning.
+const THINKING_HEADROOM_TOKENS = { low: 3072, high: 8192 } as const;
 
 function isGemini3(model: string): boolean {
   return /gemini-3/i.test(model);
@@ -157,7 +161,7 @@ export function buildGenerationConfig(
   const base = {
     systemInstruction: config?.systemInstruction,
     temperature: config?.temperature ?? 0.2,
-    maxOutputTokens: answerTokens + THINKING_HEADROOM_TOKENS,
+    maxOutputTokens: answerTokens + THINKING_HEADROOM_TOKENS[level],
     responseMimeType: config?.responseMimeType,
   };
 

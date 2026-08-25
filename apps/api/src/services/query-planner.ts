@@ -28,6 +28,12 @@ export interface QueryPlan {
   sections: string[];
   /** True when the user is asking for an exhaustive list. */
   exhaustive: boolean;
+  /**
+   * True when answering needs judgement rather than lookup — comparing options,
+   * weighing trade-offs, explaining why, or advising this particular visitor.
+   * These route through the slower reasoning pipeline; everything else does not.
+   */
+  analytical: boolean;
   /** Set when the plan came from the fallback path rather than the model. */
   degraded?: boolean;
 }
@@ -49,7 +55,8 @@ Given the conversation and the user's latest message, return JSON only:
   "intent": "greeting" | "out_of_scope" | "simple" | "compositional",
   "subQueries": ["search phrases that would match statements on the website"],
   "sections": ["url path prefixes most likely to contain the answer"],
-  "exhaustive": true if the user wants a complete list of every item, else false
+  "exhaustive": true if the user wants a complete list of every item, else false,
+  "analytical": true if answering requires judgement rather than lookup, else false
 }
 ${map}
 INTENT RULES:
@@ -57,6 +64,17 @@ INTENT RULES:
 - "out_of_scope": the question is not about this university at all (world news, weather, sports, general trivia, writing their essay, or a request to compare against another institution using outside knowledge). subQueries: [].
 - "compositional": answering needs facts from two or more different topics that live on different pages (e.g. comparing fees against scholarship coverage, or combining student count with faculty count). Give one sub-query PER topic.
 - "simple": everything else, including single-topic list questions.
+
+ANALYTICAL RULES:
+Set "analytical" true when a correct answer needs the facts to be weighed, not just found:
+- comparing two things, or judging whether something is worth it, good, strong or a fit
+- explaining WHY something is the case, or what the trade-offs and implications are
+- advice for the visitor's own situation ("should I", "is this right for someone who...")
+- anything asking what makes this place different, or what its approach or philosophy is
+Set it false for plain lookups: a fee, a date, an address, a name, an eligibility rule,
+or a list of what exists. Retrieving those is the whole job.
+Analytical questions are still in scope when they are about this university — only mark
+a comparison "out_of_scope" when it needs facts about a DIFFERENT institution.
 
 SUB-QUERY RULES:
 - Write them as declarative phrases that would literally appear on a web page, NOT as questions.
@@ -82,6 +100,14 @@ function safeParse(raw: string): Partial<QueryPlan> | null {
 const EXHAUSTIVE_PATTERN =
   /\b(list|all|every|each|how many|name all|what are the|enumerate|complete list|full list)\b/i;
 
+/**
+ * Used when the planner is unavailable, and as a floor under its judgement — the
+ * planner sometimes marks an obviously comparative question as a simple lookup, and
+ * routing that to the fast path is the exact failure this pipeline was built to fix.
+ */
+const ANALYTICAL_PATTERN =
+  /\b(compare[sd]?|comparison|versus|vs\.?|better than|best (?:choice|option|fit|for)|worth (?:it|the)|should i|why (?:is|does|do|did|are|would|should)|how does .* (?:differ|compare)|difference between|pros and cons|trade[- ]?offs?|advantages?|disadvantages?|drawbacks?|benefits? of|right for me|suit(?:able|ed)? for|recommend|which (?:one|program|degree|course) (?:is|should)|what makes .* (?:different|unique|special)|strengths?|weakness|is it (?:good|hard|difficult|easy|safe|reputable)|reputation|value for money|return on investment|roi)\b/i;
+
 /** Used when the planner is unavailable — keeps chat working, just less smart. */
 export function fallbackPlan(message: string, history: ChatHistoryItem[]): QueryPlan {
   const lastUser = [...history].reverse().find((h) => h.role === "user");
@@ -99,6 +125,7 @@ export function fallbackPlan(message: string, history: ChatHistoryItem[]): Query
     subQueries: [standalone],
     sections: [],
     exhaustive: EXHAUSTIVE_PATTERN.test(message),
+    analytical: ANALYTICAL_PATTERN.test(message),
     degraded: true,
   };
 }
@@ -162,6 +189,10 @@ export async function planQuery(params: {
       subQueries: subQueries.length ? subQueries : intent === "greeting" || intent === "out_of_scope" ? [] : [standalone],
       sections,
       exhaustive: parsed.exhaustive === true || EXHAUSTIVE_PATTERN.test(message),
+      analytical:
+        parsed.analytical === true ||
+        ANALYTICAL_PATTERN.test(message) ||
+        ANALYTICAL_PATTERN.test(standalone),
     };
   } catch (err) {
     console.warn("[planner] failed:", err instanceof Error ? err.message.slice(0, 160) : err);

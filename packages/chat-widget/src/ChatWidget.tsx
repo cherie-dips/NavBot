@@ -1040,7 +1040,9 @@ export const ChatWidget: React.FC = () => {
           setStatusStage(
             stage === "planning" ? "Understanding your question"
               : stage === "searching" ? "Searching pages"
+              : stage === "researching" ? "Checking the latest on the site"
               : stage === "reading" ? `Reading${detail}`
+              : stage === "reasoning" ? "Working through the details"
               : "Writing"
           );
         } else if (name === "delta") {

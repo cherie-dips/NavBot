@@ -20,10 +20,13 @@ import { runRetrieval } from "./agentic-retrieval";
 import { planQuery, fallbackPlan, type QueryPlan } from "./query-planner";
 import {
   buildSystemPrompt,
+  buildAnalystPrompt,
+  buildEditorPrompt,
   formatAnswer,
   buildContactFallback,
   adaptForClient,
 } from "./answer-format";
+import { researchWeb, buildWebContextString, type WebResearch } from "./web-research";
 import { getSiteProfile, applyGlossary } from "./site-profile";
 import type { RerankedDoc } from "./reranker";
 import type { ChatHistoryItem, PageLink, SocialLink, ChatAnswer } from "./chat-types";
@@ -48,6 +51,41 @@ if (!getGeminiApiKey()) {
 const CONTEXT_BUDGET_CHARS = 18_000;
 const MAX_CHARS_PER_CHUNK = 1_800;
 const ANSWER_MAX_TOKENS = 1_100;
+/**
+ * The analyst reasons without format constraints, but not without a length limit.
+ * Measured on this pipeline: latency here tracks OUTPUT length, not thinking depth —
+ * "low" and "high" reasoning both took ~17s when the brief ran to its old 1,500-token
+ * cap. Capping the brief is therefore the only lever that actually buys time back,
+ * and a shorter brief also speeds the editor pass that has to read it.
+ */
+const ANALYST_MAX_TOKENS = 1_000;
+const EDITOR_MAX_TOKENS = 1_100;
+
+/**
+ * When to spend a live search on a question.
+ *
+ *   "analytical" (default) — judgement questions, plus anything the index answered
+ *       weakly. These are the two cases where a stale or incomplete crawl actually
+ *       changes the answer.
+ *   "weak"   — only when retrieval came back weak or empty.
+ *   "always" — every question. Most consistent, slowest, one search credit per turn.
+ *   "off"    — never; the pipeline behaves exactly as it did before.
+ */
+type WebMode = "analytical" | "weak" | "always" | "off";
+
+function webMode(): WebMode {
+  const raw = process.env.NAVBOT_WEB_MODE?.trim().toLowerCase();
+  if (raw === "weak" || raw === "always" || raw === "off") return raw;
+  return "analytical";
+}
+
+/**
+ * Two-pass reasoning is orthogonal to search: it is about how the answer is written,
+ * not where the facts came from. "off" restores the previous single-call behaviour.
+ */
+function reasoningEnabled(): boolean {
+  return process.env.NAVBOT_REASONING?.trim().toLowerCase() !== "off";
+}
 
 /**
  * Benchmarks must exercise the real pipeline, not replay answers a previous run
@@ -113,6 +151,18 @@ function buildContext(docs: RerankedDoc[], siteId: string): string {
   return blocks.join("\n\n---\n\n");
 }
 
+/**
+ * Live results are labelled rather than blended into the page context. The model has
+ * to be able to tell them apart: when the index and the live site disagree about a
+ * fee, the live one wins, and it cannot apply that rule if both look the same.
+ */
+function buildWebSection(research: WebResearch | null): string {
+  if (!research || research.provider === "none") return "";
+  const body = buildWebContextString(research);
+  if (!body) return "";
+  return `${body}\n\n(These came from a Google search of the official site just now, so where they disagree with the page content above, they are more current.)`;
+}
+
 function dedupeSources(docs: RerankedDoc[], siteId: string) {
   const seen = new Map<string, { url: string; title: string; distance?: number }>();
   for (const d of docs) {
@@ -132,10 +182,14 @@ function buildContents(params: {
   socialContext: string;
   history: ChatHistoryItem[];
   message: string;
+  webContext?: string;
 }) {
-  const { context, socialContext, history, message } = params;
+  const { context, socialContext, history, message, webContext = "" } = params;
 
   let contextMessage = `Page content from the website:\n\n${context}`;
+  if (webContext) {
+    contextMessage += `\n\n---\n\n${webContext}`;
+  }
   if (socialContext) {
     contextMessage += `\n\n---\n\nRecent social media posts:\n\n${socialContext}`;
   }
@@ -154,6 +208,139 @@ function buildContents(params: {
   ];
 }
 
+
+// ---------------------------------------------------------------------------
+// Two-pass reasoning
+// ---------------------------------------------------------------------------
+/** Whether a live search is worth running before retrieval has reported back. */
+function wantsWebUpFront(plan: QueryPlan): boolean {
+  const mode = webMode();
+  if (mode === "off") return false;
+  if (mode === "always") return true;
+  return mode === "analytical" && plan.analytical;
+}
+
+/**
+ * The weak-retrieval trigger can only fire after reranking, so unlike the analytical
+ * trigger it cannot be overlapped with retrieval and costs its latency in full. That
+ * is the right trade: a weak result means the index probably cannot answer, and a
+ * slow correct answer beats a fast wrong one.
+ */
+function wantsWebAfterRetrieval(confidence: "strong" | "weak" | "none"): boolean {
+  const mode = webMode();
+  if (mode === "off" || mode === "always") return false;
+  return confidence !== "strong";
+}
+
+function searchFor(siteId: string, plan: QueryPlan): Promise<WebResearch | null> {
+  return researchWeb({
+    siteId,
+    question: plan.standalone,
+    subQueries: plan.subQueries,
+  }).catch((err) => {
+    console.warn(
+      "[rag] web research failed:",
+      err instanceof Error ? err.message.slice(0, 160) : err
+    );
+    return null;
+  });
+}
+
+/**
+ * True when the brief admits to something it could not establish, which switches the
+ * editor into saying so rather than quietly dropping it.
+ *
+ * Scanned line by line rather than matched with one regex: the obvious pattern needs
+ * an end-of-input anchor to handle a brief truncated before BEST SOURCES, and
+ * JavaScript has no \Z — it parses as a literal "Z" and silently never matches, so a
+ * truncated brief would report no gaps at exactly the moment it has the most.
+ */
+function briefHasGaps(brief: string): boolean {
+  const lines = brief.split(/\r?\n/);
+  const start = lines.findIndex((l) => /^\s*GAPS\s*:?\s*$/i.test(l));
+  if (start === -1) return false;
+
+  const body: string[] = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^\s*BEST SOURCES\s*:?\s*$/i.test(lines[i]!)) break;
+    body.push(lines[i]!);
+  }
+
+  const text = body.join(" ").trim();
+  return text.length > 0 && !/^(none|n\/a|nothing|not applicable|-|—)\.?$/i.test(text);
+}
+
+async function runAnalyst(params: {
+  siteId: string;
+  context: string;
+  webContext: string;
+  socialContext: string;
+  history: ChatHistoryItem[];
+  message: string;
+}): Promise<{ brief: string; hasGaps: boolean } | null> {
+  const { siteId, context, webContext, socialContext, history, message } = params;
+  const t0 = Date.now();
+  try {
+    const brief = await generateContentText({
+      model: GEMINI_MODELS.chat,
+      contents: buildContents({ context, webContext, socialContext, history, message }),
+      config: {
+        systemInstruction: buildAnalystPrompt({ siteId, hasWeb: Boolean(webContext) }),
+        // Reasoning, not recall. This is the one call in the pipeline that is allowed
+        // a real thinking budget, and the only reason the analytical path exists.
+        temperature: 0.3,
+        maxOutputTokens: ANALYST_MAX_TOKENS,
+        thinkingLevel: "high",
+      },
+    });
+    if (!brief.trim()) return null;
+    const hasGaps = briefHasGaps(brief);
+    console.log(
+      `[reasoning] analyst site=${siteId} ${Date.now() - t0}ms brief=${brief.length}ch gaps=${hasGaps} web=${webContext ? "yes" : "no"}`
+    );
+    return { brief, hasGaps };
+  } catch (err) {
+    console.warn(
+      "[rag] analyst pass failed:",
+      err instanceof Error ? err.message.slice(0, 160) : err
+    );
+    return null;
+  }
+}
+
+/**
+ * The editor turn. The brief rides in as the final user message so the source material
+ * stays in the cacheable prefix, and so the model reads the evidence before the claims
+ * it is being asked to check.
+ */
+function buildEditorTurn(params: {
+  siteId: string;
+  brief: string;
+  hasGaps: boolean;
+  hasSocial: boolean;
+  context: string;
+  webContext: string;
+  socialContext: string;
+  history: ChatHistoryItem[];
+  message: string;
+}) {
+  const { siteId, brief, hasGaps, hasSocial, context, webContext, socialContext, history, message } =
+    params;
+
+  return {
+    systemPrompt: buildEditorPrompt({ siteId, hasSocial, gaps: hasGaps }),
+    contents: buildContents({
+      context,
+      webContext,
+      socialContext,
+      history,
+      message:
+        `RESEARCH BRIEF — internal notes. Never quote them, mention them, or reproduce their ` +
+        `section headings or [url] markers.\n\n${brief}\n\n---\n\n` +
+        `The visitor asked: ${message}\n\nCheck the brief against the material above, then write the answer they see.`,
+    }),
+  };
+}
 
 /**
  * When the answer actually cites social posts, "For More Info" should point at the
@@ -265,14 +452,23 @@ export async function answerQuestionWithRag(params: {
   if (plan.intent === "greeting") return greetingAnswer(siteId);
   if (plan.intent === "out_of_scope") return outOfScopeAnswer(siteId);
 
-  // 3. Retrieve.
+  // 3. Retrieve, with a live search alongside it when the question warrants one.
+  const webPromise: Promise<WebResearch | null> = wantsWebUpFront(plan)
+    ? searchFor(siteId, plan)
+    : Promise.resolve(null);
+
   const retrieval = await runRetrieval({ siteId, plan });
   const socialResults = await socialPromise;
+
+  let research = await webPromise;
+  if (!research && wantsWebAfterRetrieval(retrieval.meta.confidence)) {
+    research = await searchFor(siteId, plan);
+  }
 
   // Only bail out when there is genuinely nothing to read. A low rerank score on
   // real pages means the phrasing is unusual, not that the answer is missing, so the
   // model gets to see the pages and decide.
-  if (retrieval.docs.length === 0 && socialResults.length === 0) {
+  if (retrieval.docs.length === 0 && socialResults.length === 0 && !research?.sources.length) {
     console.warn(`[rag] retrieved nothing for "${plan.standalone.slice(0, 70)}"`);
     const fb = buildContactFallback({ siteId, question: plan.standalone, docs: [] });
     return { ...fb, sources: [], socialLinks: [], path: "contact_fallback" };
@@ -281,27 +477,77 @@ export async function answerQuestionWithRag(params: {
   // 4. Generate.
   const context = buildContext(retrieval.docs, siteId);
   const socialContext = buildSocialContextString(socialResults);
+  const webContext = buildWebSection(research);
+  const webSources = research?.sources ?? [];
+
+  let raw = "";
+  let path: ChatAnswer["path"] = "answered";
+
+  // 4a. Judgement questions get the analyst, then the editor that checks its work.
+  if (reasoningEnabled() && plan.analytical) {
+    const analysis = await runAnalyst({
+      siteId,
+      context,
+      webContext,
+      socialContext,
+      history,
+      message,
+    });
+    if (analysis) {
+      const editor = buildEditorTurn({
+        siteId,
+        brief: analysis.brief,
+        hasGaps: analysis.hasGaps,
+        hasSocial: socialResults.length > 0,
+        context,
+        webContext,
+        socialContext,
+        history,
+        message,
+      });
+      try {
+        raw = await generateContentText({
+          model: GEMINI_MODELS.chat,
+          contents: editor.contents,
+          config: {
+            systemInstruction: editor.systemPrompt,
+            temperature: 0.2,
+            maxOutputTokens: EDITOR_MAX_TOKENS,
+            thinkingLevel: "low",
+          },
+        });
+        path = "reasoned";
+      } catch (err) {
+        console.warn(
+          "[rag] editor pass failed, falling back to single pass:",
+          err instanceof Error ? err.message.slice(0, 160) : err
+        );
+      }
+    }
+  }
+
+  // 4b. Single pass — the default route, and the net under a failed reasoning pass.
   const systemPrompt = buildSystemPrompt({
     siteId,
     confidence: retrieval.meta.confidence === "strong" ? "strong" : "weak",
     exhaustive: plan.exhaustive,
     hasSocial: socialResults.length > 0,
   });
-  const contents = buildContents({ context, socialContext, history, message });
+  const contents = buildContents({ context, webContext, socialContext, history, message });
 
-  let raw = "";
-  let path: ChatAnswer["path"] = "answered";
   try {
-    raw = await generateContentText({
-      model: GEMINI_MODELS.chat,
-      contents,
-      config: {
-        systemInstruction: systemPrompt,
-        temperature: 0.2,
-        maxOutputTokens: ANSWER_MAX_TOKENS,
-        thinkingLevel: "low",
-      },
-    });
+    if (!raw.trim()) {
+      raw = await generateContentText({
+        model: GEMINI_MODELS.chat,
+        contents,
+        config: {
+          systemInstruction: systemPrompt,
+          temperature: 0.2,
+          maxOutputTokens: ANSWER_MAX_TOKENS,
+          thinkingLevel: "low",
+        },
+      });
+    }
   } catch (err) {
     // Rung 2: one retry on a reduced context, which also dodges token-limit failures.
     console.warn("[rag] generation failed, retrying with reduced context:", err instanceof Error ? err.message.slice(0, 160) : err);
@@ -310,7 +556,7 @@ export async function answerQuestionWithRag(params: {
       const smaller = buildContext(retrieval.docs.slice(0, 5), siteId);
       raw = await generateContentText({
         model: GEMINI_MODELS.chat,
-        contents: buildContents({ context: smaller, socialContext: "", history: [], message }),
+        contents: buildContents({ context: smaller, webContext, socialContext: "", history: [], message }),
         config: {
           systemInstruction: systemPrompt,
           temperature: 0.2,
@@ -340,8 +586,12 @@ export async function answerQuestionWithRag(params: {
     siteId,
     docs: retrieval.docs,
     posts: socialResults,
+    webSources,
   });
   const sources = dedupeSources(retrieval.docs, siteId);
+  for (const w of webSources) {
+    if (!sources.some((x) => x.url === w.url)) sources.push({ url: w.url, title: w.title || w.url });
+  }
 
   const socialLinks: SocialLink[] = socialResults.slice(0, 3).map((r) => ({
     platform: r.platform,
@@ -390,7 +640,11 @@ export async function answerQuestionWithRag(params: {
 // Streaming variant — same pipeline, text delivered as it is generated
 // ---------------------------------------------------------------------------
 export type StreamEvent =
-  | { type: "status"; stage: "planning" | "searching" | "reading" | "writing"; detail?: string }
+  | {
+      type: "status";
+      stage: "planning" | "searching" | "researching" | "reading" | "reasoning" | "writing";
+      detail?: string;
+    }
   | { type: "delta"; text: string }
   | { type: "done"; answer: ChatAnswer };
 
@@ -436,11 +690,22 @@ export async function* answerQuestionStreaming(params: {
     return;
   }
 
+  // Runs alongside retrieval, exactly as in the non-streaming path.
+  const webPromise: Promise<WebResearch | null> = wantsWebUpFront(plan)
+    ? searchFor(siteId, plan)
+    : Promise.resolve(null);
+
   yield { type: "status", stage: "searching" };
   const retrieval = await runRetrieval({ siteId, plan });
   const socialResults = await socialPromise;
 
-  if (retrieval.docs.length === 0 && socialResults.length === 0) {
+  let research = await webPromise;
+  if (!research && wantsWebAfterRetrieval(retrieval.meta.confidence)) {
+    yield { type: "status", stage: "researching" };
+    research = await searchFor(siteId, plan);
+  }
+
+  if (retrieval.docs.length === 0 && socialResults.length === 0 && !research?.sources.length) {
     const fb = buildContactFallback({ siteId, question: plan.standalone, docs: [] });
     yield { type: "delta", text: fb.answer };
     yield {
@@ -450,16 +715,46 @@ export async function* answerQuestionStreaming(params: {
     return;
   }
 
-  const pageCount = new Set(retrieval.docs.map((d) => d.url)).size;
+  const webSources = research?.sources ?? [];
+  const pageCount = new Set([
+    ...retrieval.docs.map((d) => d.url),
+    ...webSources.map((w) => w.url),
+  ]).size;
   yield { type: "status", stage: "reading", detail: `${pageCount} page${pageCount === 1 ? "" : "s"}` };
 
   const context = buildContext(retrieval.docs, siteId);
-  const systemPrompt = buildSystemPrompt({
-    siteId,
-    confidence: retrieval.meta.confidence === "strong" ? "strong" : "weak",
-    exhaustive: plan.exhaustive,
-    hasSocial: socialResults.length > 0,
-  });
+  const webContext = buildWebSection(research);
+  const socialContext = buildSocialContextString(socialResults);
+
+  // Judgement questions reason first. The analyst does not stream — its notes are
+  // internal — so the visitor waits on it, which is what the status stage is for.
+  let analysis: { brief: string; hasGaps: boolean } | null = null;
+  if (reasoningEnabled() && plan.analytical) {
+    yield { type: "status", stage: "reasoning" };
+    analysis = await runAnalyst({ siteId, context, webContext, socialContext, history, message });
+  }
+
+  const turn = analysis
+    ? buildEditorTurn({
+        siteId,
+        brief: analysis.brief,
+        hasGaps: analysis.hasGaps,
+        hasSocial: socialResults.length > 0,
+        context,
+        webContext,
+        socialContext,
+        history,
+        message,
+      })
+    : {
+        systemPrompt: buildSystemPrompt({
+          siteId,
+          confidence: retrieval.meta.confidence === "strong" ? "strong" : "weak",
+          exhaustive: plan.exhaustive,
+          hasSocial: socialResults.length > 0,
+        }),
+        contents: buildContents({ context, webContext, socialContext, history, message }),
+      };
 
   yield { type: "status", stage: "writing" };
 
@@ -487,16 +782,11 @@ export async function* answerQuestionStreaming(params: {
 
   for await (const delta of generateContentStream({
     model: GEMINI_MODELS.chat,
-    contents: buildContents({
-      context,
-      socialContext: buildSocialContextString(socialResults),
-      history,
-      message,
-    }),
+    contents: turn.contents,
     config: {
-      systemInstruction: systemPrompt,
+      systemInstruction: turn.systemPrompt,
       temperature: 0.2,
-      maxOutputTokens: ANSWER_MAX_TOKENS,
+      maxOutputTokens: analysis ? EDITOR_MAX_TOKENS : ANSWER_MAX_TOKENS,
       thinkingLevel: "low",
     },
   })) {
@@ -534,6 +824,7 @@ export async function* answerQuestionStreaming(params: {
     siteId,
     docs: retrieval.docs,
     posts: socialResults,
+    webSources,
   });
 
   // No correction delta here: `flushed` indexes the RAW stream while `formatted.answer`
@@ -541,6 +832,9 @@ export async function* answerQuestionStreaming(params: {
   // The `done` event carries the authoritative answer and the client renders that.
 
   const sources = dedupeSources(retrieval.docs, siteId);
+  for (const w of webSources) {
+    if (!sources.some((x) => x.url === w.url)) sources.push({ url: w.url, title: w.title || w.url });
+  }
   for (const sr of socialResults) {
     if (!sources.some((x) => x.url === sr.url)) {
       sources.push({ url: sr.url, title: `${sr.platform}: ${sr.title}` });
@@ -564,7 +858,7 @@ export async function* answerQuestionStreaming(params: {
         url: p.url,
       })),
       followUps: formatted.followUps,
-      path: "answered",
+      path: analysis ? "reasoned" : "answered",
     },
   };
 }
