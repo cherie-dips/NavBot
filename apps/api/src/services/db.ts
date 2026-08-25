@@ -177,7 +177,7 @@ function numId(v: unknown): number {
   return Number(v);
 }
 
-export interface SiteRow {
+interface SiteRow {
   id: number;
   site_id: string;
   user_id: string;
@@ -391,7 +391,7 @@ export async function getTrackedUrls(siteId: string): Promise<Set<string>> {
   return new Set((rows as { url: string }[]).map((r) => r.url));
 }
 
-export interface IndexedPage {
+interface IndexedPage {
   url: string;
   contentHash: string | null;
   lastmod: string | null;
@@ -487,7 +487,7 @@ export async function upsertPageLastmods(
   }
 }
 
-export interface FaqRow {
+interface FaqRow {
   id: number;
   site_id: string;
   label: string;
@@ -668,7 +668,7 @@ export async function getTopQueries(
   return rows as Array<{ query: string; count: number }>;
 }
 
-export async function deleteChatQueriesForSite(siteId: string): Promise<void> {
+async function deleteChatQueriesForSite(siteId: string): Promise<void> {
   await pool.query(`DELETE FROM chat_query WHERE site_id = $1`, [siteId]);
 }
 
@@ -698,7 +698,7 @@ function queryHash(normalized: string): string {
   return crypto.createHash("md5").update(normalized).digest("hex");
 }
 
-export interface RagCacheEntry {
+interface RagCacheEntry {
   answer: string;
   sources: Array<{ url: string; title: string }>;
   pageLinks: Array<{ url: string; title: string }>;
@@ -746,7 +746,7 @@ export async function invalidateRagCache(siteId: string): Promise<void> {
   await pool.query(`DELETE FROM rag_cache WHERE site_id = $1`, [siteId]);
 }
 
-export async function purgeNoInfoCacheEntries(): Promise<number> {
+async function purgeNoInfoCacheEntries(): Promise<number> {
   const res = await pool.query(
     `DELETE FROM rag_cache WHERE answer ILIKE '%have that information%' OR answer ILIKE '%find relevant information%'`
   );

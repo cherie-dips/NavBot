@@ -7,7 +7,7 @@
  * not assumed.
  */
 
-export interface ContactEntry {
+interface ContactEntry {
   /** Matched against the user's question to pick the right desk. */
   topic: RegExp;
   label: string;
@@ -16,7 +16,7 @@ export interface ContactEntry {
   page?: string;
 }
 
-export interface SectionAlias {
+interface SectionAlias {
   /** What the visitor calls it. */
   match: RegExp;
   /** Where it actually lives on this site. */
@@ -25,7 +25,7 @@ export interface SectionAlias {
   label: string;
 }
 
-export interface SiteProfile {
+interface SiteProfile {
   siteId: string;
   displayName: string;
   /** Menu labels used to identify navigation chunks. Lowercase. */
@@ -41,6 +41,20 @@ export interface SiteProfile {
   glossary: Array<[RegExp, string]>;
   /** Topics the bot should answer about; anything else is out of scope. */
   scopeDescription: string;
+  /**
+   * What the greeting promises the bot can help with, as a sentence fragment
+   * completing "I can help with ...". Empty means the greeting stays generic.
+   *
+   * This lives here because it used to be hardcoded in `rag.ts`, which offered every
+   * visitor of every site help with "admissions ... BTech and graduate programs".
+   */
+  capabilities: string;
+  /**
+   * Chips offered alongside greetings and out-of-scope replies. Must be answerable
+   * from this site — they were previously three questions naming Plaksha by name,
+   * shown to every tenant.
+   */
+  suggestedQuestions: string[];
   /** Compact section map handed to the planner. */
   sectionMap: string;
   /**
@@ -253,6 +267,15 @@ const PLAKSHA: SiteProfile = {
   scopeDescription:
     "Plaksha University — its undergraduate (BTech), graduate (MS, Tech Leaders Fellowship, PhD) and high-school programs, admissions, fees and financial aid, curriculum, faculty, research centers, campus and student life, career outcomes, leadership, and university news.",
 
+  capabilities:
+    "admissions and deadlines, fees and financial aid, our BTech and graduate programs, faculty, research centers, campus life, and career outcomes",
+
+  suggestedQuestions: [
+    "What BTech programs does Plaksha offer?",
+    "What are the admission deadlines?",
+    "What financial aid is available?",
+  ],
+
   // Verified from the plaksha.edu.in footer on 2026-08-14.
   socialHandles: {
     instagram: "plakshauniversity",
@@ -294,6 +317,10 @@ const DEFAULT_PROFILE: SiteProfile = {
   generalContact: { topic: /.*/, label: "", email: "", page: "" },
   glossary: [],
   scopeDescription: "",
+  // Empty on purpose: an unconfigured site gets a short, correct greeting rather than
+  // a confident list of things it cannot actually help with.
+  capabilities: "",
+  suggestedQuestions: [],
   sectionMap: "",
 };
 
@@ -303,10 +330,6 @@ const PROFILES: Record<string, SiteProfile> = {
 
 export function getSiteProfile(siteId: string): SiteProfile {
   return PROFILES[siteId] ?? { ...DEFAULT_PROFILE, siteId, displayName: siteId };
-}
-
-export function hasTunedProfile(siteId: string): boolean {
-  return siteId in PROFILES;
 }
 
 /** Path patterns for the sections a question is about. */

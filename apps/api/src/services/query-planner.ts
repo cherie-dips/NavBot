@@ -16,7 +16,7 @@ import { generateContentText, GEMINI_MODELS } from "./gemini-client";
 import { getSiteProfile } from "./site-profile";
 import type { ChatHistoryItem } from "./chat-types";
 
-export type QueryIntent = "greeting" | "out_of_scope" | "simple" | "compositional";
+type QueryIntent = "greeting" | "out_of_scope" | "simple" | "compositional";
 
 export interface QueryPlan {
   /** The question with pronouns and ellipsis resolved. */

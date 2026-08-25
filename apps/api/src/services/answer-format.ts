@@ -10,7 +10,7 @@ import { getSiteProfile, applyGlossary, contactForQuestion } from "./site-profil
 import type { PageLink } from "./chat-types";
 import type { RerankedDoc } from "./reranker";
 
-export interface FormattedAnswer {
+interface FormattedAnswer {
   answer: string;
   pageLinks: PageLink[];
   followUps: string[];
@@ -361,7 +361,7 @@ function dedupeBlocks(text: string): string {
  * the sentence rather than the top of a long page. Uses a text fragment, which
  * Chrome, Edge and Safari honour and other browsers ignore harmlessly.
  */
-export function buildDeepLink(url: string, chunk: string | undefined): string {
+function buildDeepLink(url: string, chunk: string | undefined): string {
   if (!chunk) return url;
   if (url.includes("#")) return url;
 
@@ -579,7 +579,7 @@ export function formatAnswer(params: {
  * Clients that understand the tag say so. Everything else gets the tags removed and
  * the posts returned as a trailing list, which every older bundle already renders.
  */
-export const POST_CHIP_FEATURE = "post-chips";
+const POST_CHIP_FEATURE = "post-chips";
 
 export function adaptForClient(
   answer: string,

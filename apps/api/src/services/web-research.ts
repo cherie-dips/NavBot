@@ -25,13 +25,13 @@
 import { getGoogleGenAI, GEMINI_MODELS } from "./gemini-client";
 import { getSiteProfile } from "./site-profile";
 
-export interface WebSource {
+interface WebSource {
   url: string;
   title: string;
   snippet: string;
 }
 
-export type WebProvider = "gemini-grounding" | "serper" | "none";
+type WebProvider = "gemini-grounding" | "serper" | "none";
 
 export interface WebResearch {
   /**

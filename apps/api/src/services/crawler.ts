@@ -60,7 +60,7 @@ const SKIP_CONTENT_PATTERNS: RegExp[] = [
 ];
 
 
-export type BrowserCrawlMode = "off" | "auto" | "always";
+type BrowserCrawlMode = "off" | "auto" | "always";
 
 /**
  * `NAVBOT_BROWSER_CRAWL`:
@@ -68,7 +68,7 @@ export type BrowserCrawlMode = "off" | "auto" | "always";
  * - `always`: every page through Chromium (slowest, best for heavy SPAs).
  * - `off` / `static`: legacy behavior — HTTP fetch only (fast, no JS).
  */
-export function parseBrowserCrawlMode(): BrowserCrawlMode {
+function parseBrowserCrawlMode(): BrowserCrawlMode {
   const raw = (process.env.NAVBOT_BROWSER_CRAWL || "auto").toLowerCase().trim();
   if (["off", "false", "0", "static", "none"].includes(raw)) return "off";
   if (["always", "true", "1", "browser", "force"].includes(raw)) return "always";
@@ -450,7 +450,7 @@ function extractStructuredContent(
 }
 
 
-export function contentFingerprint(text: string): string {
+function contentFingerprint(text: string): string {
   return crypto.createHash("md5").update(text).digest("hex");
 }
 
@@ -503,7 +503,7 @@ async function ocrImageUrl(imageUrl: string): Promise<string> {
   }
 }
 
-export async function ocrImagesOnPage(
+async function ocrImagesOnPage(
   html: string,
   pageUrl: string,
   maxImages = 5,

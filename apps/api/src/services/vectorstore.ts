@@ -322,8 +322,6 @@ function splitLargeSection(text: string, maxSize: number): string[] {
 
 function semanticChunk(page: CrawledPage): SemanticChunk[] {
   const sections = page.sections;
-  const title = String(page.title ?? "");
-  const url = String(page.url ?? "");
 
   if (!sections || sections.length === 0) {
     const content = typeof page.content === "string"
@@ -569,12 +567,6 @@ export async function upsertSitePages(
   };
 }
 
-export type UpsertResult = ReturnType<typeof upsertSitePages> extends Promise<
-  infer T
->
-  ? T
-  : never;
-
 // ---------------------------------------------------------------------------
 // Delete chunks for specific page URLs
 // ---------------------------------------------------------------------------
@@ -727,121 +719,4 @@ export async function querySiteDocs(params: {
   const maxPerUrl = exhaustive ? 5 : 8;
   const maxTotal = exhaustive ? 96 : 72;
   return selectWithUrlSpread(pool, maxPerUrl, maxTotal);
-}
-
-const URL_LIST_BATCH = 12;
-const LIST_PAGE_SIZE = 100;
-
-/** Bounded-concurrency map. Local copy so this module stays free of the crawler's Playwright import. */
-async function mapConcurrent<T, R>(
-  items: T[],
-  concurrency: number,
-  fn: (item: T, index: number) => Promise<R>
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
-  let cursor = 0;
-  async function worker() {
-    for (;;) {
-      const i = cursor++;
-      if (i >= items.length) return;
-      results[i] = await fn(items[i]!, i);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
-  return results;
-}
-
-/**
- * Load chunks for specific page URLs (metadata `url` match). Uses id-prefix list + fetch
- * (deterministic chunk IDs per URL).
- */
-export async function getDocsForUrls(
-  siteId: string,
-  urls: string[],
-  options?: { maxTotal?: number; maxPerUrl?: number; supplementaryDistance?: number }
-): Promise<RetrievedDoc[]> {
-  const maxTotal = options?.maxTotal ?? 72;
-  const maxPerUrl = options?.maxPerUrl ?? 5;
-  const suppD = options?.supplementaryDistance ?? 0.72;
-  if (urls.length === 0) return [];
-
-  await resolveUpsertConfig();
-  const ns = nsIndex(siteId);
-  const byUrlCount = new Map<string, number>();
-  const out: RetrievedDoc[] = [];
-
-  const ingestRecords = (recs: Record<string, { metadata?: Record<string, unknown> }>) => {
-    for (const id of Object.keys(recs)) {
-      const row = recs[id];
-      const meta = row?.metadata;
-      const url = typeof meta?.url === "string" ? meta.url : "";
-      const c = byUrlCount.get(url) ?? 0;
-      if (c >= maxPerUrl) continue;
-      byUrlCount.set(url, c + 1);
-      out.push({
-        id,
-        content: chunkTextFromMetadata(meta),
-        url,
-        title: typeof meta?.title === "string" ? meta.title : "",
-        distance: suppD,
-      });
-      if (out.length >= maxTotal) return true;
-    }
-    return false;
-  };
-
-  /**
-   * Each URL needs a list-by-prefix followed by a fetch. Doing that serially cost
-   * ~16s for 24 URLs on the live index, which dominated latency for list questions.
-   * URLs are independent, so they run in a bounded-concurrency pool instead.
-   */
-  const idsPerUrl = await mapConcurrent(urls, URL_LIST_BATCH, async (url) => {
-    const prefix = `${urlHash(url)}_`;
-    const ids: string[] = [];
-    let paginationToken: string | undefined;
-
-    do {
-      try {
-        const listed = await ns.listPaginated({
-          prefix,
-          limit: LIST_PAGE_SIZE,
-          paginationToken,
-        });
-        for (const v of listed.vectors ?? []) {
-          if (v?.id) ids.push(v.id);
-        }
-        paginationToken = listed.pagination?.next;
-        if (ids.length >= maxPerUrl * 4) break;
-      } catch (err) {
-        console.warn("[vectorstore] listPaginated failed for URL:", url, err);
-        break;
-      }
-    } while (paginationToken);
-
-    return [...new Set(ids)].slice(0, maxPerUrl * 4);
-  });
-
-  // Fetch in flat batches — one round trip per 200 ids regardless of how many URLs.
-  const allIds = idsPerUrl.flat();
-  const FETCH_BATCH = 200;
-  const batches: string[][] = [];
-  for (let f = 0; f < allIds.length; f += FETCH_BATCH) {
-    batches.push(allIds.slice(f, f + FETCH_BATCH));
-  }
-
-  const fetched = await mapConcurrent(batches, 4, async (slice) => {
-    try {
-      const res = await ns.fetch(slice);
-      return res.records as Record<string, { metadata?: Record<string, unknown> }>;
-    } catch (err) {
-      console.warn("[vectorstore] fetch failed:", err);
-      return {} as Record<string, { metadata?: Record<string, unknown> }>;
-    }
-  });
-
-  for (const recs of fetched) {
-    if (ingestRecords(recs)) break;
-  }
-
-  return out;
 }

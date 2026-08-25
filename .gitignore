@@ -41,3 +41,6 @@ coverage/
 *.db-shm
 *.db-wal
 *.db
+
+# Local working notes (not part of the build)
+PIPELINE_AUDIT.md

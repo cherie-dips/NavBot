@@ -3,8 +3,13 @@ import { GoogleGenAI } from "@google/genai";
 // ---------------------------------------------------------------------------
 // API key
 // ---------------------------------------------------------------------------
+/**
+ * GOOGLE_API_KEY is accepted because the README has always told operators it works.
+ * It did not, and the only symptom was a startup warning and a bot that answered
+ * nothing — so the fallback is implemented rather than the documentation deleted.
+ */
 export function getGeminiApiKey(): string {
-  return process.env.GEMINI_API_KEY?.trim() ?? "";
+  return (process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY ?? "").trim();
 }
 
 // ---------------------------------------------------------------------------
@@ -32,11 +37,25 @@ const GEMINI_CHAT_MODEL = process.env.GEMINI_CHAT_MODEL?.trim() || "gemini-2.5-f
  */
 const GEMINI_PLANNER_MODEL = process.env.GEMINI_PLANNER_MODEL?.trim() || GEMINI_CHAT_MODEL;
 
+/**
+ * Speech-to-text is ordinary multimodal generation with an audio part, so it runs on
+ * the chat model unless overridden — one fewer model ID to keep alive.
+ */
+const GEMINI_STT_MODEL = process.env.GEMINI_STT_MODEL?.trim() || GEMINI_CHAT_MODEL;
+
+/**
+ * Text-to-speech is NOT ordinary generation: it needs a model built for the audio
+ * response modality, which the chat models are not. Both of these were hardcoded to
+ * "gemini-2.5-flash", which now returns 404 "no longer available to new users" —
+ * verified against the live API — so voice replies and read-aloud were both dead.
+ */
+const GEMINI_TTS_MODEL = process.env.GEMINI_TTS_MODEL?.trim() || "gemini-3.1-flash-tts-preview";
+
 export const GEMINI_MODELS = {
   chat: GEMINI_CHAT_MODEL,
   planner: GEMINI_PLANNER_MODEL,
-  tts: "gemini-2.5-flash",
-  stt: "gemini-2.5-flash",
+  tts: GEMINI_TTS_MODEL,
+  stt: GEMINI_STT_MODEL,
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -63,10 +82,10 @@ function isRetryableError(msg: string): boolean {
  * Thrown when the model returns no usable text. Marked retryable so `withRetry`
  * takes another pass instead of letting an empty string reach the user.
  */
-export const EMPTY_RESPONSE_MARKER = "navbot_empty_response";
+const EMPTY_RESPONSE_MARKER = "navbot_empty_response";
 
 /** Honour the server's own backoff hint on 429 instead of guessing. */
-export function parseRetryDelayMs(err: unknown): number | null {
+function parseRetryDelayMs(err: unknown): number | null {
   const msg = getErrorMessage(err);
   const m = msg.match(/"retryDelay":"(\d+(?:\.\d+)?)s"/);
   if (!m) return null;
@@ -74,7 +93,7 @@ export function parseRetryDelayMs(err: unknown): number | null {
   return Number.isFinite(seconds) ? Math.min(seconds * 1000, 60_000) : null;
 }
 
-export type RetryOptions = {
+type RetryOptions = {
   maxAttempts?: number;
   baseDelayMs?: number;
   label?: string;
@@ -104,13 +123,6 @@ export async function withRetry<T>(fn: () => Promise<T>, options?: RetryOptions)
     }
   }
   throw lastErr;
-}
-
-// Backward-compat aliases for eval scripts
-export const geminiWithRetry = withRetry;
-export type GeminiRetryOptions = RetryOptions;
-export function parseGemini429RetryDelayMs(err: unknown): number | null {
-  return parseRetryDelayMs(err);
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +156,7 @@ function isGemini3(model: string): boolean {
   return /gemini-3/i.test(model);
 }
 
-export function buildGenerationConfig(
+function buildGenerationConfig(
   model: string,
   config?: {
     systemInstruction?: string;

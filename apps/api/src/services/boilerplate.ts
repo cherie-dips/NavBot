@@ -22,7 +22,7 @@ const CHUNK_PREAMBLE = /^\s*Page:\s*.*?\s*URL:\s*\S+\s*(?:Section:\s*)?/is;
 const SECTION_COUNTER = /\(\d+\/\d+\)/g;
 
 /** Strip indexer scaffolding so the model reads content, not our own metadata. */
-export function stripChunkPreamble(content: string): string {
+function stripChunkPreamble(content: string): string {
   return content.replace(CHUNK_PREAMBLE, "").replace(SECTION_COUNTER, "").trim();
 }
 
@@ -44,7 +44,7 @@ function fingerprint(content: string): string {
  * Navigation text is a run of short link labels: many capitalised phrases, almost
  * no sentence punctuation, and a high hit rate against the site's known menu labels.
  */
-export function looksLikeNavigation(content: string, siteId: string): boolean {
+function looksLikeNavigation(content: string, siteId: string): boolean {
   const text = stripChunkPreamble(content);
   if (text.length < 120) return false;
 

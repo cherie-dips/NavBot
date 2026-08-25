@@ -18,7 +18,7 @@ import type { Browser } from "playwright";
 // ---------------------------------------------------------------------------
 // SPA Framework Detection
 // ---------------------------------------------------------------------------
-export interface FrameworkDetection {
+interface FrameworkDetection {
   framework: "react" | "vue" | "angular" | "svelte" | "nextjs" | "nuxt" | "unknown";
   isSPA: boolean;
   confidence: "high" | "medium" | "low";
@@ -120,7 +120,7 @@ function browserSettleMs(): number {
   return Number.isFinite(n) && n >= 0 ? Math.min(n, 15000) : 2000;
 }
 
-export async function getSharedBrowser(): Promise<Browser | null> {
+async function getSharedBrowser(): Promise<Browser | null> {
   if (playwrightUnavailable) return null;
   if (browserInstance) return browserInstance;
   if (browserLaunching) return browserLaunching;

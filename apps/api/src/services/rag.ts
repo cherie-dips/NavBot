@@ -364,280 +364,44 @@ function resolveMoreInfoLinks(params: {
 // Canned replies that need no retrieval
 // ---------------------------------------------------------------------------
 function greetingAnswer(siteId: string): ChatAnswer {
-  const name = getSiteProfile(siteId).displayName || siteId;
+  const profile = getSiteProfile(siteId);
+  const name = profile.displayName || siteId;
+  const canHelp = profile.capabilities ? ` I can help with ${profile.capabilities}.` : "";
   return {
-    answer: `Hello! I'm NavBot, the assistant for the ${name} website. I can help with admissions and deadlines, fees and financial aid, our BTech and graduate programs, faculty, research centers, campus life, and career outcomes. What would you like to know?`,
+    answer: `Hello! I'm NavBot, the assistant for the ${name} website.${canHelp} What would you like to know?`,
     sources: [],
     pageLinks: [],
     socialLinks: [],
-    followUps: [
-      "What BTech programs does Plaksha offer?",
-      "What are the admission deadlines?",
-      "What financial aid is available?",
-    ],
+    followUps: profile.suggestedQuestions.slice(0, 3),
     path: "greeting",
   };
 }
 
 function outOfScopeAnswer(siteId: string): ChatAnswer {
-  const name = getSiteProfile(siteId).displayName || siteId;
+  const profile = getSiteProfile(siteId);
+  const name = profile.displayName || siteId;
+  const scope = profile.capabilities ? ` — ${profile.capabilities}` : "";
   return {
-    answer: `I only cover ${name} — admissions, programs, fees and financial aid, faculty, research, campus life and career outcomes. Ask me anything in those areas and I'll help.`,
+    answer: `I only cover ${name}${scope}. Ask me anything in those areas and I'll help.`,
     sources: [],
     pageLinks: [],
     socialLinks: [],
-    followUps: [
-      "What makes the Plaksha curriculum different?",
-      "What are the BTech admission rounds?",
-      "Where do Plaksha graduates work?",
-    ],
+    followUps: profile.suggestedQuestions.slice(0, 3),
     path: "out_of_scope",
   };
 }
 
 // ---------------------------------------------------------------------------
-// Main entry point
-// ---------------------------------------------------------------------------
-export async function answerQuestionWithRag(params: {
-  siteId: string;
-  message: string;
-  history: ChatHistoryItem[];
-  /** Rendering capabilities the client advertises, e.g. ["post-chips"]. */
-  features?: string[];
-}): Promise<ChatAnswer> {
-  const { siteId, message, history, features } = params;
-
-  // 1. Curated answer written by the site owner always wins.
-  const curated = CACHE_DISABLED
-    ? null
-    : await getFaqUserAnswerForQuestion(siteId, message).catch(() => null);
-  if (curated && !curated.stale) {
-    return {
-      answer: applyGlossary(curated.answer.trim(), siteId),
-      sources: [],
-      pageLinks: [],
-      socialLinks: [],
-      followUps: [],
-      path: "faq",
-    };
-  }
-
-  const isFirstTurn = history.length === 0;
-  if (isFirstTurn && !CACHE_DISABLED) {
-    const cached = await getRagCache(siteId, message).catch(() => null);
-    if (cached) {
-      return {
-        answer: cached.answer,
-        sources: cached.sources,
-        pageLinks: cached.pageLinks as PageLink[],
-        socialLinks: [],
-        followUps: [],
-        path: "cache",
-      };
-    }
-  }
-
-  // 2. Plan and pre-fetch concurrently — the planner's round trip overlaps retrieval.
-  const socialPromise = hasSocialIntent(message)
-    ? searchSocialMedia(siteId, message).catch(() => [] as SocialSearchResult[])
-    : Promise.resolve([] as SocialSearchResult[]);
-
-  let plan: QueryPlan;
-  try {
-    plan = await planQuery({ siteId, message, history });
-  } catch {
-    plan = fallbackPlan(message, history);
-  }
-
-  if (plan.intent === "greeting") return greetingAnswer(siteId);
-  if (plan.intent === "out_of_scope") return outOfScopeAnswer(siteId);
-
-  // 3. Retrieve, with a live search alongside it when the question warrants one.
-  const webPromise: Promise<WebResearch | null> = wantsWebUpFront(plan)
-    ? searchFor(siteId, plan)
-    : Promise.resolve(null);
-
-  const retrieval = await runRetrieval({ siteId, plan });
-  const socialResults = await socialPromise;
-
-  let research = await webPromise;
-  if (!research && wantsWebAfterRetrieval(retrieval.meta.confidence)) {
-    research = await searchFor(siteId, plan);
-  }
-
-  // Only bail out when there is genuinely nothing to read. A low rerank score on
-  // real pages means the phrasing is unusual, not that the answer is missing, so the
-  // model gets to see the pages and decide.
-  if (retrieval.docs.length === 0 && socialResults.length === 0 && !research?.sources.length) {
-    console.warn(`[rag] retrieved nothing for "${plan.standalone.slice(0, 70)}"`);
-    const fb = buildContactFallback({ siteId, question: plan.standalone, docs: [] });
-    return { ...fb, sources: [], socialLinks: [], path: "contact_fallback" };
-  }
-
-  // 4. Generate.
-  const context = buildContext(retrieval.docs, siteId);
-  const socialContext = buildSocialContextString(socialResults);
-  const webContext = buildWebSection(research);
-  const webSources = research?.sources ?? [];
-
-  let raw = "";
-  let path: ChatAnswer["path"] = "answered";
-
-  // 4a. Judgement questions get the analyst, then the editor that checks its work.
-  if (reasoningEnabled() && plan.analytical) {
-    const analysis = await runAnalyst({
-      siteId,
-      context,
-      webContext,
-      socialContext,
-      history,
-      message,
-    });
-    if (analysis) {
-      const editor = buildEditorTurn({
-        siteId,
-        brief: analysis.brief,
-        hasGaps: analysis.hasGaps,
-        hasSocial: socialResults.length > 0,
-        context,
-        webContext,
-        socialContext,
-        history,
-        message,
-      });
-      try {
-        raw = await generateContentText({
-          model: GEMINI_MODELS.chat,
-          contents: editor.contents,
-          config: {
-            systemInstruction: editor.systemPrompt,
-            temperature: 0.2,
-            maxOutputTokens: EDITOR_MAX_TOKENS,
-            thinkingLevel: "low",
-          },
-        });
-        path = "reasoned";
-      } catch (err) {
-        console.warn(
-          "[rag] editor pass failed, falling back to single pass:",
-          err instanceof Error ? err.message.slice(0, 160) : err
-        );
-      }
-    }
-  }
-
-  // 4b. Single pass — the default route, and the net under a failed reasoning pass.
-  const systemPrompt = buildSystemPrompt({
-    siteId,
-    confidence: retrieval.meta.confidence === "strong" ? "strong" : "weak",
-    exhaustive: plan.exhaustive,
-    hasSocial: socialResults.length > 0,
-  });
-  const contents = buildContents({ context, webContext, socialContext, history, message });
-
-  try {
-    if (!raw.trim()) {
-      raw = await generateContentText({
-        model: GEMINI_MODELS.chat,
-        contents,
-        config: {
-          systemInstruction: systemPrompt,
-          temperature: 0.2,
-          maxOutputTokens: ANSWER_MAX_TOKENS,
-          thinkingLevel: "low",
-        },
-      });
-    }
-  } catch (err) {
-    // Rung 2: one retry on a reduced context, which also dodges token-limit failures.
-    console.warn("[rag] generation failed, retrying with reduced context:", err instanceof Error ? err.message.slice(0, 160) : err);
-    path = "retry";
-    try {
-      const smaller = buildContext(retrieval.docs.slice(0, 5), siteId);
-      raw = await generateContentText({
-        model: GEMINI_MODELS.chat,
-        contents: buildContents({ context: smaller, webContext, socialContext: "", history: [], message }),
-        config: {
-          systemInstruction: systemPrompt,
-          temperature: 0.2,
-          maxOutputTokens: ANSWER_MAX_TOKENS,
-          thinkingLevel: "low",
-        },
-      });
-    } catch (err2) {
-      console.error("[rag] generation failed twice:", err2 instanceof Error ? err2.message.slice(0, 160) : err2);
-      raw = "";
-    }
-  }
-
-  // Rungs 3 and 4: partial answer with pages, else the contact block.
-  if (!raw.trim()) {
-    const fb = buildContactFallback({
-      siteId,
-      question: plan.standalone,
-      docs: retrieval.docs,
-      reason: "generation_failed",
-    });
-    return { ...fb, sources: dedupeSources(retrieval.docs, siteId), socialLinks: [], path: "contact_fallback" };
-  }
-
-  const formatted = formatAnswer({
-    raw,
-    siteId,
-    docs: retrieval.docs,
-    posts: socialResults,
-    webSources,
-  });
-  const sources = dedupeSources(retrieval.docs, siteId);
-  for (const w of webSources) {
-    if (!sources.some((x) => x.url === w.url)) sources.push({ url: w.url, title: w.title || w.url });
-  }
-
-  const socialLinks: SocialLink[] = socialResults.slice(0, 3).map((r) => ({
-    platform: r.platform,
-    title: r.title,
-    url: r.url,
-  }));
-  for (const sr of socialResults) {
-    if (!sources.some((s) => s.url === sr.url)) {
-      sources.push({ url: sr.url, title: `${sr.platform}: ${sr.title}` });
-    }
-  }
-
-  const adapted = adaptForClient(formatted.answer, formatted.citedPosts, features);
-  const result: ChatAnswer = {
-    answer: adapted.answer,
-    sources,
-    pageLinks: resolveMoreInfoLinks({
-      citedPosts: formatted.citedPosts,
-      socialResults,
-      pageLinks: formatted.pageLinks,
-    }),
-    // Empty for clients that render inline chips; older bundles get the list back.
-    socialLinks: adapted.trailingPosts.map((p) => ({
-      platform: p.platform,
-      title: p.title,
-      url: p.url,
-    })),
-    followUps: formatted.followUps,
-    path,
-  };
-
-  // Only cache confident, first-turn answers that actually said something.
-  const declined = /I don'?t have that specific detail|I only cover/i.test(result.answer);
-  if (isFirstTurn && !CACHE_DISABLED && retrieval.meta.confidence === "strong" && !declined) {
-    setRagCache(siteId, message, {
-      answer: result.answer,
-      sources: sources.map((s) => ({ url: s.url, title: s.title })),
-      pageLinks: result.pageLinks,
-    }).catch(() => {});
-  }
-
-  return result;
-}
-
-// ---------------------------------------------------------------------------
-// Streaming variant — same pipeline, text delivered as it is generated
+// The pipeline
+//
+// There is exactly one implementation, and it is a generator. The non-streaming
+// entry point below is a view of it that drains the events and keeps the last one.
+//
+// It was previously written twice, and the two copies drifted every time either was
+// touched: the streaming path silently lost social search (documented in this file),
+// never read or wrote the semantic cache, and had no reduced-context retry — while
+// the widget streams by default, so production was running the weaker of the two.
+// Collapsing them is what stops that recurring.
 // ---------------------------------------------------------------------------
 export type StreamEvent =
   | {
@@ -652,11 +416,15 @@ export async function* answerQuestionStreaming(params: {
   siteId: string;
   message: string;
   history: ChatHistoryItem[];
+  /** Rendering capabilities the client advertises, e.g. ["post-chips"]. */
   features?: string[];
 }): AsyncGenerator<StreamEvent, void, unknown> {
   const { siteId, message, history, features } = params;
 
-  const curated = await getFaqUserAnswerForQuestion(siteId, message).catch(() => null);
+  // 1. A curated answer written by the site owner always wins.
+  const curated = CACHE_DISABLED
+    ? null
+    : await getFaqUserAnswerForQuestion(siteId, message).catch(() => null);
   if (curated && !curated.stale) {
     const answer = applyGlossary(curated.answer.trim(), siteId);
     yield { type: "delta", text: answer };
@@ -667,11 +435,32 @@ export async function* answerQuestionStreaming(params: {
     return;
   }
 
+  // 2. Semantic cache. First turn only, because a follow-up depends on the history
+  //    that produced it and the cache key is the question alone.
+  const isFirstTurn = history.length === 0;
+  if (isFirstTurn && !CACHE_DISABLED) {
+    const cached = await getRagCache(siteId, message).catch(() => null);
+    if (cached) {
+      yield { type: "delta", text: cached.answer };
+      yield {
+        type: "done",
+        answer: {
+          answer: cached.answer,
+          sources: cached.sources,
+          pageLinks: cached.pageLinks as PageLink[],
+          socialLinks: [],
+          followUps: [],
+          path: "cache",
+        },
+      };
+      return;
+    }
+  }
+
   yield { type: "status", stage: "planning" };
 
-  // Kicked off before planning so the Serper round trip overlaps retrieval instead
-  // of adding to it. This was omitted when streaming was added, which silently
-  // disabled social search for every visitor, since the widget streams by default.
+  // 3. Kicked off before planning so the Serper round trip overlaps retrieval
+  //    instead of adding to it.
   const socialPromise = hasSocialIntent(message)
     ? searchSocialMedia(siteId, message).catch(() => [] as SocialSearchResult[])
     : Promise.resolve([] as SocialSearchResult[]);
@@ -690,7 +479,7 @@ export async function* answerQuestionStreaming(params: {
     return;
   }
 
-  // Runs alongside retrieval, exactly as in the non-streaming path.
+  // 4. Retrieve, with a live search alongside it when the question warrants one.
   const webPromise: Promise<WebResearch | null> = wantsWebUpFront(plan)
     ? searchFor(siteId, plan)
     : Promise.resolve(null);
@@ -705,7 +494,12 @@ export async function* answerQuestionStreaming(params: {
     research = await searchFor(siteId, plan);
   }
 
-  if (retrieval.docs.length === 0 && socialResults.length === 0 && !research?.sources.length) {
+  // Only bail out when there is genuinely nothing to read. A low rerank score on
+  // real pages means the phrasing is unusual, not that the answer is missing, so the
+  // model gets to see the pages and decide.
+  const webSources = research?.sources ?? [];
+  if (retrieval.docs.length === 0 && socialResults.length === 0 && webSources.length === 0) {
+    console.warn(`[rag] retrieved nothing for "${plan.standalone.slice(0, 70)}"`);
     const fb = buildContactFallback({ siteId, question: plan.standalone, docs: [] });
     yield { type: "delta", text: fb.answer };
     yield {
@@ -715,7 +509,6 @@ export async function* answerQuestionStreaming(params: {
     return;
   }
 
-  const webSources = research?.sources ?? [];
   const pageCount = new Set([
     ...retrieval.docs.map((d) => d.url),
     ...webSources.map((w) => w.url),
@@ -726,13 +519,20 @@ export async function* answerQuestionStreaming(params: {
   const webContext = buildWebSection(research);
   const socialContext = buildSocialContextString(socialResults);
 
-  // Judgement questions reason first. The analyst does not stream — its notes are
-  // internal — so the visitor waits on it, which is what the status stage is for.
+  // 5. Judgement questions reason first. The analyst does not stream — its notes are
+  //    internal — so the visitor waits on it, which is what the status stage is for.
   let analysis: { brief: string; hasGaps: boolean } | null = null;
   if (reasoningEnabled() && plan.analytical) {
     yield { type: "status", stage: "reasoning" };
     analysis = await runAnalyst({ siteId, context, webContext, socialContext, history, message });
   }
+
+  const answererPrompt = buildSystemPrompt({
+    siteId,
+    confidence: retrieval.meta.confidence === "strong" ? "strong" : "weak",
+    exhaustive: plan.exhaustive,
+    hasSocial: socialResults.length > 0,
+  });
 
   const turn = analysis
     ? buildEditorTurn({
@@ -747,18 +547,13 @@ export async function* answerQuestionStreaming(params: {
         message,
       })
     : {
-        systemPrompt: buildSystemPrompt({
-          siteId,
-          confidence: retrieval.meta.confidence === "strong" ? "strong" : "weak",
-          exhaustive: plan.exhaustive,
-          hasSocial: socialResults.length > 0,
-        }),
+        systemPrompt: answererPrompt,
         contents: buildContents({ context, webContext, socialContext, history, message }),
       };
 
   yield { type: "status", stage: "writing" };
 
-  // Stream the prose, hide the trailing metadata blocks.
+  // 6. Stream the prose, hide the trailing metadata blocks.
   //
   // The stream must be consumed to the END even after the first marker appears:
   // [RELEVANT_PAGES] and [FOLLOW_UPS] are emitted last, so bailing out at the opening
@@ -772,6 +567,7 @@ export async function* answerQuestionStreaming(params: {
   let raw = "";
   let emitted = 0;
   let markerSeen = false;
+  let path: ChatAnswer["path"] = analysis ? "reasoned" : "answered";
   // Hold back a little tail so a marker split across two chunks is never displayed.
   const MARKER_LOOKAHEAD = 24;
 
@@ -804,6 +600,40 @@ export async function* answerQuestionStreaming(params: {
     }
   }
 
+  // 7. Rung two: one non-streamed retry on a reduced context, which also dodges
+  //    token-limit failures. Nothing has been shown to the visitor yet if we are
+  //    here, so emitting the retry as a single delta is safe.
+  if (!raw.trim() && retrieval.docs.length > 0) {
+    console.warn("[rag] stream produced nothing — retrying with reduced context");
+    try {
+      raw = await generateContentText({
+        model: GEMINI_MODELS.chat,
+        contents: buildContents({
+          context: buildContext(retrieval.docs.slice(0, 5), siteId),
+          webContext,
+          socialContext: "",
+          history: [],
+          message,
+        }),
+        config: {
+          systemInstruction: answererPrompt,
+          temperature: 0.2,
+          maxOutputTokens: ANSWER_MAX_TOKENS,
+          thinkingLevel: "low",
+        },
+      });
+      path = "retry";
+      const visible = visibleText(raw.split("[RELEVANT_PAGES]")[0] ?? "");
+      if (visible.trim()) yield { type: "delta", text: visible.slice(emitted) };
+    } catch (err) {
+      console.error(
+        "[rag] generation failed twice:",
+        err instanceof Error ? err.message.slice(0, 160) : err
+      );
+    }
+  }
+
+  // 8. Rungs three and four: partial answer with pages, else the contact block.
   if (!raw.trim()) {
     const fb = buildContactFallback({
       siteId,
@@ -814,11 +644,21 @@ export async function* answerQuestionStreaming(params: {
     yield { type: "delta", text: fb.answer };
     yield {
       type: "done",
-      answer: { ...fb, sources: dedupeSources(retrieval.docs, siteId), socialLinks: [], path: "contact_fallback" },
+      answer: {
+        ...fb,
+        sources: dedupeSources(retrieval.docs, siteId),
+        socialLinks: [],
+        path: "contact_fallback",
+      },
     };
     return;
   }
 
+  // 9. Parse, attach links, assemble.
+  //
+  // No correction delta here: `emitted` indexes the RAW stream while `formatted.answer`
+  // is the cleaned text, so slicing one by the other duplicates or garbles the tail.
+  // The `done` event carries the authoritative answer and the client renders that.
   const formatted = formatAnswer({
     raw,
     siteId,
@@ -826,10 +666,6 @@ export async function* answerQuestionStreaming(params: {
     posts: socialResults,
     webSources,
   });
-
-  // No correction delta here: `flushed` indexes the RAW stream while `formatted.answer`
-  // is the cleaned text, so slicing one by the other duplicates or garbles the tail.
-  // The `done` event carries the authoritative answer and the client renders that.
 
   const sources = dedupeSources(retrieval.docs, siteId);
   for (const w of webSources) {
@@ -840,27 +676,54 @@ export async function* answerQuestionStreaming(params: {
       sources.push({ url: sr.url, title: `${sr.platform}: ${sr.title}` });
     }
   }
-  const adaptedStream = adaptForClient(formatted.answer, formatted.citedPosts, features);
 
-  yield {
-    type: "done",
-    answer: {
-      answer: adaptedStream.answer,
-      sources,
-      pageLinks: resolveMoreInfoLinks({
-        citedPosts: formatted.citedPosts,
-        socialResults,
-        pageLinks: formatted.pageLinks,
-      }),
-      socialLinks: adaptedStream.trailingPosts.map((p) => ({
-        platform: p.platform,
-        title: p.title,
-        url: p.url,
-      })),
-      followUps: formatted.followUps,
-      path: analysis ? "reasoned" : "answered",
-    },
+  const adapted = adaptForClient(formatted.answer, formatted.citedPosts, features);
+  const answer: ChatAnswer = {
+    answer: adapted.answer,
+    sources,
+    pageLinks: resolveMoreInfoLinks({
+      citedPosts: formatted.citedPosts,
+      socialResults,
+      pageLinks: formatted.pageLinks,
+    }),
+    // Empty for clients that render inline chips; older bundles get the list back.
+    socialLinks: adapted.trailingPosts.map((p) => ({
+      platform: p.platform,
+      title: p.title,
+      url: p.url,
+    })),
+    followUps: formatted.followUps,
+    path,
   };
+
+  // 10. Only cache confident, first-turn answers that actually said something.
+  const declined = /I don'?t have that specific detail|I only cover/i.test(answer.answer);
+  if (isFirstTurn && !CACHE_DISABLED && retrieval.meta.confidence === "strong" && !declined) {
+    setRagCache(siteId, message, {
+      answer: answer.answer,
+      sources: sources.map((s) => ({ url: s.url, title: s.title })),
+      pageLinks: answer.pageLinks,
+    }).catch(() => {});
+  }
+
+  yield { type: "done", answer };
+}
+
+// ---------------------------------------------------------------------------
+// Non-streaming entry point — a view of the generator above, never a second copy
+// ---------------------------------------------------------------------------
+export async function answerQuestionWithRag(params: {
+  siteId: string;
+  message: string;
+  history: ChatHistoryItem[];
+  features?: string[];
+}): Promise<ChatAnswer> {
+  for await (const ev of answerQuestionStreaming(params)) {
+    if (ev.type === "done") return ev.answer;
+  }
+  // Every terminating path above yields `done`, so this is unreachable in practice.
+  // It exists so the failure is loud rather than an undefined answer reaching a caller.
+  throw new Error("answerQuestionStreaming ended without emitting a done event");
 }
 
 // ---------------------------------------------------------------------------
@@ -950,7 +813,49 @@ export async function synthesizeSpeech(text: string): Promise<string> {
 
   const parts = (response.candidates ?? [])[0]?.content?.parts ?? [];
   const audioPart = parts.find((p) => "inlineData" in p && p.inlineData != null);
-  const inlineData = (audioPart as { inlineData?: { data?: string } } | undefined)?.inlineData;
+  const inlineData = (audioPart as
+    | { inlineData?: { data?: string; mimeType?: string } }
+    | undefined)?.inlineData;
   if (!inlineData?.data) throw new Error("Gemini TTS returned no audio data.");
-  return inlineData.data;
+
+  return pcmToWavBase64(inlineData.data, inlineData.mimeType);
+}
+
+/**
+ * Gemini returns raw little-endian PCM ("audio/l16; rate=24000; channels=1"), not a
+ * playable container. The widget hands the payload straight to `new Audio()` as
+ * `data:audio/wav;base64,...`, and a bare PCM stream under a WAV media type decodes
+ * to nothing — so read-aloud stayed silent even once the model ID was valid.
+ *
+ * Prepending the 44-byte RIFF/WAVE header is the whole fix, and it keeps the client
+ * contract exactly as it is: still base64, still audio/wav.
+ */
+function pcmToWavBase64(base64Pcm: string, mimeType?: string): string {
+  const pcm = Buffer.from(base64Pcm, "base64");
+
+  // Trust the response's own parameters; fall back to Gemini's documented defaults.
+  const rate = Number(/rate=(\d+)/i.exec(mimeType ?? "")?.[1]) || 24_000;
+  const channels = Number(/channels=(\d+)/i.exec(mimeType ?? "")?.[1]) || 1;
+  const bitsPerSample = Number(/l(\d+)/i.exec(mimeType ?? "")?.[1]) || 16;
+
+  const bytesPerSample = bitsPerSample / 8;
+  const blockAlign = channels * bytesPerSample;
+  const byteRate = rate * blockAlign;
+
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0, "ascii");
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write("WAVE", 8, "ascii");
+  header.write("fmt ", 12, "ascii");
+  header.writeUInt32LE(16, 16); // PCM fmt chunk size
+  header.writeUInt16LE(1, 20); // audioFormat = PCM
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(rate, 24);
+  header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32);
+  header.writeUInt16LE(bitsPerSample, 34);
+  header.write("data", 36, "ascii");
+  header.writeUInt32LE(pcm.length, 40);
+
+  return Buffer.concat([header, pcm]).toString("base64");
 }

@@ -5,10 +5,14 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node --max-old-space-size=384 --optimize-for-size dist/index.js",
-    "build": "pnpm --filter @repo/color-extractor build && tsc -p tsconfig.json",
+    "build": "pnpm --filter @repo/color-extractor build && tsc -p tsconfig.json && pnpm test",
     "playwright:install": "playwright install chromium",
     "eval:baselines": "tsx eval/baselines.ts",
-    "eval:judge": "tsx eval/evaluate.ts"
+    "eval:judge": "tsx eval/evaluate.ts",
+    "test": "tsx eval/format-test.ts",
+    "eval:bench": "tsx eval/bench.ts",
+    "eval:retrieval": "tsx eval/retrieval-bench.ts",
+    "eval:smoke": "tsx eval/smoke.ts"
   },
   "dependencies": {
     "@google/genai": "^1.21.0",

@@ -44,7 +44,7 @@ async function getTrackedUrlsCached(siteId: string): Promise<Set<string>> {
   return urls;
 }
 
-export interface RetrievalResult {
+interface RetrievalResult {
   docs: RerankedDoc[];
   meta: {
     queries: string[];
