@@ -61,7 +61,18 @@ Given the conversation and the user's latest message, return JSON only:
 ${map}
 INTENT RULES:
 - "greeting": hello, thanks, goodbye, small talk. subQueries: [].
-- "out_of_scope": the question is not about this university at all (world news, weather, sports, general trivia, writing their essay, or a request to compare against another institution using outside knowledge). subQueries: [].
+- "out_of_scope": ONLY when the question has nothing to do with this university — world news,
+  weather, sports, celebrities, general trivia, coding help, or a request to write their essay
+  or do their homework. subQueries: [].
+  Everything about the university is IN scope, including subjects the scope summary above does
+  not spell out: academic regulations, grading, continuous assessment and moderation, exam and
+  attendance policy, academic integrity, quality assurance and accreditation, student support,
+  hostel rules, clubs, governance and committees, alumni.
+  A question that names another college, asks you to compare, or asks "which is right for me"
+  is IN scope. The visitor is asking about THIS university's side of their decision, and that
+  is what retrieval should go and find.
+  When in doubt, never choose out_of_scope. Retrieving and finding nothing is a far better
+  failure than refusing a question this website can actually answer.
 - "compositional": answering needs facts from two or more different topics that live on different pages (e.g. comparing fees against scholarship coverage, or combining student count with faculty count). Give one sub-query PER topic.
 - "simple": everything else, including single-topic list questions.
 
@@ -73,8 +84,8 @@ Set "analytical" true when a correct answer needs the facts to be weighed, not j
 - anything asking what makes this place different, or what its approach or philosophy is
 Set it false for plain lookups: a fee, a date, an address, a name, an eligibility rule,
 or a list of what exists. Retrieving those is the whole job.
-Analytical questions are still in scope when they are about this university — only mark
-a comparison "out_of_scope" when it needs facts about a DIFFERENT institution.
+Analytical questions are in scope. A comparison against another institution is in scope too —
+plan it as a search for what THIS university offers on the dimensions being compared.
 
 SUB-QUERY RULES:
 - Write them as declarative phrases that would literally appear on a web page, NOT as questions.

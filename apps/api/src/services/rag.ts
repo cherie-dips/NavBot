@@ -380,9 +380,9 @@ function greetingAnswer(siteId: string): ChatAnswer {
 function outOfScopeAnswer(siteId: string): ChatAnswer {
   const profile = getSiteProfile(siteId);
   const name = profile.displayName || siteId;
-  const scope = profile.capabilities ? ` — ${profile.capabilities}` : "";
+  const scope = profile.capabilities ? ` — ${profile.capabilities}, and anything else about it` : "";
   return {
-    answer: `I only cover ${name}${scope}. Ask me anything in those areas and I'll help.`,
+    answer: `That one's outside what I can help with, but I can tell you about ${name}${scope}. What would you like to know?`,
     sources: [],
     pageLinks: [],
     socialLinks: [],

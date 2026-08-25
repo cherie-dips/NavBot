@@ -264,8 +264,11 @@ const PLAKSHA: SiteProfile = {
     [/\bPlaksha university\b/g, "Plaksha University"],
   ],
 
+  // Deliberately ends open. Read as a closed list, this line was making the planner
+  // refuse anything it did not enumerate — grading policy and academic regulations were
+  // being sent back as "out of scope" for a university's own website.
   scopeDescription:
-    "Plaksha University — its undergraduate (BTech), graduate (MS, Tech Leaders Fellowship, PhD) and high-school programs, admissions, fees and financial aid, curriculum, faculty, research centers, campus and student life, career outcomes, leadership, and university news.",
+    "Plaksha University — its undergraduate (BTech), graduate (MS, Tech Leaders Fellowship, PhD) and high-school programs, admissions, fees and financial aid, curriculum, academic regulations, grading and assessment, faculty, research centers, campus and student life, student support and wellbeing, career outcomes, governance and leadership, university news, and anything else about the university",
 
   capabilities:
     "admissions and deadlines, fees and financial aid, our BTech and graduate programs, faculty, research centers, campus life, and career outcomes",
