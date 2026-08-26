@@ -108,11 +108,26 @@ function preferUrl(a: RetrievedDoc, b: RetrievedDoc, siteId: string): RetrievedD
  */
 export function removeBoilerplate(
   docs: RetrievedDoc[],
-  siteId: string
+  siteId: string,
+  /**
+   * Pages exempt from the navigation drop.
+   *
+   * A roster page — every adjunct professor, every research center — is a run of short
+   * capitalised phrases with almost no sentence punctuation, which is precisely the
+   * shape this module treats as a menu. On "list all faculty" that dropped 44 of 68
+   * candidates including the four pages that answer the question. Duplicate collapsing
+   * and preamble stripping still apply; only the nav test is skipped.
+   */
+  protectedUrls?: Set<string>
 ): { docs: RetrievedDoc[]; stats: BoilerplateStats } {
+  const isProtected = (d: RetrievedDoc) => protectedUrls?.has(d.url) ?? false;
   const groups = new Map<string, RetrievedDoc[]>();
   for (const d of docs) {
-    const fp = fingerprint(d.content);
+    // Roster pages are keyed by URL as well as content. Four faculty listings that open
+    // with the same section header fingerprint identically — only the first 400 chars are
+    // hashed — so a plain content key collapsed all four into one and lost three whole
+    // rosters. Identical chunks within a single page still collapse.
+    const fp = isProtected(d) ? `${d.url}|${fingerprint(d.content)}` : fingerprint(d.content);
     const g = groups.get(fp) ?? [];
     g.push(d);
     groups.set(fp, g);
@@ -126,7 +141,11 @@ export function removeBoilerplate(
     const distinctUrls = new Set(group.map((d) => d.url)).size;
     const representative = group.reduce((best, d) => preferUrl(best, d, siteId));
 
-    if (distinctUrls >= 2 && looksLikeNavigation(representative.content, siteId)) {
+    if (
+      distinctUrls >= 2 &&
+      !isProtected(representative) &&
+      looksLikeNavigation(representative.content, siteId)
+    ) {
       navDropped += group.length;
       continue;
     }
@@ -140,7 +159,7 @@ export function removeBoilerplate(
 
   // A nav chunk can also surface alone (only one of its 49 pages retrieved).
   const final = kept.filter((d) => {
-    if (looksLikeNavigation(d.content, siteId)) {
+    if (!isProtected(d) && looksLikeNavigation(d.content, siteId)) {
       navDropped++;
       return false;
     }

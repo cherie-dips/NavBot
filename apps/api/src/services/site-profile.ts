@@ -23,6 +23,15 @@ interface SectionAlias {
   pathPatterns: RegExp[];
   /** Human label used when explaining where we looked. */
   label: string;
+  /**
+   * Roster pages that list many items at once, as opposed to one page per item.
+   *
+   * For "list every X" these are worth far more than individual profiles — one
+   * /faculty/adjunct page carries what fifty /faculty-details/<name> pages carry — and
+   * they are what the answer should point at when it cannot show everything. Ranked
+   * ahead of leaf pages during section expansion.
+   */
+  listingPages?: RegExp[];
 }
 
 interface SiteProfile {
@@ -158,11 +167,17 @@ const PLAKSHA: SiteProfile = {
       match: /\b(faculty|professor|teacher|instructor|researcher|dean|academic staff)\b/i,
       pathPatterns: [/^\/faculty/, /^\/faculty-details/, /^\/academic-leadership/, /^\/university-leadership/],
       label: "faculty",
+      // /faculty/full-time-academia, /faculty/adjunct, /faculty/guest and
+      // /faculty/visiting-faculty-academia are the site's own full-time vs part-time
+      // split. Verified against the live index: four roster pages against fifty
+      // single-person profiles, and similarity search was surfacing neither.
+      listingPages: [/^\/faculty\//],
     },
     {
       match: /\b(research|centre|center|lab|publication|innovation|institute|school of)\b/i,
       pathPatterns: [/^\/intermediate\/centers/, /^\/office-of-research/, /^\/center-for-/, /^\/ds-brar-center/, /^\/harish-bina-shah-school/, /^\/binny-bansal-institute/, /^\/research-labs-facilities/, /^\/robotics-lab/, /^\/research-advisory-council/],
       label: "research centers",
+      listingPages: [/^\/intermediate\/centers/, /^\/research-labs-facilities/],
     },
     {
       match: /\b(leadership|founder|trustee|board|governance|team|who runs|vice chancellor|president)\b/i,
@@ -336,17 +351,29 @@ export function getSiteProfile(siteId: string): SiteProfile {
 }
 
 /** Path patterns for the sections a question is about. */
-export function sectionsForQuestion(siteId: string, question: string): { patterns: RegExp[]; labels: string[] } {
+export function sectionsForQuestion(
+  siteId: string,
+  question: string
+): { patterns: RegExp[]; labels: string[]; listingPatterns: RegExp[]; listingLabel: string } {
   const profile = getSiteProfile(siteId);
   const patterns: RegExp[] = [];
   const labels: string[] = [];
+  const listingPatterns: RegExp[] = [];
+  // Several aliases can match one question ("list faculty for each major" hits both
+  // faculty and undergraduate programs). The label shown to the visitor should name the
+  // section the roster pages came from, not whichever alias happened to match first.
+  let listingLabel = "";
   for (const alias of profile.sectionAliases) {
     if (alias.match.test(question)) {
       patterns.push(...alias.pathPatterns);
       labels.push(alias.label);
+      if (alias.listingPages) {
+        listingPatterns.push(...alias.listingPages);
+        if (!listingLabel) listingLabel = alias.label;
+      }
     }
   }
-  return { patterns, labels };
+  return { patterns, labels, listingPatterns, listingLabel: listingLabel || labels[0] || "" };
 }
 
 /** The contact desk that best fits the question, for the fallback ladder. */

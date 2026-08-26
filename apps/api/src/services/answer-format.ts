@@ -74,8 +74,22 @@ export function buildSystemPrompt(params: {
   hasSocial?: boolean;
   /** The visitor wants a picture of what something is like, not a fact lookup. */
   experiential?: boolean;
+  /** What the site holds on this subject versus what fitted into the context. */
+  coverage?: {
+    label: string;
+    matchingPages: number;
+    includedPages: number;
+    listingUrls: string[];
+  } | null;
 }): string {
-  const { siteId, confidence, exhaustive, hasSocial = false, experiential = false } = params;
+  const {
+    siteId,
+    confidence,
+    exhaustive,
+    hasSocial = false,
+    experiential = false,
+    coverage = null,
+  } = params;
   const profile = getSiteProfile(siteId);
   const name = profile.displayName || siteId;
 
@@ -97,6 +111,20 @@ SOCIAL POSTS
   const lived = experiential
     ? `\nThis visitor is asking what something is LIKE. Give them a picture they can see themselves in: the actual rhythm of it, where they will be at different times, what surrounds the formal parts. Cover the academic side AND the living side — housing, food, clubs, sport, evenings, weekends — because leaving out half of it answers half the question. Use the students' own words from the pages where you have them.`
     : "";
+
+  // A list that stops without saying it stopped reads as complete. When the site holds
+  // materially more than fitted, the answer is told the numbers and where the rest is.
+  const partial =
+    coverage && coverage.matchingPages > coverage.includedPages + 2
+      ? `
+COVERAGE — you are not seeing everything
+This site has ${coverage.matchingPages} pages about ${coverage.label || "this subject"}, and ${coverage.includedPages} of them are in front of you. You cannot list what you were not given, and you must not pretend otherwise.
+- Give what you genuinely have, then say plainly that it is a partial list.
+- Send them to the page that holds the rest${coverage.listingUrls.length ? `: ${coverage.listingUrls.join(", ")}` : ""}. Put that URL in [RELEVANT_PAGES] too.
+- Phrase it as help, not apology: "Here are the ones I can show you — the full list is on the faculty page."
+- Do NOT state a total headcount. You are counting pages, not people, and the two are different.
+- Never trail off mid-list, and never stop at a letter of the alphabet as though the list ended there.`
+      : "";
 
   const hedging =
     confidence === "weak"
@@ -171,7 +199,7 @@ ACCURACY
 - Where you are describing the general pattern rather than a published rule, say so plainly
   ("most weeks", "typically") instead of stating it as policy.
 - If something is genuinely absent, say what you do know, then name the exact page or
-  contact that has the rest.${completeness}${lived}${hedging}${social}
+  contact that has the rest.${completeness}${partial}${lived}${hedging}${social}
 
 ${trailingBlocks()}
 

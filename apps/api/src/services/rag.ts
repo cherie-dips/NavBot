@@ -126,7 +126,17 @@ function resolveTitle(title: string, url: string, siteId: string): string {
   return generic ? titleFromUrl(url) : title;
 }
 
-function buildContext(docs: RerankedDoc[], siteId: string): string {
+/**
+ * Assemble the context, and report what would not fit.
+ *
+ * This used to drop overflowing pages with a bare `break`, which is how a faculty list
+ * stopped at "M" with nothing anywhere saying a third of the evidence had been cut.
+ * The count travels with the context so the answer can admit the gap.
+ */
+function buildContextWithCoverage(
+  docs: RerankedDoc[],
+  siteId: string
+): { context: string; includedPages: number; droppedPages: number } {
   const byUrl = new Map<string, { title: string; url: string; chunks: string[] }>();
   for (const d of docs) {
     const key = d.url || d.id;
@@ -141,14 +151,23 @@ function buildContext(docs: RerankedDoc[], siteId: string): string {
 
   const blocks: string[] = [];
   let total = 0;
+  let dropped = 0;
   for (const { title, url, chunks } of byUrl.values()) {
     const block = `## ${title}\n${url}\n\n${chunks.join("\n\n")}`;
-    if (total + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 0) break;
+    if (total + block.length > CONTEXT_BUDGET_CHARS && blocks.length > 0) {
+      dropped++;
+      continue; // keep counting, so the answer knows how much it could not see
+    }
     blocks.push(block);
     total += block.length;
   }
 
-  return blocks.join("\n\n---\n\n");
+  return { context: blocks.join("\n\n---\n\n"), includedPages: blocks.length, droppedPages: dropped };
+}
+
+/** Most callers only want the text. */
+function buildContext(docs: RerankedDoc[], siteId: string): string {
+  return buildContextWithCoverage(docs, siteId).context;
 }
 
 /**
@@ -516,9 +535,36 @@ export async function* answerQuestionStreaming(params: {
   ]).size;
   yield { type: "status", stage: "reading", detail: `${pageCount} page${pageCount === 1 ? "" : "s"}` };
 
-  const context = buildContext(retrieval.docs, siteId);
+  const built = buildContextWithCoverage(retrieval.docs, siteId);
+  const context = built.context;
   const webContext = buildWebSection(research);
   const socialContext = buildSocialContextString(socialResults);
+
+  // What the site holds on this subject against what actually fitted. Either the section
+  // has more pages than we retrieved, or the budget dropped some of what we did.
+  const sectionCoverage = retrieval.meta.coverage;
+  const coverage = sectionCoverage
+    ? {
+        label: sectionCoverage.label,
+        matchingPages: sectionCoverage.matchingPages,
+        includedPages: built.includedPages,
+        listingUrls: sectionCoverage.listingUrls,
+      }
+    : built.droppedPages > 0
+      ? {
+          label: "",
+          matchingPages: built.includedPages + built.droppedPages,
+          includedPages: built.includedPages,
+          listingUrls: [],
+        }
+      : null;
+
+  if (coverage && coverage.matchingPages > coverage.includedPages + 2) {
+    console.log(
+      `[coverage] site=${siteId} section="${coverage.label}" showing ${coverage.includedPages}/${coverage.matchingPages} pages` +
+        (coverage.listingUrls.length ? ` -> ${coverage.listingUrls[0]}` : "")
+    );
+  }
 
   // 5. Judgement questions reason first. The analyst does not stream — its notes are
   //    internal — so the visitor waits on it, which is what the status stage is for.
@@ -534,6 +580,7 @@ export async function* answerQuestionStreaming(params: {
     exhaustive: plan.exhaustive,
     hasSocial: socialResults.length > 0,
     experiential: plan.experiential,
+    coverage,
   });
 
   const turn = analysis
