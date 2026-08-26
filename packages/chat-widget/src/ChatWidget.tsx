@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { MdOutlineRefresh } from "react-icons/md";
 
@@ -806,6 +806,69 @@ function saveUiState(siteId: string, state: { open: boolean; faqDismissed: boole
   catch { /* quota exceeded */ }
 }
 
+/**
+ * Streaming display queue.
+ *
+ * The network delivers whatever chunk sizes the model produced — three characters, then
+ * forty — and rendering each one straight to the DOM shows the visitor the network's
+ * rhythm rather than a reading rhythm. Deltas are buffered here and released a whole
+ * block at a time on a steady cadence, so text arrives as lines instead of twitching
+ * word by word.
+ *
+ * Nothing about the transport changes: the server still streams as fast as it can and
+ * time-to-first-token is unaffected. This only governs when arrived text is painted.
+ */
+
+/** A block is a paragraph or bullet. Long paragraphs break at a sentence instead. */
+const SOFT_BLOCK_CHARS = 140;
+
+/**
+ * How far into `buffer` the next block ends, or -1 while no boundary has arrived yet.
+ * Returning -1 rather than a partial block is what removes the word-by-word jitter.
+ */
+function nextBlockEnd(buffer: string, streamDone: boolean): number {
+  const newline = buffer.indexOf("\n");
+  if (newline !== -1) {
+    // Absorb the blank line of a paragraph break into the same block. Left on its own it
+    // becomes a release that paints nothing, spending a tick and breaking the rhythm.
+    let end = newline + 1;
+    while (end < buffer.length && (buffer[end] === "\n" || buffer[end] === "\r")) end++;
+    return end;
+  }
+
+  // No newline yet. A paragraph long enough to read on its own can break at a sentence,
+  // so a single long lead paragraph does not land as one lump.
+  if (buffer.length >= SOFT_BLOCK_CHARS) {
+    const sentence = buffer.search(/[.!?]["')\]]?\s/);
+    if (sentence !== -1) {
+      const after = buffer.slice(sentence).search(/\s/);
+      if (after !== -1) return sentence + after + 1;
+    }
+  }
+
+  // Once the stream has closed there is nothing more coming, so flush the remainder.
+  return streamDone && buffer.length > 0 ? buffer.length : -1;
+}
+
+const CADENCE = {
+  /** Comfortable reading rhythm while text is still arriving. */
+  base: 55,
+  /** Floor when the buffer has run ahead of the display. */
+  fast: 18,
+  /** Everything queued when the stream closes is shown within this long. */
+  drainMs: 600,
+  /** Show the first block by now even if no boundary has arrived, to protect TTFT. */
+  firstBlockMs: 250,
+} as const;
+
+function prefersReducedMotion(): boolean {
+  try {
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return false;
+  }
+}
+
 const WELCOME_MESSAGE: Message = {
   id: 1,
   text: "Hi there! 👋 How can I help you today?",
@@ -870,6 +933,26 @@ export const ChatWidget: React.FC = () => {
   };
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  /** The scrolling viewport, so anchoring can measure and position without guessing. */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  /** Wrapper around the newest exchange — this is what gets pinned near the top. */
+  const anchorRef = useRef<HTMLDivElement>(null);
+
+  // --- streaming display queue ---
+  const pendingRef = useRef("");            // arrived, not yet shown
+  const shownRef = useRef("");              // painted so far
+  const streamDoneRef = useRef(true);       // has the SSE stream closed
+  const tickerRef = useRef<number | null>(null);
+  const firstDeltaAtRef = useRef(0);
+  const streamingIdRef = useRef<number | null>(null);
+
+  /**
+   * Space reserved under the newest answer so it can grow downward without the
+   * viewport moving. Set when a question is sent, released when the answer is done.
+   */
+  const [reservedSpace, setReservedSpace] = useState(0);
+  /** False as soon as the visitor scrolls up — their position is theirs from then on. */
+  const stickToBottomRef = useRef(true);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordingIntervalRef = useRef<number | null>(null);
 
@@ -922,7 +1005,65 @@ export const ChatWidget: React.FC = () => {
     xhr.onerror = () => { /* ignore */ };
     xhr.send();
   }, [apiBase, siteId]);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+  /**
+   * Follow the conversation without chasing it.
+   *
+   * This used to smooth-scroll to the bottom on every `messages` change, which during
+   * streaming meant restarting a smooth-scroll animation on every token — each one
+   * interrupting the last. That was the stutter, and it also made scrolling up
+   * impossible because the next token yanked the view straight back down.
+   *
+   * Now the newest answer is pinned near the top of the viewport when the question is
+   * sent, and the text grows downward into reserved space. Nothing scrolls while the
+   * answer streams unless it outgrows that space AND the visitor never scrolled away.
+   */
+  useEffect(() => {
+    if (streamingIdRef.current !== null) return; // anchored; leave the viewport alone
+    if (!stickToBottomRef.current) return;       // the visitor is reading further up
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // Track whether the visitor has taken over scrolling.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      stickToBottomRef.current = distanceFromBottom < 48;
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, []);
+
+  /**
+   * Put the newest exchange at the top of the viewport and reserve room beneath it, so
+   * the answer fills empty space rather than pushing the page around as it arrives.
+   *
+   * This is two steps on purpose. Scrolling the question to the top is only possible
+   * once the spacer exists — without it the container has nothing to scroll into — so
+   * the reservation is made here and the scroll happens in the layout effect below,
+   * after React has committed the new height.
+   */
+  const pendingAnchorRef = useRef(false);
+
+  const anchorNewestExchange = () => {
+    const view = scrollRef.current;
+    const anchor = anchorRef.current;
+    if (!view || !anchor) return;
+    // Leave the question visible above the answer, then hand the rest to the answer.
+    setReservedSpace(Math.max(0, view.clientHeight - anchor.offsetHeight - 24));
+    pendingAnchorRef.current = true;
+  };
+
+  useLayoutEffect(() => {
+    if (!pendingAnchorRef.current) return;
+    pendingAnchorRef.current = false;
+    const view = scrollRef.current;
+    const anchor = anchorRef.current;
+    if (!view || !anchor) return;
+    view.scrollTop = Math.max(0, anchor.offsetTop - view.offsetTop - 12);
+    stickToBottomRef.current = true;
+  }, [reservedSpace]);
   useEffect(() => { return () => { if (recordingIntervalRef.current) clearInterval(recordingIntervalRef.current); }; }, []);
 
   const resizeStartX = useRef(0);
@@ -1033,6 +1174,92 @@ export const ChatWidget: React.FC = () => {
    * Falls back to the non-streaming endpoint if streaming is unavailable, so an
    * older server or a proxy that buffers events still produces an answer.
    */
+  /**
+   * Releases one block per tick into the visible message.
+   *
+   * The interval adapts: it holds a readable rhythm while text is still arriving, and
+   * shortens when the buffer has run ahead — so a cached or very fast answer is revealed
+   * briskly rather than being artificially throttled, while still arriving as lines.
+   */
+  const startTicker = (botId: number) => {
+    if (tickerRef.current !== null) return;
+
+    const tick = () => {
+      const done = streamDoneRef.current;
+      const end = nextBlockEnd(pendingRef.current, done);
+
+      // Nothing releasable yet. Show something anyway if the first block is overdue,
+      // so waiting for a boundary can never delay first paint by more than firstBlockMs.
+      if (end === -1) {
+        const overdue =
+          shownRef.current.length === 0 &&
+          firstDeltaAtRef.current > 0 &&
+          Date.now() - firstDeltaAtRef.current > CADENCE.firstBlockMs &&
+          pendingRef.current.length > 0;
+        if (!overdue) {
+          if (done && pendingRef.current.length === 0) return stopTicker();
+          tickerRef.current = window.setTimeout(tick, CADENCE.base);
+          return;
+        }
+      }
+
+      const cut = end === -1 ? pendingRef.current.length : end;
+      shownRef.current += pendingRef.current.slice(0, cut);
+      pendingRef.current = pendingRef.current.slice(cut);
+
+      const text = shownRef.current;
+      setMessages((prev) =>
+        prev.some((m) => m.id === botId)
+          ? prev.map((m) => (m.id === botId ? { ...m, text } : m))
+          : [...prev, { id: botId, text, sender: "bot" as const, timestamp: new Date().toISOString(), streaming: true }]
+      );
+
+      if (done && pendingRef.current.length === 0) return stopTicker();
+
+      // A release that shows nothing (a stray newline at a chunk boundary) should not
+      // cost a visible beat — go straight on to the next block.
+      if (!text.slice(shownRef.current.length - cut).trim()) {
+        tickerRef.current = window.setTimeout(tick, 0);
+        return;
+      }
+
+      // Blocks still queued after the stream closed are drained inside drainMs.
+      const remaining = Math.max(1, Math.ceil(pendingRef.current.length / SOFT_BLOCK_CHARS));
+      const interval = done
+        ? Math.max(CADENCE.fast, Math.floor(CADENCE.drainMs / remaining))
+        : pendingRef.current.length > SOFT_BLOCK_CHARS * 3
+          ? CADENCE.fast
+          : CADENCE.base;
+
+      tickerRef.current = window.setTimeout(tick, interval);
+    };
+
+    tickerRef.current = window.setTimeout(tick, CADENCE.base);
+  };
+
+  const stopTicker = () => {
+    if (tickerRef.current !== null) {
+      clearTimeout(tickerRef.current);
+      tickerRef.current = null;
+    }
+  };
+
+  /** Flush everything at once — used on completion, abort, and reduced-motion. */
+  const flushQueue = (botId: number) => {
+    stopTicker();
+    if (!pendingRef.current) return;
+    shownRef.current += pendingRef.current;
+    pendingRef.current = "";
+    const text = shownRef.current;
+    setMessages((prev) =>
+      prev.some((m) => m.id === botId)
+        ? prev.map((m) => (m.id === botId ? { ...m, text } : m))
+        : [...prev, { id: botId, text, sender: "bot" as const, timestamp: new Date().toISOString(), streaming: true }]
+    );
+  };
+
+  useEffect(() => () => stopTicker(), []);
+
   /** Reads the token from the response so a server-minted one is picked up straight away. */
   const captureSessionToken = (headers: Headers) => {
     const t = headers.get("X-Navbot-Session");
@@ -1073,6 +1300,19 @@ export const ChatWidget: React.FC = () => {
     setStatusStage("Searching pages");
 
     const botId = Date.now() + 1;
+
+    // Fresh queue for this answer, and pin the question near the top so the reply has
+    // somewhere to grow. Measured after paint, once the new message is in the DOM.
+    const reducedMotion = prefersReducedMotion();
+    pendingRef.current = "";
+    shownRef.current = "";
+    streamDoneRef.current = false;
+    firstDeltaAtRef.current = 0;
+    streamingIdRef.current = botId;
+    stopTicker();
+    // Two frames: the first lets React commit the new user message, the second measures
+    // it. Measuring in the same frame reads a layout that does not exist yet.
+    requestAnimationFrame(() => requestAnimationFrame(anchorNewestExchange));
     // Tells the server this bundle can render [POST:<url>] as an inline preview chip.
     // Without it the server strips the tags and returns a trailing list instead, so a
     // cached older bundle degrades cleanly rather than printing raw markers.
@@ -1130,22 +1370,47 @@ export const ChatWidget: React.FC = () => {
               : "Writing"
           );
         } else if (name === "delta") {
-          acc += String(data.text ?? "");
+          const chunk = String(data.text ?? "");
+          acc += chunk;
           if (!started) {
             started = true;
+            firstDeltaAtRef.current = Date.now();
             setIsTyping(false);
             setStatusStage(null);
-            setMessages((prev) => {
-              const next = [...prev, { id: botId, text: acc, sender: "bot" as const, timestamp: new Date().toISOString(), streaming: true }];
-              return next;
-            });
+          }
+          if (reducedMotion) {
+            // No pacing for visitors who asked for less movement — paint on arrival.
+            shownRef.current = acc;
+            setMessages((prev) =>
+              prev.some((m) => m.id === botId)
+                ? prev.map((m) => (m.id === botId ? { ...m, text: acc } : m))
+                : [...prev, { id: botId, text: acc, sender: "bot" as const, timestamp: new Date().toISOString(), streaming: true }]
+            );
           } else {
-            setMessages((prev) => prev.map((m) => (m.id === botId ? { ...m, text: acc } : m)));
+            pendingRef.current += chunk;
+            startTicker(botId);
           }
         } else if (name === "done") {
           const usage = (data as { usage?: { remaining?: number } }).usage;
           if (typeof usage?.remaining === "number") setQuestionsLeft(usage.remaining);
           const finalText = String(data.answer ?? acc);
+
+          // `done` carries the authoritative answer, which differs slightly from the
+          // streamed text (glossary applied, markers stripped). Replacing the whole
+          // string flashes; when the visible prefix already matches, queue only the
+          // remainder so the tail simply continues arriving.
+          streamDoneRef.current = true;
+          if (!reducedMotion) {
+            const alreadyQueued = shownRef.current + pendingRef.current;
+            if (finalText.startsWith(alreadyQueued)) {
+              pendingRef.current += finalText.slice(alreadyQueued.length);
+              startTicker(botId);
+            } else {
+              // Diverged — fall back to showing the authoritative text outright.
+              flushQueue(botId);
+              shownRef.current = finalText;
+            }
+          }
           setMessages((prev) => {
             const exists = prev.some((m) => m.id === botId);
             const finished: Message = {
@@ -1198,6 +1463,10 @@ export const ChatWidget: React.FC = () => {
           body: payload,
         });
         captureSessionToken(res.headers);
+        // The fallback returns one complete answer, so the queue has no part to play.
+        stopTicker();
+        pendingRef.current = "";
+        streamDoneRef.current = true;
         if (!res.ok) throw new Error(`status ${res.status}`);
         const data = await res.json();
         if (data?.limitReached) {
@@ -1228,6 +1497,16 @@ export const ChatWidget: React.FC = () => {
       streamAbortRef.current = null;
       setIsTyping(false);
       setStatusStage(null);
+
+      // Whatever happened — finished, aborted, fell back — nothing more will arrive, so
+      // release the queue and hand scrolling back to the visitor.
+      streamDoneRef.current = true;
+      streamingIdRef.current = null;
+      if (pendingRef.current) flushQueue(botId);
+      else stopTicker();
+      // Collapse the reserved space only once the answer is settled, so the page does
+      // not jump while the last lines are still being painted.
+      window.setTimeout(() => setReservedSpace(0), CADENCE.drainMs);
     }
   };
 
@@ -1390,9 +1669,19 @@ export const ChatWidget: React.FC = () => {
         </div>
 
         {/* Messages */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: "12px" }}>
-          {messages.map((message) => (
-            <div key={message.id} style={{ display: "flex", flexDirection: "column", alignItems: message.sender === "user" ? "flex-end" : "flex-start" }}>
+        <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: "12px", overflowAnchor: "none" }}>
+          {messages.map((message, messageIndex) => (
+            <div
+              key={message.id}
+              // The last user message is the anchor: it is pinned near the top and the
+              // answer grows into the space reserved beneath it.
+              ref={
+                message.sender === "user" && messageIndex === messages.length - 1
+                  ? anchorRef
+                  : undefined
+              }
+              style={{ display: "flex", flexDirection: "column", alignItems: message.sender === "user" ? "flex-end" : "flex-start" }}
+            >
               <div style={{
                 maxWidth: "85%",
                 padding: "10px 14px",
@@ -1551,6 +1840,10 @@ export const ChatWidget: React.FC = () => {
                 )}
               </div>
             </div>
+          )}
+          {/* Room for the answer to grow downward without moving the viewport. */}
+          {reservedSpace > 0 && (
+            <div aria-hidden="true" style={{ flexShrink: 0, height: `${reservedSpace}px` }} />
           )}
           <div ref={messagesEndRef} />
         </div>
