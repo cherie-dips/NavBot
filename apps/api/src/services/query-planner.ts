@@ -34,6 +34,13 @@ export interface QueryPlan {
    * These route through the slower reasoning pipeline; everything else does not.
    */
   analytical: boolean;
+  /**
+   * True when the visitor is asking what something is LIKE rather than what it is —
+   * a typical week, life in the hostel, what to expect. These need a picture built
+   * from several parts of the site, and an answer written as a description rather
+   * than a fact list.
+   */
+  experiential: boolean;
   /** Set when the plan came from the fallback path rather than the model. */
   degraded?: boolean;
 }
@@ -56,7 +63,8 @@ Given the conversation and the user's latest message, return JSON only:
   "subQueries": ["search phrases that would match statements on the website"],
   "sections": ["url path prefixes most likely to contain the answer"],
   "exhaustive": true if the user wants a complete list of every item, else false,
-  "analytical": true if answering requires judgement rather than lookup, else false
+  "analytical": true if answering requires judgement rather than lookup, else false,
+  "experiential": true if the visitor is asking what something is LIKE to live or do, else false
 }
 ${map}
 INTENT RULES:
@@ -87,10 +95,26 @@ or a list of what exists. Retrieving those is the whole job.
 Analytical questions are in scope. A comparison against another institution is in scope too —
 plan it as a search for what THIS university offers on the dimensions being compared.
 
+EXPERIENTIAL RULES:
+Set "experiential" true when the visitor wants to picture something, not look it up:
+- "what is a typical day/week like", "what's it like to study/live here", "what should I expect"
+- daily routine, hostel and mess life, weekends, social life, workload, atmosphere, culture
+- anything a current student would answer from experience rather than from a page of facts
+These are the questions where retrieving only the literal words fails worst. Someone asking
+about a typical week is NOT asking for a course list — they are asking how their time is
+actually spent, and the answer lives scattered across academics, housing, food, clubs,
+sports and weekends.
+
 SUB-QUERY RULES:
 - Write them as declarative phrases that would literally appear on a web page, NOT as questions.
   Good: "BTech annual tuition fee category A"   Bad: "How much is the tuition?"
 - 1 sub-query for simple, 2-4 for compositional. Never more than 4.
+- For an experiential question, use all 4 on DIFFERENT FACETS of the thing being asked
+  about — never four rewordings of the same phrase. For "a typical week as a first-year",
+  that means one query about class and lab schedules, one about hostel and dining, one
+  about clubs, sports and student activities, and one about how students describe the
+  experience. Each facet is a different part of the site; a single literal query only ever
+  finds one of them, which is how a question about daily life comes back as a course list.
 - Include distinctive proper nouns from the question.
 - If the user asks about placements, recruiters or career outcomes, include a sub-query about graduating class outcomes and one about career pathways.
 
@@ -137,6 +161,7 @@ export function fallbackPlan(message: string, history: ChatHistoryItem[]): Query
     sections: [],
     exhaustive: EXHAUSTIVE_PATTERN.test(message),
     analytical: ANALYTICAL_PATTERN.test(message),
+    experiential: false,
     degraded: true,
   };
 }
@@ -204,6 +229,7 @@ export async function planQuery(params: {
         parsed.analytical === true ||
         ANALYTICAL_PATTERN.test(message) ||
         ANALYTICAL_PATTERN.test(standalone),
+      experiential: parsed.experiential === true,
     };
   } catch (err) {
     console.warn("[planner] failed:", err instanceof Error ? err.message.slice(0, 160) : err);

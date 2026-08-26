@@ -318,17 +318,18 @@ function buildEditorTurn(params: {
   brief: string;
   hasGaps: boolean;
   hasSocial: boolean;
+  experiential: boolean;
   context: string;
   webContext: string;
   socialContext: string;
   history: ChatHistoryItem[];
   message: string;
 }) {
-  const { siteId, brief, hasGaps, hasSocial, context, webContext, socialContext, history, message } =
+  const { siteId, brief, hasGaps, hasSocial, experiential, context, webContext, socialContext, history, message } =
     params;
 
   return {
-    systemPrompt: buildEditorPrompt({ siteId, hasSocial, gaps: hasGaps }),
+    systemPrompt: buildEditorPrompt({ siteId, hasSocial, gaps: hasGaps, experiential }),
     contents: buildContents({
       context,
       webContext,
@@ -532,6 +533,7 @@ export async function* answerQuestionStreaming(params: {
     confidence: retrieval.meta.confidence === "strong" ? "strong" : "weak",
     exhaustive: plan.exhaustive,
     hasSocial: socialResults.length > 0,
+    experiential: plan.experiential,
   });
 
   const turn = analysis
@@ -540,6 +542,7 @@ export async function* answerQuestionStreaming(params: {
         brief: analysis.brief,
         hasGaps: analysis.hasGaps,
         hasSocial: socialResults.length > 0,
+        experiential: plan.experiential,
         context,
         webContext,
         socialContext,

@@ -59,6 +59,20 @@ export interface RerankedDoc extends RetrievedDoc {
 export const RELEVANCE = {
   /** At or above this, answer plainly. Below it, answer but flag what is unconfirmed. */
   STRONG: 0.55,
+  /**
+   * The bar for a question deliberately fanned out across facets.
+   *
+   * Reranking scores every chunk against the standalone question, so when the planner
+   * spreads sub-queries over four different subjects on purpose, the winning chunk is
+   * competing with material that was never meant to match the original phrasing. Measured
+   * on "what does a typical week look like": one literal query scored 0.658, the four-facet
+   * version 0.525 — while retrieving nine pages the literal one missed. Strictly better
+   * coverage, lower headline score.
+   *
+   * Judging that by the ordinary bar makes the pipeline hedge and run a web search on its
+   * own best work, so faceted questions get a bar set for how they are actually retrieved.
+   */
+  STRONG_FACETED: 0.40,
 } as const;
 
 async function rerankBatch(

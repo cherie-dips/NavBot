@@ -162,13 +162,15 @@ export async function runRetrieval(params: {
   const topScore = ranked[0]?.rerankScore ?? 0;
   // Confidence sets how much the answer hedges. Only an empty result set counts as
   // "none": a low score on a well-retrieved page means unusual phrasing, not absence.
+  // Faceted questions are scored against their own bar — see RELEVANCE.STRONG_FACETED.
+  const strongBar = plan.experiential ? RELEVANCE.STRONG_FACETED : RELEVANCE.STRONG;
   const confidence: "strong" | "weak" | "none" =
-    ranked.length === 0 ? "none" : topScore >= RELEVANCE.STRONG ? "strong" : "weak";
+    ranked.length === 0 ? "none" : topScore >= strongBar ? "strong" : "weak";
 
   console.log(
     `[retrieval] site=${siteId} q=${queries.length} cand=${candidates.length} ` +
       `boilerplate(-${stats.navDropped}nav -${stats.collapsed}dup) -> ${cleaned.length} ` +
-      `-> kept ${ranked.length} top=${topScore.toFixed(3)} ${confidence} ` +
+      `-> kept ${ranked.length} top=${topScore.toFixed(3)} ${confidence}(bar ${strongBar}) ` +
       `[retrieve ${retrieveMs}ms, rerank ${rerankMs}ms]`
   );
 
