@@ -159,7 +159,162 @@ async function ensureSchema(): Promise<void> {
     );
 
     CREATE INDEX IF NOT EXISTS idx_rag_cache_lookup ON rag_cache(site_id, query_hash);
+
+    -- Per-visitor daily usage. One row per (site, session, day) so the count resets
+    -- at midnight UTC without a scheduled job, and yesterday's rows are cheap to drop.
+    CREATE TABLE IF NOT EXISTS chat_session (
+      site_id TEXT NOT NULL,
+      session_token TEXT NOT NULL,
+      usage_date DATE NOT NULL,
+      query_count INTEGER NOT NULL DEFAULT 0,
+      first_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      last_seen TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (site_id, session_token, usage_date)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_chat_session_date ON chat_session(usage_date);
   `);
+
+  // Added after the first release, so they are ALTERs rather than part of the CREATE.
+  await pool.query(`
+    ALTER TABLE site ADD COLUMN IF NOT EXISTS daily_query_limit INTEGER NOT NULL DEFAULT ${DEFAULT_DAILY_QUERY_LIMIT};
+    ALTER TABLE site ADD COLUMN IF NOT EXISTS limit_message TEXT;
+  `);
+}
+
+// ---------------------------------------------------------------------------
+// Per-visitor daily limits
+// ---------------------------------------------------------------------------
+/** Questions one visitor may ask per day before the site's cut-off message shows. */
+export const DEFAULT_DAILY_QUERY_LIMIT = 10;
+
+/** Shown when a visitor runs out. Sites override it from the dashboard. */
+export const DEFAULT_LIMIT_MESSAGE =
+  "You've reached the daily question limit. If you need more help, please email our team and we'll get back to you.";
+
+export interface ChatLimits {
+  /** 0 means unlimited. */
+  dailyLimit: number;
+  limitMessage: string;
+}
+
+/**
+ * A site_id can have several rows — the `site` table is keyed (site_id, user_id), so
+ * every user who adds the same domain gets their own. The widget only knows the
+ * site_id, so this config has to resolve to one deterministic answer; `ORDER BY id`
+ * gives that, and `updateChatLimits` keeps every row for the domain in step so the
+ * choice of row cannot matter.
+ */
+export async function getChatLimits(siteId: string): Promise<ChatLimits> {
+  const { rows } = await pool.query(
+    `SELECT daily_query_limit, limit_message FROM site WHERE site_id = $1 ORDER BY id LIMIT 1`,
+    [siteId]
+  );
+  const row = rows[0] as { daily_query_limit?: number; limit_message?: string | null } | undefined;
+  return {
+    dailyLimit:
+      typeof row?.daily_query_limit === "number" ? row.daily_query_limit : DEFAULT_DAILY_QUERY_LIMIT,
+    limitMessage: row?.limit_message?.trim() || DEFAULT_LIMIT_MESSAGE,
+  };
+}
+
+/**
+ * Ownership is checked first, then every row for the domain is updated.
+ *
+ * Writing only the caller's row would not work: the widget reads one row by site_id, so
+ * an owner could save a limit and have the widget keep serving a different one. These
+ * users already share a crawl and a vector namespace keyed by site_id — the limit is
+ * likewise a property of the site, not of one owner's view of it.
+ */
+export async function updateChatLimits(
+  siteId: string,
+  userId: string,
+  limits: { dailyLimit: number; limitMessage: string }
+): Promise<boolean> {
+  const { rows } = await pool.query(
+    `SELECT 1 FROM site WHERE site_id = $1 AND user_id = $2 LIMIT 1`,
+    [siteId, userId]
+  );
+  if (rows.length === 0) return false;
+
+  await pool.query(
+    `UPDATE site SET daily_query_limit = $2, limit_message = $3 WHERE site_id = $1`,
+    [siteId, limits.dailyLimit, limits.limitMessage.trim() || null]
+  );
+  return true;
+}
+
+export interface SessionUsage {
+  allowed: boolean;
+  used: number;
+  limit: number;
+  remaining: number;
+}
+
+/**
+ * Read usage without spending a question. Used when the widget opens so it can show
+ * what is left before the visitor types anything.
+ */
+export async function peekSessionUsage(siteId: string, token: string): Promise<SessionUsage> {
+  const { dailyLimit } = await getChatLimits(siteId);
+  const { rows } = await pool.query(
+    `SELECT query_count FROM chat_session
+     WHERE site_id = $1 AND session_token = $2 AND usage_date = CURRENT_DATE`,
+    [siteId, token]
+  );
+  const used = (rows[0] as { query_count?: number } | undefined)?.query_count ?? 0;
+  if (dailyLimit <= 0) return { allowed: true, used, limit: 0, remaining: Number.MAX_SAFE_INTEGER };
+  return { allowed: used < dailyLimit, used, limit: dailyLimit, remaining: Math.max(0, dailyLimit - used) };
+}
+
+/**
+ * Spend one question if the visitor has any left.
+ *
+ * The check and the increment are a single statement: `ON CONFLICT DO UPDATE` with a
+ * WHERE guard only increments while the count is under the limit, and RETURNING tells
+ * us what happened. Two tabs firing at once therefore cannot both pass a check and
+ * push the visitor over, which a read-then-write would allow.
+ */
+export async function consumeSessionQuery(siteId: string, token: string): Promise<SessionUsage> {
+  const { dailyLimit } = await getChatLimits(siteId);
+
+  if (dailyLimit <= 0) {
+    await pool.query(
+      `INSERT INTO chat_session (site_id, session_token, usage_date, query_count)
+       VALUES ($1, $2, CURRENT_DATE, 1)
+       ON CONFLICT (site_id, session_token, usage_date)
+       DO UPDATE SET query_count = chat_session.query_count + 1, last_seen = NOW()`,
+      [siteId, token]
+    );
+    return { allowed: true, used: 0, limit: 0, remaining: Number.MAX_SAFE_INTEGER };
+  }
+
+  const { rows } = await pool.query(
+    `INSERT INTO chat_session (site_id, session_token, usage_date, query_count)
+     VALUES ($1, $2, CURRENT_DATE, 1)
+     ON CONFLICT (site_id, session_token, usage_date)
+     DO UPDATE SET query_count = chat_session.query_count + 1, last_seen = NOW()
+     WHERE chat_session.query_count < $3
+     RETURNING query_count`,
+    [siteId, token, dailyLimit]
+  );
+
+  if (rows.length > 0) {
+    const used = (rows[0] as { query_count: number }).query_count;
+    return { allowed: true, used, limit: dailyLimit, remaining: Math.max(0, dailyLimit - used) };
+  }
+
+  // No row returned: the WHERE guard blocked the increment, so they are at the cap.
+  return { allowed: false, used: dailyLimit, limit: dailyLimit, remaining: 0 };
+}
+
+/** Yesterday's counters are dead weight; the cap only ever reads CURRENT_DATE. */
+export async function purgeOldSessions(days = 7): Promise<number> {
+  const { rowCount } = await pool.query(
+    `DELETE FROM chat_session WHERE usage_date < CURRENT_DATE - $1::int`,
+    [days]
+  );
+  return rowCount ?? 0;
 }
 
 function toIso(v: unknown): string {

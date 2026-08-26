@@ -6,7 +6,14 @@ import {
   transcribeAndAnswer,
   synthesizeSpeech,
 } from "../services/rag";
-import { logChatTurn } from "../services/db";
+import {
+  logChatTurn,
+  consumeSessionQuery,
+  peekSessionUsage,
+  getChatLimits,
+  purgeOldSessions,
+} from "../services/db";
+import { resolveSessionToken, sessionTokenFromRequest } from "../services/session";
 
 export const router: Router = Router();
 
@@ -35,6 +42,92 @@ setInterval(() => {
   }
 }, RATE_WINDOW_MS);
 
+// Yesterday's usage rows are never read again. Swept daily rather than per request.
+const SESSION_SWEEP_MS = 24 * 60 * 60 * 1000;
+setInterval(() => {
+  purgeOldSessions().catch((err) => console.error("[chat] session sweep failed:", err.message));
+}, SESSION_SWEEP_MS).unref?.();
+
+// ---------------------------------------------------------------------------
+// Per-visitor daily cap
+//
+// Separate from the IP rate limit above, which exists to stop abuse. This one is a
+// product rule the site owner sets, and running out is a normal thing that should read
+// like a helpful message rather than an error.
+// ---------------------------------------------------------------------------
+interface CapResult {
+  token: string;
+  allowed: boolean;
+  used: number;
+  limit: number;
+  remaining: number;
+  message?: string;
+}
+
+async function applyDailyCap(req: Request, siteId: string): Promise<CapResult> {
+  const { token } = resolveSessionToken(
+    sessionTokenFromRequest(req.headers as Record<string, unknown>, req.body)
+  );
+
+  const usage = await consumeSessionQuery(siteId, token).catch((err) => {
+    // A counter outage must not take chat down with it — fail open and log.
+    console.error("[chat] daily cap check failed, allowing request:", err.message);
+    return null;
+  });
+
+  if (!usage) {
+    return { token, allowed: true, used: 0, limit: 0, remaining: Number.MAX_SAFE_INTEGER };
+  }
+
+  if (usage.allowed) return { token, ...usage };
+
+  const { limitMessage } = await getChatLimits(siteId).catch(() => ({ limitMessage: "" }));
+  return { token, ...usage, message: limitMessage };
+}
+
+/** Body sent when a visitor is out of questions. 200-with-a-message, not an error. */
+function limitPayload(cap: CapResult) {
+  return {
+    limitReached: true,
+    answer: cap.message,
+    sources: [],
+    pageLinks: [],
+    socialLinks: [],
+    followUps: [],
+    usage: { used: cap.used, limit: cap.limit, remaining: 0 },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Session handshake — the widget calls this on open
+// ---------------------------------------------------------------------------
+router.post("/session", async (req: Request, res: Response) => {
+  try {
+    const { siteId } = req.body as { siteId?: string };
+    if (!siteId) return res.status(400).json({ error: "siteId is required" });
+
+    const { token } = resolveSessionToken(
+      sessionTokenFromRequest(req.headers as Record<string, unknown>, req.body)
+    );
+    const [usage, limits] = await Promise.all([
+      peekSessionUsage(siteId, token),
+      getChatLimits(siteId),
+    ]);
+
+    res.json({
+      token,
+      used: usage.used,
+      limit: limits.dailyLimit,
+      remaining: limits.dailyLimit > 0 ? usage.remaining : null,
+      limitReached: !usage.allowed,
+      limitMessage: limits.limitMessage,
+    });
+  } catch (err) {
+    console.error("[chat/session]", err);
+    res.status(500).json({ error: "session_failed" });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Text chat
 // ---------------------------------------------------------------------------
@@ -56,6 +149,10 @@ router.post("/", async (req: Request, res: Response) => {
       return res.status(429).json({ error: "Too many requests. Please try again shortly." });
     }
 
+    const cap = await applyDailyCap(req, siteId);
+    res.setHeader("X-Navbot-Session", cap.token);
+    if (!cap.allowed) return res.json(limitPayload(cap));
+
     const t0 = Date.now();
     const result = await answerQuestionWithRag({
       siteId,
@@ -64,7 +161,7 @@ router.post("/", async (req: Request, res: Response) => {
       features,
     });
 
-    res.json(result);
+    res.json({ ...result, usage: { used: cap.used, limit: cap.limit, remaining: cap.remaining } });
 
     logChatTurn({
       siteId,
@@ -103,6 +200,12 @@ router.post("/stream", async (req: Request, res: Response) => {
     return res.status(429).json({ error: "Too many requests. Please try again shortly." });
   }
 
+  // Checked before the SSE headers are flushed, so an exhausted visitor gets an ordinary
+  // JSON body the client can read — once the stream is open, it cannot.
+  const cap = await applyDailyCap(req, siteId);
+  res.setHeader("X-Navbot-Session", cap.token);
+  if (!cap.allowed) return res.json(limitPayload(cap));
+
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache, no-transform");
   res.setHeader("Connection", "keep-alive");
@@ -138,6 +241,7 @@ router.post("/stream", async (req: Request, res: Response) => {
           pageLinks: ev.answer.pageLinks,
           socialLinks: ev.answer.socialLinks,
           followUps: ev.answer.followUps,
+          usage: { used: cap.used, limit: cap.limit, remaining: cap.remaining },
         });
       }
     }
@@ -214,6 +318,10 @@ router.post(
       if (checkRateLimit(rateKey)) {
         return res.status(429).json({ error: "Too many requests. Please try again shortly." });
       }
+
+      const cap = await applyDailyCap(req, siteId);
+      res.setHeader("X-Navbot-Session", cap.token);
+      if (!cap.allowed) return res.json({ ...limitPayload(cap), transcript: null });
 
       const t0 = Date.now();
 

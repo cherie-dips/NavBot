@@ -774,6 +774,22 @@ function clearHistory(siteId: string) {
   try { localStorage.removeItem(getHistoryKey(siteId)); } catch { /* ignore */ }
 }
 
+/**
+ * The session token identifies this visitor for the daily question limit. It lives in
+ * localStorage rather than sessionStorage on purpose: the limit is per day, so it has
+ * to survive closing the tab. Clearing site data hands out a fresh allowance, which is
+ * accepted — this is a courtesy limit, not an entitlement check.
+ */
+function getSessionKey(siteId: string) { return `navbot_session_${siteId}`; }
+
+function loadSessionToken(siteId: string): string | null {
+  try { return localStorage.getItem(getSessionKey(siteId)); } catch { return null; }
+}
+
+function saveSessionToken(siteId: string, token: string) {
+  try { localStorage.setItem(getSessionKey(siteId), token); } catch { /* ignore */ }
+}
+
 function getUiStateKey(siteId: string) { return `navbot_ui_${siteId}`; }
 
 function loadUiState(siteId: string): { open: boolean; faqDismissed: boolean; width: number } {
@@ -823,6 +839,11 @@ export const ChatWidget: React.FC = () => {
   const [faqsLoading, setFaqsLoading] = useState(false);
   const [faqDismissed, _setFaqDismissed] = useState(savedUi.faqDismissed);
   const [socialEmbed, setSocialEmbed] = useState<SocialLink | null>(null);
+  /** Null until the handshake replies, or when the site has no limit configured. */
+  const [questionsLeft, setQuestionsLeft] = useState<number | null>(null);
+  const [limitReached, setLimitReached] = useState(false);
+  const [limitMessage, setLimitMessage] = useState<string>("");
+  const sessionTokenRef = useRef<string | null>(null);
 
   const faqDismissedRef = useRef(savedUi.faqDismissed);
   const isOpenRef = useRef(savedUi.open);
@@ -859,6 +880,30 @@ export const ChatWidget: React.FC = () => {
     // Ping the API to trigger a background sitemap sync so knowledge is fresh
     fetch(`${apiBase}/api/sites/${encodeURIComponent(siteId)}/ping`).catch(() => {});
   }, []);
+
+  // Session handshake. Reuses the stored token so today's count carries across visits;
+  // the server mints a new one if it is missing or no longer valid.
+  useEffect(() => {
+    const stored = loadSessionToken(siteId);
+    sessionTokenRef.current = stored;
+
+    fetch(`${apiBase}/api/chat/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ siteId, sessionToken: stored ?? undefined }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data?.token) return;
+        sessionTokenRef.current = data.token;
+        saveSessionToken(siteId, data.token);
+        setQuestionsLeft(typeof data.remaining === "number" ? data.remaining : null);
+        if (data.limitMessage) setLimitMessage(data.limitMessage);
+        if (data.limitReached) setLimitReached(true);
+      })
+      // A failed handshake must not disable chat — the server enforces the cap anyway.
+      .catch(() => {});
+  }, [apiBase, siteId]);
   useEffect(() => {
     const xhr = new XMLHttpRequest();
     xhr.open("GET", `${apiBase}/api/sites/${encodeURIComponent(siteId)}/widget-config`);
@@ -988,8 +1033,35 @@ export const ChatWidget: React.FC = () => {
    * Falls back to the non-streaming endpoint if streaming is unavailable, so an
    * older server or a proxy that buffers events still produces an answer.
    */
+  /** Reads the token from the response so a server-minted one is picked up straight away. */
+  const captureSessionToken = (headers: Headers) => {
+    const t = headers.get("X-Navbot-Session");
+    if (t && t !== sessionTokenRef.current) {
+      sessionTokenRef.current = t;
+      saveSessionToken(siteId, t);
+    }
+  };
+
+  const chatHeaders = (): Record<string, string> => {
+    const h: Record<string, string> = { "Content-Type": "application/json" };
+    if (sessionTokenRef.current) h["X-Navbot-Session"] = sessionTokenRef.current;
+    return h;
+  };
+
+  /** Renders the site's own cut-off message and closes the composer for the day. */
+  const showLimitReached = (message: string | undefined, id: number) => {
+    const text =
+      message?.trim() ||
+      "You've reached the daily question limit. Please contact our team by email for further questions.";
+    setLimitReached(true);
+    setLimitMessage(text);
+    setQuestionsLeft(0);
+    addMessage({ id, text, sender: "bot", timestamp: new Date().toISOString() });
+  };
+
   const sendText = async (text: string) => {
     if (!text.trim()) return;
+    if (limitReached) return;
     setError(null);
     setFaqDismissed(true);
 
@@ -1017,10 +1089,22 @@ export const ChatWidget: React.FC = () => {
     try {
       const res = await fetch(`${apiBase}/api/chat/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: chatHeaders(),
         body: payload,
         signal: controller.signal,
       });
+      captureSessionToken(res.headers);
+
+      // Out of questions: the server answers with JSON instead of opening a stream, so
+      // the visitor sees the site's own message rather than a failure.
+      const contentType = res.headers.get("Content-Type") ?? "";
+      if (res.ok && contentType.includes("application/json")) {
+        const data = await res.json();
+        if (data?.limitReached) {
+          showLimitReached(data.answer, botId);
+          return;
+        }
+      }
 
       if (!res.ok || !res.body) throw new Error(`stream unavailable (${res.status})`);
 
@@ -1059,6 +1143,8 @@ export const ChatWidget: React.FC = () => {
             setMessages((prev) => prev.map((m) => (m.id === botId ? { ...m, text: acc } : m)));
           }
         } else if (name === "done") {
+          const usage = (data as { usage?: { remaining?: number } }).usage;
+          if (typeof usage?.remaining === "number") setQuestionsLeft(usage.remaining);
           const finalText = String(data.answer ?? acc);
           setMessages((prev) => {
             const exists = prev.some((m) => m.id === botId);
@@ -1108,11 +1194,17 @@ export const ChatWidget: React.FC = () => {
       try {
         const res = await fetch(`${apiBase}/api/chat`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: chatHeaders(),
           body: payload,
         });
+        captureSessionToken(res.headers);
         if (!res.ok) throw new Error(`status ${res.status}`);
         const data = await res.json();
+        if (data?.limitReached) {
+          showLimitReached(data.answer, botId);
+          return;
+        }
+        if (typeof data?.usage?.remaining === "number") setQuestionsLeft(data.usage.remaining);
         addMessage({
           id: botId,
           text: data.answer || "I couldn't put together an answer for that. Please try rephrasing.",
@@ -1163,10 +1255,12 @@ export const ChatWidget: React.FC = () => {
         formData.append("history", JSON.stringify(historySnapshot));
         const xhr = new XMLHttpRequest();
         xhr.open("POST", `${apiBase}/api/chat/voice`);
+      if (sessionTokenRef.current) xhr.setRequestHeader("X-Navbot-Session", sessionTokenRef.current);
         xhr.onload = () => {
           try {
             if (xhr.status < 200 || xhr.status >= 300) throw new Error(`Voice request failed with status ${xhr.status}`);
-            const data = JSON.parse(xhr.responseText) as { answer: string; transcript?: string | null; error?: string; pageLinks?: Array<{ url: string; title: string }>; socialLinks?: SocialLink[] };
+            const data = JSON.parse(xhr.responseText) as { answer: string; transcript?: string | null; error?: string; limitReached?: boolean; pageLinks?: Array<{ url: string; title: string }>; socialLinks?: SocialLink[] };
+            if (data.limitReached) { showLimitReached(data.answer, Date.now() + 1); return; }
             setMessages((prev) => prev.map((m) => m.id === placeholderId ? { ...m, text: data.transcript ? `🎤 "${data.transcript}"` : `🎤 Voice message (${recordingTime}s)` } : m));
             addMessage({ id: Date.now() + 1, text: data.answer || "I received your voice message.", sender: "bot", timestamp: new Date().toISOString(), voiceReply: true, pageLinks: data.pageLinks, socialLinks: data.socialLinks });
           } catch (err) {
@@ -1481,19 +1575,31 @@ export const ChatWidget: React.FC = () => {
               {error}
             </div>
           )}
+          {limitReached ? (
+            <div style={{ marginBottom: "8px", fontSize: "12px", lineHeight: 1.5, color: "#7c5312", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)", borderRadius: "8px", padding: "8px 10px" }}>
+              {limitMessage || "You've reached today's question limit."}
+            </div>
+          ) : questionsLeft !== null && questionsLeft <= 3 ? (
+            // Only warn near the end. A counter on every message would nag.
+            <div style={{ marginBottom: "8px", fontSize: "11px", color: theme.timestampColor, textAlign: "center" }}>
+              {questionsLeft === 0
+                ? "That was your last question for today."
+                : `${questionsLeft} question${questionsLeft === 1 ? "" : "s"} left today`}
+            </div>
+          ) : null}
           <div style={{ display: "flex", alignItems: "center", gap: "6px", background: glassBg, border: "1px solid rgba(255,255,255,0.2)", borderRadius: "14px", padding: "4px 4px 4px 14px" }}>
             <input
               type="text"
-              placeholder={isRecording ? "Recording… tap stop" : "Type a message…"}
+              placeholder={limitReached ? "Daily limit reached" : isRecording ? "Recording… tap stop" : "Type a message…"}
               style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontSize: "13px", color: "#1e293b", padding: "8px 0", fontFamily: "inherit" }}
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyPress}
-              disabled={isRecording}
+              disabled={isRecording || limitReached}
             />
             {/* Voice Button */}
-            <button onClick={isRecording ? stopRecording : startRecording} title={isRecording ? "Stop recording" : "Record voice message"}
-              style={{ flexShrink: 0, width: "34px", height: "34px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "10px", border: "none", cursor: "pointer", background: isRecording ? "rgba(239,68,68,0.1)" : "transparent", color: isRecording ? "#ef4444" : theme.iconColor, transition: "all 0.2s" }}>
+            <button onClick={isRecording ? stopRecording : startRecording} disabled={limitReached} title={isRecording ? "Stop recording" : "Record voice message"}
+              style={{ flexShrink: 0, width: "34px", height: "34px", display: "flex", alignItems: "center", justifyContent: "center", borderRadius: "10px", border: "none", cursor: limitReached ? "default" : "pointer", opacity: limitReached ? 0.4 : 1, background: isRecording ? "rgba(239,68,68,0.1)" : "transparent", color: isRecording ? "#ef4444" : theme.iconColor, transition: "all 0.2s" }}>
               {isRecording
                 ? <svg style={{ width: "18px", height: "18px" }} fill="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>
                 : <svg style={{ width: "18px", height: "18px" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" /></svg>
@@ -1502,15 +1608,15 @@ export const ChatWidget: React.FC = () => {
             {/* Send Button — themed */}
             <button
               onClick={handleSend}
-              disabled={!inputValue.trim() || isRecording}
+              disabled={!inputValue.trim() || isRecording || limitReached}
               style={{
                 flexShrink: 0, width: "34px", height: "34px",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 borderRadius: "10px", border: "none",
-                cursor: !inputValue.trim() || isRecording ? "default" : "pointer",
-                background: inputValue.trim() && !isRecording ? theme.sendBtnBg : "transparent",
-                color: inputValue.trim() && !isRecording ? theme.sendBtnColor : theme.iconColor,
-                opacity: !inputValue.trim() || isRecording ? 0.4 : 1,
+                cursor: !inputValue.trim() || isRecording || limitReached ? "default" : "pointer",
+                background: inputValue.trim() && !isRecording && !limitReached ? theme.sendBtnBg : "transparent",
+                color: inputValue.trim() && !isRecording && !limitReached ? theme.sendBtnColor : theme.iconColor,
+                opacity: !inputValue.trim() || isRecording || limitReached ? 0.4 : 1,
                 transition: "all 0.2s",
               }}>
               <svg style={{ width: "16px", height: "16px" }} fill="none" viewBox="0 0 24 24" stroke="currentColor">

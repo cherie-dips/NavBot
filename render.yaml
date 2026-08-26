@@ -71,6 +71,10 @@ services:
         sync: false
       - key: SERPER_API_KEY
         sync: false
+      # Signs visitor session tokens for the daily question limit. Without it each
+      # instance uses a random secret, so limits reset on deploy and differ per instance.
+      - key: NAVBOT_SESSION_SECRET
+        sync: false
       # Optional. Defaults: reasoning on, live search on judgement + weak-retrieval turns.
       - key: NAVBOT_REASONING
         sync: false

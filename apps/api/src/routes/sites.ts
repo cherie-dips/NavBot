@@ -29,6 +29,9 @@ import {
   type SocialHandles,
   setIndexingActive,
   invalidateRagCache,
+  getChatLimits,
+  updateChatLimits,
+  DEFAULT_LIMIT_MESSAGE,
 } from "../services/db";
 import { getOrGenerateFaqs, refreshFaqs, saveFaqUserAnswer } from "../services/faq";
 
@@ -580,13 +583,85 @@ router.get("/:siteId/widget-config", async (req: Request, res: Response) => {
     if (cached && Date.now() - cached.ts < WIDGET_CACHE_TTL) {
       return res.json(cached.data);
     }
-    const theme = (await getSiteThemePublic(siteId)) ?? DEFAULT_THEME;
-    const data = { siteId, theme };
+    const [theme, limits] = await Promise.all([
+      getSiteThemePublic(siteId).then((t) => t ?? DEFAULT_THEME),
+      getChatLimits(siteId),
+    ]);
+    const data = { siteId, theme, dailyLimit: limits.dailyLimit };
     widgetConfigCache.set(siteId, { data, ts: Date.now() });
     res.json(data);
   } catch (err) {
     console.error("[widget-config] error:", err);
     res.json({ siteId: req.params.siteId, theme: DEFAULT_THEME });
+  }
+});
+
+/* ── Chat limits — read ────────────────────────────────────────────────── */
+router.get("/:siteId/limits", async (req: Request, res: Response) => {
+  try {
+    const { siteId } = req.params;
+    const userId = req.query.userId as string | undefined;
+    if (!userId) return res.status(400).json({ error: "userId query param is required" });
+
+    const sites = await getSitesByUser(userId);
+    if (!sites.some((x) => x.site_id === siteId)) {
+      return res.status(404).json({ error: "site not found" });
+    }
+
+    const limits = await getChatLimits(siteId);
+    res.json({ siteId, ...limits, defaultMessage: DEFAULT_LIMIT_MESSAGE });
+  } catch (err) {
+    console.error("[limits] read failed:", err);
+    res.status(500).json({ error: "failed_to_read_limits" });
+  }
+});
+
+/* ── Chat limits — update ──────────────────────────────────────────────── */
+const MAX_LIMIT_MESSAGE_CHARS = 500;
+const MAX_DAILY_LIMIT = 1000;
+
+router.patch("/:siteId/limits", async (req: Request, res: Response) => {
+  try {
+    const { siteId } = req.params;
+    const userId = req.query.userId as string | undefined;
+    if (!userId) return res.status(400).json({ error: "userId query param is required" });
+
+    const { dailyLimit, limitMessage } = req.body as {
+      dailyLimit?: unknown;
+      limitMessage?: unknown;
+    };
+
+    const parsedLimit = Number(dailyLimit);
+    if (!Number.isInteger(parsedLimit) || parsedLimit < 0 || parsedLimit > MAX_DAILY_LIMIT) {
+      return res.status(400).json({
+        error: "invalid_daily_limit",
+        message: `dailyLimit must be a whole number between 0 and ${MAX_DAILY_LIMIT}. Use 0 for unlimited.`,
+      });
+    }
+
+    const message = typeof limitMessage === "string" ? limitMessage.trim() : "";
+    if (message.length > MAX_LIMIT_MESSAGE_CHARS) {
+      return res.status(400).json({
+        error: "message_too_long",
+        message: `limitMessage must be ${MAX_LIMIT_MESSAGE_CHARS} characters or fewer.`,
+      });
+    }
+
+    const updated = await updateChatLimits(siteId, userId, {
+      dailyLimit: parsedLimit,
+      limitMessage: message,
+    });
+    if (!updated) return res.status(404).json({ error: "site not found" });
+
+    // The widget reads dailyLimit from the cached config, so it must be dropped or the
+    // dashboard change would not show up for up to the cache TTL.
+    widgetConfigCache.delete(siteId);
+
+    const limits = await getChatLimits(siteId);
+    res.json({ siteId, ...limits });
+  } catch (err) {
+    console.error("[limits] update failed:", err);
+    res.status(500).json({ error: "failed_to_update_limits" });
   }
 });
 
