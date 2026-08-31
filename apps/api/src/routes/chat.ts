@@ -12,6 +12,7 @@ import {
   peekSessionUsage,
   getChatLimits,
   purgeOldSessions,
+  purgeOldChatQueries,
 } from "../services/db";
 import { resolveSessionToken, sessionTokenFromRequest } from "../services/session";
 
@@ -44,8 +45,13 @@ setInterval(() => {
 
 // Yesterday's usage rows are never read again. Swept daily rather than per request.
 const SESSION_SWEEP_MS = 24 * 60 * 60 * 1000;
+/** Days a raw visitor question + answer preview stays in chat_query before being purged. */
+const CHAT_QUERY_RETENTION_DAYS = 90;
 setInterval(() => {
   purgeOldSessions().catch((err) => console.error("[chat] session sweep failed:", err.message));
+  purgeOldChatQueries(CHAT_QUERY_RETENTION_DAYS).catch((err) =>
+    console.error("[chat] chat_query retention sweep failed:", err.message)
+  );
 }, SESSION_SWEEP_MS).unref?.();
 
 // ---------------------------------------------------------------------------

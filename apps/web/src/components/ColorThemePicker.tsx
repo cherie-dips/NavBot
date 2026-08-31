@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Palette, RefreshCw, Check, Loader2, AlertCircle, Eye } from "lucide-react";
+import { apiFetch } from "../lib/api-fetch";
 export interface WidgetTheme {
   primary: string;
   launcherBg: string;
@@ -12,6 +13,8 @@ export interface WidgetTheme {
   sendBtnColor: string;
   fontFamily: string;
   widgetOpacity: number;
+  /** Shown as a small disclosure link in the widget when set — not required. */
+  privacyPolicyUrl?: string;
 }
 
 interface ColorEntry {
@@ -62,8 +65,8 @@ function isLight(hex: string): boolean {
   }
 }
 
-function hexIsValid(hex: string): boolean {
-  return /^#[0-9a-fA-F]{6}$/.test(hex);
+function hexIsValid(hex: unknown): hex is string {
+  return typeof hex === "string" && /^#[0-9a-fA-F]{6}$/.test(hex);
 }
 
 function sourceLabel(source: string): string {
@@ -513,7 +516,7 @@ export function ColorThemePicker({
     setSaving(true);
     setSaveError(null);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${apiBase}/api/sites/${encodeURIComponent(siteId)}/theme?userId=${encodeURIComponent(userId)}`,
         { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(theme) }
       );
@@ -742,6 +745,25 @@ export function ColorThemePicker({
                   />
                 </div>
               </div>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100">
+              <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                Privacy policy URL (optional)
+              </label>
+              <input
+                type="url"
+                placeholder="https://yoursite.com/privacy"
+                value={theme.privacyPolicyUrl ?? ""}
+                onChange={(e) => {
+                  setTheme((prev) => ({ ...prev, privacyPolicyUrl: e.target.value || undefined }));
+                  setSaved(false);
+                }}
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-[#2E3538] outline-none focus:border-[#478EDB]"
+              />
+              <p className="mt-1 text-[11px] text-slate-400">
+                When set, the widget shows a small link to it so visitors know their messages are processed by AI.
+              </p>
             </div>
           </div>
 

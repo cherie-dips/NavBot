@@ -22,15 +22,14 @@ import {
   deletePageHashesForUrls,
   getSyncStats,
 } from "../services/db";
+import { requireSiteOwner, restrictToDashboardOrigin } from "../middleware/require-site-owner";
 
 export const router: Router = Router();
 
-router.get("/:siteId/sync", async (req: Request, res: Response) => {
+router.get("/:siteId/sync", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   const { siteId } = req.params;
-  const userId = req.query.userId as string | undefined;
+  const userId = req.userId!;
   const preview = req.query.preview === "true";
-
-  if (!userId) return res.status(400).json({ error: "userId query param is required" });
 
   const sites = await getSitesByUser(userId);
   const site = sites.find((s) => s.site_id === siteId);
@@ -120,12 +119,10 @@ router.get("/:siteId/sync", async (req: Request, res: Response) => {
 });
 
 
-router.post("/:siteId/sync", async (req: Request, res: Response) => {
+router.post("/:siteId/sync", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   const { siteId } = req.params;
-  const userId = req.query.userId as string | undefined;
+  const userId = req.userId!;
   const forceFull = req.query.full === "true";
-
-  if (!userId) return res.status(400).json({ error: "userId query param is required" });
 
   const sites = await getSitesByUser(userId);
   const site = sites.find((s) => s.site_id === siteId);

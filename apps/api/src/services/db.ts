@@ -80,15 +80,41 @@ export const pool = new Proxy({} as pg.Pool, {
   },
 });
 
+/**
+ * Serverless Postgres (Neon) suspends its compute after a few idle minutes and a cold
+ * boot can take longer to wake up than queryWithRetry's normal (fast-fail) budget
+ * allows — that budget is intentionally short for request-time queries, so give startup
+ * its own, more patient one instead of loosening it for every query app-wide.
+ */
+async function waitForDatabase(maxAttempts = 5): Promise<void> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await getPool().query("SELECT 1");
+      return;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const retryable = /timeout|ECONNRESET|ECONNREFUSED|Connection terminated/i.test(msg);
+      if (!retryable || attempt === maxAttempts) throw err;
+      const wait = 2000 * attempt;
+      console.warn(
+        `[db] startup connection failed (attempt ${attempt}/${maxAttempts}, likely a cold-starting database): ${msg.slice(0, 200)}. Retrying in ${wait}ms…`
+      );
+      await new Promise((r) => setTimeout(r, wait));
+    }
+  }
+}
+
 let schemaReady: Promise<void> | null = null;
 
 export function initAppDatabase(): Promise<void> {
   if (!schemaReady) {
-    schemaReady = ensureSchema().then(async () => {
-      console.log("API database ready (PostgreSQL).");
-      const purged = await purgeNoInfoCacheEntries().catch(() => 0);
-      if (purged > 0) console.log(`[db] Purged ${purged} stale "no info" cache entries.`);
-    });
+    schemaReady = waitForDatabase()
+      .then(() => ensureSchema())
+      .then(async () => {
+        console.log("API database ready (PostgreSQL).");
+        const purged = await purgeNoInfoCacheEntries().catch(() => 0);
+        if (purged > 0) console.log(`[db] Purged ${purged} stale "no info" cache entries.`);
+      });
   }
   return schemaReady;
 }
@@ -317,6 +343,15 @@ export async function purgeOldSessions(days = 7): Promise<number> {
   return rowCount ?? 0;
 }
 
+/** chat_query stores raw visitor questions indefinitely otherwise — this bounds retention. */
+export async function purgeOldChatQueries(days = 90): Promise<number> {
+  const { rowCount } = await pool.query(
+    `DELETE FROM chat_query WHERE created_at < NOW() - $1::int * INTERVAL '1 day'`,
+    [days]
+  );
+  return rowCount ?? 0;
+}
+
 function toIso(v: unknown): string {
   if (v instanceof Date) return v.toISOString();
   if (typeof v === "string") {
@@ -357,6 +392,8 @@ export interface WidgetTheme {
   sendBtnColor: string;
   fontFamily: string;
   widgetOpacity: number;
+  /** Shown as a small disclosure link in the widget when set — not required. */
+  privacyPolicyUrl?: string;
 }
 
 export const DEFAULT_THEME: WidgetTheme = {
@@ -429,6 +466,15 @@ export async function getSitesByUser(userId: string): Promise<SiteRow[]> {
       widget_theme: (row.widget_theme as string | null) ?? null,
     };
   });
+}
+
+/** Does this verified userId actually own this siteId? Multiple users can share a siteId, so this checks a specific pairing, not just existence. */
+export async function isSiteOwner(siteId: string, userId: string): Promise<boolean> {
+  const { rows } = await pool.query(`SELECT 1 FROM site WHERE site_id = $1 AND user_id = $2 LIMIT 1`, [
+    siteId,
+    userId,
+  ]);
+  return rows.length > 0;
 }
 
 export async function deleteSite(siteId: string, userId: string): Promise<boolean> {

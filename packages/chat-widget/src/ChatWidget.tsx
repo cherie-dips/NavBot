@@ -634,6 +634,7 @@ type WidgetTheme = {
   font?: string;
   fontFamily?: string;
   widgetOpacity?: number;
+  privacyPolicyUrl?: string;
 };
 
 type ResolvedWidgetTheme = {
@@ -648,6 +649,7 @@ type ResolvedWidgetTheme = {
   sendBtnColor: string;
   fontFamily: string;
   widgetOpacity: number;
+  privacyPolicyUrl?: string;
 };
 
 type NavbotConfig = {
@@ -1917,6 +1919,19 @@ export const ChatWidget: React.FC = () => {
               </svg>
             </button>
           </div>
+          {theme.privacyPolicyUrl && (
+            <div style={{ marginTop: "6px", fontSize: "10px", color: theme.timestampColor, textAlign: "center" }}>
+              Messages are processed by AI.{" "}
+              <a
+                href={theme.privacyPolicyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "inherit", textDecoration: "underline" }}
+              >
+                Privacy policy
+              </a>
+            </div>
+          )}
         </div>
       </div>
 

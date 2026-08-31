@@ -1,7 +1,10 @@
 import "dotenv/config";
+import "./sentry"; // must init before anything else that could throw
 import express from "express";
 import cors from "cors";
+import helmet from "helmet";
 import morgan from "morgan";
+import { Sentry, sentryEnabled } from "./sentry";
 import { json, urlencoded } from "express";
 import swaggerUi from "swagger-ui-express";
 
@@ -16,6 +19,21 @@ import { initAppDatabase } from "./services/db";
 
 const app = express();
 
+// Render sits in front of this service as a single reverse proxy — without this,
+// req.ip resolves to the proxy's address, not the visitor's, and the per-IP rate
+// limiter in routes/chat.ts effectively rate-limits nothing.
+app.set("trust proxy", 1);
+
+app.use(
+  helmet({
+    // The Swagger UI at /api-docs relies on inline scripts/styles; a default CSP breaks
+    // it, and this app has no other HTML pages of its own to protect with one.
+    contentSecurityPolicy: false,
+    // This service is deliberately called cross-origin by any customer's website
+    // embedding the widget — helmet's same-origin default would block those fetches.
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  })
+);
 app.use(cors({ origin: "*" }));
 app.use(morgan("dev"));
 app.use(json({ limit: "10mb" }));
@@ -55,6 +73,8 @@ app.use("/api/sites", syncRouter); // /:siteId/sync routes
 app.use("/api/chat", chatRouter);
 app.use("/api/colors", colorRouter);
 
+if (sentryEnabled) Sentry.setupExpressErrorHandler(app);
+
 const port = process.env.PORT || 3001;
 
 void initAppDatabase()
@@ -79,4 +99,5 @@ process.once("SIGTERM", () => void gracefulShutdown("SIGTERM"));
 process.once("SIGINT", () => void gracefulShutdown("SIGINT"));
 process.on("unhandledRejection", (err) => {
   console.error("[api] unhandledRejection:", err);
+  if (sentryEnabled) Sentry.captureException(err);
 });

@@ -43,7 +43,7 @@ export const authPool = new Pool({
   connectionString,
   max: isProd ? 2 : 10,
   idleTimeoutMillis: isProd ? 20_000 : 30_000,
-  connectionTimeoutMillis: isProd ? 15_000 : 10_000,
+  connectionTimeoutMillis: isProd ? 15_000 : 20_000,
   ...(isProd ? { ssl: { rejectUnauthorized: false } } : {}),
 });
 

@@ -29,7 +29,8 @@
 
     "api#dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "dependsOn": ["@repo/color-extractor#build"]
     },
 
     "web#build": {

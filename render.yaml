@@ -2,9 +2,16 @@
 # Docs: https://render.com/docs/blueprint-spec
 #
 # Post-deploy:
-# - Set CORS_ORIGIN on navbot-auth to your static site origin (comma-separated for multiple).
+# - Set CORS_ORIGIN on navbot-auth AND navbot-api to your static site origin (comma-separated for multiple).
+#   navbot-auth uses it for session cookies; navbot-api uses it to restrict the /api/sites dashboard
+#   routes only — the public widget/chat routes stay open to any origin regardless.
 # - Set BETTER_AUTH_URL (or BETTER_AUTH_BASE_URL) on navbot-auth to this service’s public URL (e.g. https://navbot-auth.onrender.com).
 # - Set BETTER_AUTH_SECRET on navbot-auth (long random string; used to sign sessions — required in production).
+# - Set NAVBOT_API_TOKEN_SECRET to the SAME long random string on BOTH navbot-auth and navbot-api —
+#   required in production. navbot-auth mints a short-lived token after verifying a real session;
+#   navbot-api verifies it instead of trusting a client-supplied userId. Without it, every
+#   dashboard request that needs to prove who the caller is fails.
+# - Optional: SENTRY_DSN on navbot-auth and navbot-api for error tracking (a no-op until set).
 # - Set VITE_API_URL, VITE_AUTH_URL, VITE_WIDGET_SCRIPT_URL on the static site (e.g. widget URL = https://<static-host>/chat-widget.iife.js).
 # - Widget script is served with Access-Control-Allow-Origin: * so it can load from GitHub Pages etc. (avoid crossorigin="anonymous" on <script> unless you need SRI).
 # - Secrets on navbot-api: PINECONE_*, GEMINI_API_KEY (chat, STT, TTS), SERPER_API_KEY (social + live site search).
@@ -51,6 +58,11 @@ services:
         sync: false
       - key: GITHUB_CLIENT_SECRET
         sync: false
+      # Must be the exact same value as NAVBOT_API_TOKEN_SECRET on navbot-api.
+      - key: NAVBOT_API_TOKEN_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
 
   - type: web
     name: navbot-api
@@ -74,6 +86,16 @@ services:
       # Signs visitor session tokens for the daily question limit. Without it each
       # instance uses a random secret, so limits reset on deploy and differ per instance.
       - key: NAVBOT_SESSION_SECRET
+        sync: false
+      # Must be the exact same value as NAVBOT_API_TOKEN_SECRET on navbot-auth — required in
+      # production. Verifies dashboard requests actually come from the logged-in user they
+      # claim to; without it every /api/sites dashboard route rejects all requests.
+      - key: NAVBOT_API_TOKEN_SECRET
+        sync: false
+      # Dashboard origin allowed to call the /api/sites dashboard routes (same value as on navbot-auth).
+      - key: CORS_ORIGIN
+        sync: false
+      - key: SENTRY_DSN
         sync: false
       # Optional. Defaults: reasoning on, live search on judgement + weak-retrieval turns.
       - key: NAVBOT_REASONING

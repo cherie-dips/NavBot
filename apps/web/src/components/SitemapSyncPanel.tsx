@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { apiFetch } from "../lib/api-fetch";
 import {
   RefreshCw,
   Loader2,
@@ -85,7 +86,7 @@ export function SitemapSyncPanel({
     setLoading("stats");
     setError(null);
     try {
-      const res = await fetch(baseUrl);
+      const res = await apiFetch(baseUrl);
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to load stats");
       setStats({ totalTracked: data.totalTracked, lastSynced: data.lastSynced });
@@ -113,7 +114,7 @@ export function SitemapSyncPanel({
     setSyncResult(null);
     setShowChangedUrls(false);
     try {
-      const res = await fetch(`${baseUrl}&preview=true`);
+      const res = await apiFetch(`${baseUrl}&preview=true`);
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || data?.error || "Preview failed");
       setPreview(data.preview);
@@ -132,12 +133,12 @@ export function SitemapSyncPanel({
     setPreview(null);
     setSyncResult(null);
     try {
-      const res = await fetch(baseUrl, { method: "POST" });
+      const res = await apiFetch(baseUrl, { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || data?.error || "Sync failed");
       setSyncResult(data);
       // Refresh stats
-      const statsRes = await fetch(baseUrl);
+      const statsRes = await apiFetch(baseUrl);
       if (statsRes.ok) {
         const statsData = await statsRes.json();
         setStats({ totalTracked: statsData.totalTracked, lastSynced: statsData.lastSynced });

@@ -29,6 +29,13 @@ function getSecret(): string {
     return cachedSecret;
   }
 
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "NAVBOT_SESSION_SECRET is not set. Generate a long random string (e.g. openssl rand -base64 32) " +
+        "and set it on navbot-api in Render — without it, daily visitor quotas silently reset on every restart."
+    );
+  }
+
   // A per-process fallback keeps development working, but it is regenerated on every
   // boot and differs between instances — so tokens stop verifying after a deploy and
   // every visitor silently gets a fresh allowance. Fine locally, wrong in production.
@@ -40,6 +47,12 @@ function getSecret(): string {
   );
   return cachedSecret;
 }
+
+// Fail at import time (server boot), not on the first chat request that needs a session
+// token — the callers of sign()/getSecret() aren't all wrapped in try/catch, so a throw
+// here on first use would surface as a hung or failed request instead of a clear,
+// immediate boot failure.
+getSecret();
 
 function sign(id: string): string {
   return crypto

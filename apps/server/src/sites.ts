@@ -1,11 +1,18 @@
-import { Router, type Router as RouterType } from "express";
-import { authPool } from "./auth.js";
+import { Router, type Router as RouterType, type Request } from "express";
+import { fromNodeHeaders } from "better-auth/node";
+import { authPool, auth } from "./auth.js";
 
 export const sitesRouter: RouterType = Router();
 
+/** The caller's verified userId from their Better Auth session cookie, or null if not logged in. */
+async function requireUserId(req: Request): Promise<string | null> {
+  const session = await auth.api.getSession({ headers: fromNodeHeaders(req.headers) });
+  return session?.user?.id ?? null;
+}
+
 sitesRouter.get("/api/sites", async (req, res) => {
-  const userId = req.query.userId as string | undefined;
-  if (!userId) return res.status(400).json({ error: "userId required" });
+  const userId = await requireUserId(req);
+  if (!userId) return res.status(401).json({ error: "not_authenticated" });
 
   const { rows } = await authPool.query(
     `SELECT site_id, url, hostname, status, pages_indexed, added_at, last_crawled, widget_theme
@@ -28,8 +35,8 @@ sitesRouter.get("/api/sites", async (req, res) => {
 });
 
 sitesRouter.get("/api/sites/dashboard-stats", async (req, res) => {
-  const userId = req.query.userId as string | undefined;
-  if (!userId) return res.status(400).json({ error: "userId required" });
+  const userId = await requireUserId(req);
+  if (!userId) return res.status(401).json({ error: "not_authenticated" });
   const siteId = req.query.siteId as string | undefined;
 
   const userSites = await authPool.query(

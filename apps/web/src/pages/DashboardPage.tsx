@@ -31,6 +31,7 @@ import {
   Zap,
 } from "lucide-react";
 import { authClient } from "../lib/auth-client";
+import { apiFetch } from "../lib/api-fetch";
 import { ScrapingPage } from "./ScrapingPage";
 import { IntegrationPanel } from "../components/IntegrationPanel";
 import { WidgetTheme } from "../components/ColorThemePicker";
@@ -197,7 +198,7 @@ export const DashboardPage = ({
     authClient.getSession().then(({ data }) => {
       if (data?.user) {
         setUser(data.user);
-        fetch(`${API_BASE}/api/sites?userId=${encodeURIComponent(data.user.id)}`)
+        apiFetch(`${API_BASE}/api/sites?userId=${encodeURIComponent(data.user.id)}`)
           .then(r => r.json())
           .then((sites: any[]) => {
             const mapped: Website[] = sites.map((s: any) => ({
@@ -225,7 +226,7 @@ export const DashboardPage = ({
       try {
         const q = new URLSearchParams({ userId: uid });
         if (activeSiteId) q.set("siteId", activeSiteId);
-        const r = await fetch(`${API_BASE}/api/sites/dashboard-stats?${q.toString()}`);
+        const r = await apiFetch(`${API_BASE}/api/sites/dashboard-stats?${q.toString()}`);
         if (r.ok) {
           const data = (await r.json()) as DashboardAnalytics;
           setAnalytics(data);
@@ -283,7 +284,7 @@ export const DashboardPage = ({
     setIsDeleting(true);
     setDeleteError(null);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/api/sites/${encodeURIComponent(deleteTarget.id)}?userId=${encodeURIComponent(user?.id ?? "")}`,
         { method: "DELETE" }
       );
@@ -616,7 +617,7 @@ function PagesPanel({ site }: { site: Website }) {
     setDeleting(true);
     setActionMsg(null);
     try {
-      const res = await fetch(`${API_BASE}/api/sites/${encodeURIComponent(site.id)}/pages`, {
+      const res = await apiFetch(`${API_BASE}/api/sites/${encodeURIComponent(site.id)}/pages`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ urls: [...selected] }),
@@ -640,7 +641,7 @@ function PagesPanel({ site }: { site: Website }) {
     setAddingUrls(true);
     setActionMsg(null);
     try {
-      const res = await fetch(`${API_BASE}/api/sites/${encodeURIComponent(site.id)}/pages`, {
+      const res = await apiFetch(`${API_BASE}/api/sites/${encodeURIComponent(site.id)}/pages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ urls }),
@@ -830,7 +831,7 @@ function UpdatePagesPanel({ site }: { site: Website }) {
     if (!urls.length) return;
     setIsUpdating(true); setResult(null);
     try {
-      const res = await fetch(`${API_BASE}/api/sites/${encodeURIComponent(site.id)}/pages`, {
+      const res = await apiFetch(`${API_BASE}/api/sites/${encodeURIComponent(site.id)}/pages`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ urls }),
       });
       const data = await res.json();
@@ -1161,7 +1162,7 @@ function AnalyticsTab({ activeSite, analytics, analyticsLoading }: {
     setSavingFaq(true);
     setFaqSaveMsg(null);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/api/sites/${encodeURIComponent(activeSite.id)}/faqs/${selectedFaq.id}`,
         {
           method: "PATCH",
@@ -1439,7 +1440,7 @@ function SocialTab({ activeSite, userId }: { activeSite: Website | null; userId:
     setSaving(true);
     setSaved(false);
     try {
-      await fetch(`${API_BASE}/api/sites/${activeSite.id}/social?userId=${userId}`, {
+      await apiFetch(`${API_BASE}/api/sites/${activeSite.id}/social?userId=${userId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(handles),
@@ -1634,7 +1635,7 @@ function DailyLimitPanel({ activeSite, userId }: { activeSite: Website | null; u
     setLoading(true);
     setSaved(false);
     setErr(null);
-    fetch(`${API_BASE}/api/sites/${activeSite.id}/limits?userId=${encodeURIComponent(userId)}`)
+    apiFetch(`${API_BASE}/api/sites/${activeSite.id}/limits?userId=${encodeURIComponent(userId)}`)
       .then(r => r.json())
       .then(d => {
         if (typeof d.dailyLimit === "number") setDailyLimit(String(d.dailyLimit));
@@ -1656,7 +1657,7 @@ function DailyLimitPanel({ activeSite, userId }: { activeSite: Website | null; u
     setSaved(false);
     setErr(null);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_BASE}/api/sites/${activeSite.id}/limits?userId=${encodeURIComponent(userId)}`,
         {
           method: "PATCH",

@@ -34,6 +34,7 @@ import {
   DEFAULT_LIMIT_MESSAGE,
 } from "../services/db";
 import { getOrGenerateFaqs, refreshFaqs, saveFaqUserAnswer } from "../services/faq";
+import { requireAuth, requireSiteOwner, restrictToDashboardOrigin } from "../middleware/require-site-owner";
 
 export const router: Router = Router();
 
@@ -137,12 +138,9 @@ function indexErrorResponse(err: unknown): { status: number; body: Record<string
 }
 
 /* ── List all sites for a user ─────────────────────────────────────────── */
-router.get("/", async (req: Request, res: Response) => {
+router.get("/", restrictToDashboardOrigin, requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.query.userId as string | undefined;
-    if (!userId) {
-      return res.status(400).json({ error: "userId query param is required" });
-    }
+    const userId = req.userId!;
     const sites = await getSitesByUser(userId);
     res.json(
       sites.map((s) => ({
@@ -166,13 +164,10 @@ router.get("/", async (req: Request, res: Response) => {
 const statsCache = new Map<string, { data: unknown; ts: number }>();
 const STATS_CACHE_TTL = 60_000;
 
-router.get("/dashboard-stats", async (req: Request, res: Response) => {
+router.get("/dashboard-stats", restrictToDashboardOrigin, requireAuth, async (req: Request, res: Response) => {
   try {
-    const userId = req.query.userId as string | undefined;
+    const userId = req.userId!;
     const siteIdRaw = req.query.siteId as string | undefined;
-    if (!userId) {
-      return res.status(400).json({ error: "userId query param is required" });
-    }
     const filterSiteId = siteIdRaw?.trim() ? siteIdRaw.trim() : null;
     const cacheKey = `${userId}:${filterSiteId ?? "all"}`;
     const cached = statsCache.get(cacheKey);
@@ -363,7 +358,7 @@ router.post("/", async (req: Request, res: Response) => {
 });
 
 /* ── Update specific pages ─────────────────────────────────────────────── */
-router.patch("/:siteId/pages", async (req: Request, res: Response) => {
+router.patch("/:siteId/pages", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
     const { urls } = req.body as { urls?: string[] };
@@ -417,7 +412,7 @@ router.get("/:siteId/pages", async (req: Request, res: Response) => {
 });
 
 /* ── Delete specific pages ───────────────────────────────────────────── */
-router.delete("/:siteId/pages", async (req: Request, res: Response) => {
+router.delete("/:siteId/pages", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
     const { urls } = req.body as { urls?: string[] };
@@ -439,7 +434,7 @@ router.delete("/:siteId/pages", async (req: Request, res: Response) => {
 });
 
 /* ── Add new pages by URL ────────────────────────────────────────────── */
-router.post("/:siteId/pages", async (req: Request, res: Response) => {
+router.post("/:siteId/pages", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
     const { urls } = req.body as { urls?: string[] };
@@ -475,10 +470,11 @@ router.post("/:siteId/pages", async (req: Request, res: Response) => {
 });
 
 /* ── Reindex entire site ───────────────────────────────────────────────── */
-router.post("/:siteId/reindex", async (req: Request, res: Response) => {
+router.post("/:siteId/reindex", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
-    const { url, userId } = req.body as { url?: string; userId?: string };
+    const userId = req.userId!;
+    const { url } = req.body as { url?: string };
 
     if (!url) return res.status(400).json({ error: "url is required" });
 
@@ -497,7 +493,7 @@ router.post("/:siteId/reindex", async (req: Request, res: Response) => {
       });
     }
 
-    if (userId) {
+    {
       const hostname = (() => { try { return new URL(url).hostname; } catch { return url; } })();
       await upsertSite({ siteId, userId, url, hostname, pagesIndexed: insertedCount });
     }
@@ -513,11 +509,10 @@ router.post("/:siteId/reindex", async (req: Request, res: Response) => {
 });
 
 /* ── Delete a site ─────────────────────────────────────────────────────── */
-router.delete("/:siteId", async (req: Request, res: Response) => {
+router.delete("/:siteId", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
-    const userId = req.query.userId as string | undefined;
-    if (!userId) return res.status(400).json({ error: "userId query param is required" });
+    const userId = req.userId!;
 
     const dbDeleted = await deleteSite(siteId, userId);
 
@@ -539,11 +534,10 @@ router.delete("/:siteId", async (req: Request, res: Response) => {
 });
 
 /* ── Save widget theme ─────────────────────────────────────────────────── */
-router.put("/:siteId/theme", async (req: Request, res: Response) => {
+router.put("/:siteId/theme", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
-    const userId = req.query.userId as string | undefined;
-    if (!userId) return res.status(400).json({ error: "userId query param is required" });
+    const userId = req.userId!;
 
     const theme = req.body as WidgetTheme;
     if (!theme?.primary) return res.status(400).json({ error: "theme.primary is required" });
@@ -558,11 +552,10 @@ router.put("/:siteId/theme", async (req: Request, res: Response) => {
 });
 
 /* ── Get widget theme (dashboard) ──────────────────────────────────────── */
-router.get("/:siteId/theme", async (req: Request, res: Response) => {
+router.get("/:siteId/theme", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
-    const userId = req.query.userId as string | undefined;
-    if (!userId) return res.status(400).json({ error: "userId query param is required" });
+    const userId = req.userId!;
 
     const theme = (await getSiteTheme(siteId, userId)) ?? DEFAULT_THEME;
     res.json(theme);
@@ -597,16 +590,9 @@ router.get("/:siteId/widget-config", async (req: Request, res: Response) => {
 });
 
 /* ── Chat limits — read ────────────────────────────────────────────────── */
-router.get("/:siteId/limits", async (req: Request, res: Response) => {
+router.get("/:siteId/limits", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
-    const userId = req.query.userId as string | undefined;
-    if (!userId) return res.status(400).json({ error: "userId query param is required" });
-
-    const sites = await getSitesByUser(userId);
-    if (!sites.some((x) => x.site_id === siteId)) {
-      return res.status(404).json({ error: "site not found" });
-    }
 
     const limits = await getChatLimits(siteId);
     res.json({ siteId, ...limits, defaultMessage: DEFAULT_LIMIT_MESSAGE });
@@ -620,11 +606,10 @@ router.get("/:siteId/limits", async (req: Request, res: Response) => {
 const MAX_LIMIT_MESSAGE_CHARS = 500;
 const MAX_DAILY_LIMIT = 1000;
 
-router.patch("/:siteId/limits", async (req: Request, res: Response) => {
+router.patch("/:siteId/limits", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
-    const userId = req.query.userId as string | undefined;
-    if (!userId) return res.status(400).json({ error: "userId query param is required" });
+    const userId = req.userId!;
 
     const { dailyLimit, limitMessage } = req.body as {
       dailyLimit?: unknown;
@@ -690,7 +675,7 @@ router.get("/:siteId/faqs", async (req: Request, res: Response) => {
 });
 
 /* ── Force-refresh FAQs (incorporates popular user queries) ────────────── */
-router.post("/:siteId/faqs/refresh", async (req: Request, res: Response) => {
+router.post("/:siteId/faqs/refresh", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
     const faqs = await refreshFaqs(siteId);
@@ -714,11 +699,10 @@ router.get("/:siteId/social", async (req: Request, res: Response) => {
 });
 
 /* ── Save / update social handles ─────────────────────────────────────── */
-router.patch("/:siteId/social", async (req: Request, res: Response) => {
+router.patch("/:siteId/social", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
-    const userId = req.query.userId as string | undefined;
-    if (!userId) return res.status(400).json({ error: "userId query param is required" });
+    const userId = req.userId!;
 
     const handles = req.body as SocialHandles;
     const saved = await upsertSocialHandles(siteId, userId, handles);
@@ -731,7 +715,7 @@ router.patch("/:siteId/social", async (req: Request, res: Response) => {
 });
 
 /* ── Save user-edited FAQ answer (dashboard) ───────────────────────────── */
-router.patch("/:siteId/faqs/:faqId", async (req: Request, res: Response) => {
+router.patch("/:siteId/faqs/:faqId", restrictToDashboardOrigin, requireSiteOwner, async (req: Request, res: Response) => {
   try {
     const { siteId, faqId } = req.params;
     const { answer } = req.body as { answer?: string };
