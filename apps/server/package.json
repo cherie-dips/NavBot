@@ -23,7 +23,7 @@
     "@repo/eslint-config": "workspace:*",
     "@types/cors": "^2.8.0",
     "@types/express": "^5.0.0",
-    "@types/node": "^22.10.0",
+    "@types/node": "^26.4.0",
     "@types/pg": "^8.11.10",
     "eslint": "^8.57.0",
     "tsx": "^4.19.0",
