@@ -26,8 +26,6 @@ export interface Message {
   socialLinks?: SocialLink[];
   /** Suggested next questions, shown as chips under the answer. */
   followUps?: string[];
-  /** True while tokens are still arriving for this message. */
-  streaming?: boolean;
 }
 
 /**

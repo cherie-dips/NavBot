@@ -16,7 +16,12 @@ import {
   loadUiState,
   saveUiState,
 } from "./storage";
-import { CADENCE, SOFT_BLOCK_CHARS, nextBlockEnd, prefersReducedMotion } from "./stream-cadence";
+
+/**
+ * How long to hold the space reserved under the newest exchange after an answer lands,
+ * so the page does not jump while it settles.
+ */
+const SETTLE_MS = 600;
 
 const WELCOME_MESSAGE: Message = {
   id: 1,
@@ -86,12 +91,7 @@ export const ChatWidget: React.FC = () => {
   /** Wrapper around the newest exchange — this is what gets pinned near the top. */
   const anchorRef = useRef<HTMLDivElement>(null);
 
-  // --- streaming display queue ---
-  const pendingRef = useRef("");            // arrived, not yet shown
-  const shownRef = useRef("");              // painted so far
-  const streamDoneRef = useRef(true);       // has the SSE stream closed
-  const tickerRef = useRef<number | null>(null);
-  const firstDeltaAtRef = useRef(0);
+  /** Non-null while an answer is in flight — suppresses autoscroll so the view stays put. */
   const streamingIdRef = useRef<number | null>(null);
 
   /**
@@ -162,8 +162,8 @@ export const ChatWidget: React.FC = () => {
    * impossible because the next token yanked the view straight back down.
    *
    * Now the newest answer is pinned near the top of the viewport when the question is
-   * sent, and the text grows downward into reserved space. Nothing scrolls while the
-   * answer streams unless it outgrows that space AND the visitor never scrolled away.
+   * sent, and the answer appears below it in reserved space. Nothing scrolls while the
+   * answer is pending unless it outgrows that space AND the visitor never scrolled away.
    */
   useEffect(() => {
     if (streamingIdRef.current !== null) return; // anchored; leave the viewport alone
@@ -316,95 +316,21 @@ export const ChatWidget: React.FC = () => {
   };
 
   /**
-   * Streams the answer over SSE so text appears while it is still being written.
-   * Falls back to the non-streaming endpoint if streaming is unavailable, so an
-   * older server or a proxy that buffers events still produces an answer.
-   */
-  /**
-   * Releases one block per tick into the visible message.
+   * Sends a question and renders the answer.
    *
-   * The interval adapts: it holds a readable rhythm while text is still arriving, and
-   * shortens when the buffer has run ahead — so a cached or very fast answer is revealed
-   * briskly rather than being artificially throttled, while still arriving as lines.
+   * The SSE connection is still used, but only for its `status` events — the visitor sees
+   * which stage the pipeline is on while it works. The answer text itself is painted once,
+   * complete, when the `done` event arrives.
+   *
+   * It used to be released block-by-block on a paced ticker as deltas arrived. That was
+   * removed: `done` carries the authoritative answer (glossary applied, citation markers
+   * resolved) and painted it immediately, while the ticker went on overwriting it with the
+   * shorter prefix it had reached — so a finished answer visibly snapped back to half its
+   * length and then re-revealed slowly. Rendering only the final text cannot do that.
+   *
+   * Falls back to the non-streaming endpoint if streaming is unavailable or the stream is
+   * cut off before completing, so the visitor always receives a whole answer.
    */
-  const startTicker = (botId: number) => {
-    if (tickerRef.current !== null) return;
-
-    const tick = () => {
-      const done = streamDoneRef.current;
-      const end = nextBlockEnd(pendingRef.current, done);
-
-      // Nothing releasable yet. Show something anyway if the first block is overdue,
-      // so waiting for a boundary can never delay first paint by more than firstBlockMs.
-      if (end === -1) {
-        const overdue =
-          shownRef.current.length === 0 &&
-          firstDeltaAtRef.current > 0 &&
-          Date.now() - firstDeltaAtRef.current > CADENCE.firstBlockMs &&
-          pendingRef.current.length > 0;
-        if (!overdue) {
-          if (done && pendingRef.current.length === 0) return stopTicker();
-          tickerRef.current = window.setTimeout(tick, CADENCE.base);
-          return;
-        }
-      }
-
-      const cut = end === -1 ? pendingRef.current.length : end;
-      shownRef.current += pendingRef.current.slice(0, cut);
-      pendingRef.current = pendingRef.current.slice(cut);
-
-      const text = shownRef.current;
-      setMessages((prev) =>
-        prev.some((m) => m.id === botId)
-          ? prev.map((m) => (m.id === botId ? { ...m, text } : m))
-          : [...prev, { id: botId, text, sender: "bot" as const, timestamp: new Date().toISOString(), streaming: true }]
-      );
-
-      if (done && pendingRef.current.length === 0) return stopTicker();
-
-      // A release that shows nothing (a stray newline at a chunk boundary) should not
-      // cost a visible beat — go straight on to the next block.
-      if (!text.slice(shownRef.current.length - cut).trim()) {
-        tickerRef.current = window.setTimeout(tick, 0);
-        return;
-      }
-
-      // Blocks still queued after the stream closed are drained inside drainMs.
-      const remaining = Math.max(1, Math.ceil(pendingRef.current.length / SOFT_BLOCK_CHARS));
-      const interval = done
-        ? Math.max(CADENCE.fast, Math.floor(CADENCE.drainMs / remaining))
-        : pendingRef.current.length > SOFT_BLOCK_CHARS * 3
-          ? CADENCE.fast
-          : CADENCE.base;
-
-      tickerRef.current = window.setTimeout(tick, interval);
-    };
-
-    tickerRef.current = window.setTimeout(tick, CADENCE.base);
-  };
-
-  const stopTicker = () => {
-    if (tickerRef.current !== null) {
-      clearTimeout(tickerRef.current);
-      tickerRef.current = null;
-    }
-  };
-
-  /** Flush everything at once — used on completion, abort, and reduced-motion. */
-  const flushQueue = (botId: number) => {
-    stopTicker();
-    if (!pendingRef.current) return;
-    shownRef.current += pendingRef.current;
-    pendingRef.current = "";
-    const text = shownRef.current;
-    setMessages((prev) =>
-      prev.some((m) => m.id === botId)
-        ? prev.map((m) => (m.id === botId ? { ...m, text } : m))
-        : [...prev, { id: botId, text, sender: "bot" as const, timestamp: new Date().toISOString(), streaming: true }]
-    );
-  };
-
-  useEffect(() => () => stopTicker(), []);
 
   /** Reads the token from the response so a server-minted one is picked up straight away. */
   const captureSessionToken = (headers: Headers) => {
@@ -447,15 +373,9 @@ export const ChatWidget: React.FC = () => {
 
     const botId = Date.now() + 1;
 
-    // Fresh queue for this answer, and pin the question near the top so the reply has
-    // somewhere to grow. Measured after paint, once the new message is in the DOM.
-    const reducedMotion = prefersReducedMotion();
-    pendingRef.current = "";
-    shownRef.current = "";
-    streamDoneRef.current = false;
-    firstDeltaAtRef.current = 0;
+    // Pin the question near the top so the reply has somewhere to appear. Measured after
+    // paint, once the new message is in the DOM.
     streamingIdRef.current = botId;
-    stopTicker();
     // Two frames: the first lets React commit the new user message, the second measures
     // it. Measuring in the same frame reads a layout that does not exist yet.
     requestAnimationFrame(() => requestAnimationFrame(anchorNewestExchange));
@@ -499,6 +419,8 @@ export const ChatWidget: React.FC = () => {
       let buffer = "";
       let acc = "";
       let started = false;
+      // Set only when a complete answer has actually been rendered.
+      let answered = false;
 
       const handleEvent = (name: string, dataRaw: string) => {
         let data: Record<string, unknown>;
@@ -516,47 +438,22 @@ export const ChatWidget: React.FC = () => {
               : "Writing"
           );
         } else if (name === "delta") {
-          const chunk = String(data.text ?? "");
-          acc += chunk;
+          // Accumulated as a fallback for a `done` event with no answer, but never
+          // painted — the indicator stays up until the complete answer is ready.
+          acc += String(data.text ?? "");
           if (!started) {
             started = true;
-            firstDeltaAtRef.current = Date.now();
-            setIsTyping(false);
-            setStatusStage(null);
-          }
-          if (reducedMotion) {
-            // No pacing for visitors who asked for less movement — paint on arrival.
-            shownRef.current = acc;
-            setMessages((prev) =>
-              prev.some((m) => m.id === botId)
-                ? prev.map((m) => (m.id === botId ? { ...m, text: acc } : m))
-                : [...prev, { id: botId, text: acc, sender: "bot" as const, timestamp: new Date().toISOString(), streaming: true }]
-            );
-          } else {
-            pendingRef.current += chunk;
-            startTicker(botId);
+            setStatusStage("Writing");
           }
         } else if (name === "done") {
           const usage = (data as { usage?: { remaining?: number } }).usage;
           if (typeof usage?.remaining === "number") setQuestionsLeft(usage.remaining);
+          // `done` carries the authoritative answer — glossary applied, citation markers
+          // resolved, metadata blocks stripped. It is the only text ever displayed.
           const finalText = String(data.answer ?? acc);
-
-          // `done` carries the authoritative answer, which differs slightly from the
-          // streamed text (glossary applied, markers stripped). Replacing the whole
-          // string flashes; when the visible prefix already matches, queue only the
-          // remainder so the tail simply continues arriving.
-          streamDoneRef.current = true;
-          if (!reducedMotion) {
-            const alreadyQueued = shownRef.current + pendingRef.current;
-            if (finalText.startsWith(alreadyQueued)) {
-              pendingRef.current += finalText.slice(alreadyQueued.length);
-              startTicker(botId);
-            } else {
-              // Diverged — fall back to showing the authoritative text outright.
-              flushQueue(botId);
-              shownRef.current = finalText;
-            }
-          }
+          answered = true;
+          setIsTyping(false);
+          setStatusStage(null);
           setMessages((prev) => {
             const exists = prev.some((m) => m.id === botId);
             const finished: Message = {
@@ -567,14 +464,15 @@ export const ChatWidget: React.FC = () => {
               pageLinks: data.pageLinks as Message["pageLinks"],
               socialLinks: data.socialLinks as SocialLink[] | undefined,
               followUps: data.followUps as string[] | undefined,
-              streaming: false,
             };
             const next = exists ? prev.map((m) => (m.id === botId ? finished : m)) : [...prev, finished];
             saveHistory(siteId, next);
             return next;
           });
         } else if (name === "error") {
-          if (!started) throw new Error(String(data.message ?? "stream error"));
+          // Nothing has been painted yet, so a mid-stream failure can still fall back to
+          // the non-streaming endpoint and return a whole answer instead of a fragment.
+          if (!answered) throw new Error(String(data.message ?? "stream error"));
         }
       };
 
@@ -598,7 +496,10 @@ export const ChatWidget: React.FC = () => {
         }
       }
 
-      if (!started) throw new Error("stream produced no text");
+      // A stream that delivered text but never closed with `done` has been cut off. Rather
+      // than render the fragment — the exact failure this display path exists to avoid —
+      // fall through to the non-streaming endpoint for a complete answer.
+      if (!answered) throw new Error(started ? "stream ended before the answer completed" : "stream produced no text");
     } catch (err) {
       if (controller.signal.aborted) return;
       console.warn("Streaming failed, falling back:", err);
@@ -609,10 +510,6 @@ export const ChatWidget: React.FC = () => {
           body: payload,
         });
         captureSessionToken(res.headers);
-        // The fallback returns one complete answer, so the queue has no part to play.
-        stopTicker();
-        pendingRef.current = "";
-        streamDoneRef.current = true;
         if (!res.ok) throw new Error(`status ${res.status}`);
         const data = await res.json();
         if (data?.limitReached) {
@@ -644,15 +541,11 @@ export const ChatWidget: React.FC = () => {
       setIsTyping(false);
       setStatusStage(null);
 
-      // Whatever happened — finished, aborted, fell back — nothing more will arrive, so
-      // release the queue and hand scrolling back to the visitor.
-      streamDoneRef.current = true;
+      // Whatever happened — finished, aborted, fell back — hand scrolling back to the visitor.
       streamingIdRef.current = null;
-      if (pendingRef.current) flushQueue(botId);
-      else stopTicker();
-      // Collapse the reserved space only once the answer is settled, so the page does
-      // not jump while the last lines are still being painted.
-      window.setTimeout(() => setReservedSpace(0), CADENCE.drainMs);
+      // Collapse the reserved space a beat after the answer lands, so the page does not
+      // jump while the newest exchange is still settling.
+      window.setTimeout(() => setReservedSpace(0), SETTLE_MS);
     }
   };
 
@@ -850,7 +743,7 @@ export const ChatWidget: React.FC = () => {
                 {message.sender === "bot" && message.pageLinks && renderPageLinks(message.pageLinks)}
               </div>
               {/* Suggested next questions — the model emits these with the answer, so they cost no extra latency. */}
-              {message.sender === "bot" && !message.streaming && message.followUps && message.followUps.length > 0 && (
+              {message.sender === "bot" && message.followUps && message.followUps.length > 0 && (
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px", maxWidth: "100%" }}>
                   {message.followUps.map((q, i) => (
                     <button
