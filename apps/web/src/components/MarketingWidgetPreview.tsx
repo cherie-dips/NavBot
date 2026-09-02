@@ -27,15 +27,11 @@ function isLight(hex: string): boolean {
 
 interface MarketingWidgetPreviewProps {
   theme?: WidgetTheme;
-  title?: string;
-  subtitle?: string;
   className?: string;
 }
 
 export const MarketingWidgetPreview = ({
   theme = MARKETING_WIDGET_THEME,
-  title = "Ask NavBot anything",
-  subtitle = "Widget preview",
   className = "",
 }: MarketingWidgetPreviewProps) => {
   const textOnLauncher = !isLight(theme.launcherBg) ? "#fff" : "#1e293b";
@@ -45,17 +41,6 @@ export const MarketingWidgetPreview = ({
       className={`relative overflow-hidden rounded-[2rem] border border-white/90 bg-[linear-gradient(160deg,#fbfaf7_0%,#eff3f6_52%,#e6edf5_100%)] p-5 shadow-[0_24px_60px_rgba(31,37,34,0.10)] ${className}`}
     >
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(243,225,207,0.8),_transparent_28%),radial-gradient(circle_at_bottom_right,_rgba(211,224,239,0.9),_transparent_34%)]" />
-
-      <div className="relative mb-5 flex items-center justify-between">
-        <div>
-          {/* <p className="text-[11px] uppercase tracking-[0.24em] text-[#90755a]">
-            {subtitle}
-          </p>
-          <h3 className="mt-2 text-xl font-medium tracking-[-0.03em] text-[#1f2522]">
-            {title}
-          </h3> */}
-        </div>
-      </div>
 
       <div className="relative h-[420px] overflow-hidden rounded-[1.6rem] border border-white/90 bg-[linear-gradient(180deg,#fdfcf9_0%,#f3eee7_40%,#eef3f7_100%)]">
         <div className="absolute inset-x-0 top-0 border-b border-[#1f2522]/10 bg-white/60 px-4 py-3 backdrop-blur">

@@ -1,7 +1,6 @@
 import { ArrowRight, Mic, RefreshCw, Sparkles } from "lucide-react";
 import { CodeSnippet } from "../components/Codesnippet";
 import { MarketingWidgetPreview } from "../components/MarketingWidgetPreview";
-import React from "react";
 
 export interface HomePageProps {
   onViewChange: (view: string) => void;
@@ -86,11 +85,7 @@ const steps = [
   },
 ];
 
-export const HomePage = ({ onViewChange }: HomePageProps) => {
-    function onGetStarted(event: React.MouseEvent<HTMLButtonElement>): void {
-        throw new Error("Function not implemented.");
-    }
-
+export const HomePage = ({ onViewChange, onGetStarted }: HomePageProps) => {
   return (
     <div className="animate-fade-in-up bg-[#f8f4ee] text-[#1f2522]">
       <section className="relative overflow-hidden pt-36 pb-24">
@@ -133,10 +128,7 @@ export const HomePage = ({ onViewChange }: HomePageProps) => {
             </div> */}
 
             <div className="mx-auto mt-16 grid max-w-6xl gap-5 lg:grid-cols-[1.08fr_0.92fr]">
-              <MarketingWidgetPreview
-                subtitle="Website widget"
-                title="The chatbot on your website"
-              />
+              <MarketingWidgetPreview />
               <CodeSnippet />
             </div>
           </div>

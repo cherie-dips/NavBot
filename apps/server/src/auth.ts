@@ -39,7 +39,7 @@ if (!authBaseUrlRaw) {
 }
 const authBaseUrl = normalizeAuthBaseUrl(authBaseUrlRaw);
 
-export const authPool = new Pool({
+const authPool = new Pool({
   connectionString,
   max: isProd ? 2 : 10,
   idleTimeoutMillis: isProd ? 20_000 : 30_000,

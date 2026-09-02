@@ -12,9 +12,9 @@
  * Latency is hidden: the caller fires this concurrently with a baseline retrieval
  * of the raw question, so the plan arrives while first-pass chunks are already in.
  */
-import { generateContentText, GEMINI_MODELS } from "./gemini-client";
-import { getSiteProfile } from "./site-profile";
-import type { ChatHistoryItem } from "./chat-types";
+import { generateContentText, GEMINI_MODELS } from "../platform/gemini-client";
+import { getSiteProfile } from "../platform/site-profile";
+import type { ChatHistoryItem } from "../answer/chat-types";
 
 type QueryIntent = "greeting" | "out_of_scope" | "simple" | "compositional";
 

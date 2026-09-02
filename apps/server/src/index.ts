@@ -7,7 +7,6 @@ import { toNodeHandler, fromNodeHeaders } from "better-auth/node";
 import { getMigrations } from "better-auth/db/migration";
 import { auth, authOptions } from "./auth.js";
 import { getTrustedOrigins } from "./cors-origins.js";
-import { sitesRouter } from "./sites.js";
 import { issueApiToken } from "./api-token.js";
 import { Sentry, sentryEnabled } from "./sentry.js";
 
@@ -86,8 +85,6 @@ async function main(): Promise<void> {
     }
     res.json(issueApiToken(session.user.id));
   });
-
-  app.use(sitesRouter);
 
   const redirectOAuthErrorToWeb = (
     req: express.Request,

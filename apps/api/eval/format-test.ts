@@ -1,7 +1,7 @@
 /**
  * Fast, offline checks for answer formatting. No API calls, so this can gate a build.
  */
-import { formatAnswer } from "../src/services/answer-format";
+import { formatAnswer } from "../src/services/answer/answer-format";
 
 const posts = [
   { url: "https://instagram.com/reel/A", platform: "instagram", title: "a" },

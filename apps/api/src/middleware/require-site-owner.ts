@@ -8,8 +8,8 @@
  * whatsoever.
  */
 import type { Request, Response, NextFunction } from "express";
-import { verifyApiToken } from "../services/api-token";
-import { isSiteOwner } from "../services/db";
+import { verifyApiToken } from "../services/platform/api-token";
+import { isSiteOwner } from "../services/platform/db";
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace

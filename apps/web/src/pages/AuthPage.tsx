@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { ArrowRight, Eye, EyeOff, Mail } from "lucide-react";
 import { authClient } from "../lib/auth-client";
+import { errorMessage } from "../lib/errors";
 
 interface AuthPageProps {
     onViewChange: (view: string) => void;
@@ -46,8 +47,8 @@ export const AuthPage = ({ onViewChange, onAuthSuccess }: AuthPageProps) => {
                 if (err) throw new Error(err.message || "Sign in failed. Check your credentials.");
             }
             onAuthSuccess();
-        } catch (err: any) {
-            setError(err.message || "Something went wrong. Please try again.");
+        } catch (err) {
+            setError(errorMessage(err, "Something went wrong. Please try again."));
         } finally {
             setIsLoading(false);
         }
@@ -61,8 +62,8 @@ export const AuthPage = ({ onViewChange, onAuthSuccess }: AuthPageProps) => {
                 provider,
                 callbackURL: `${window.location.origin}?auth=success`,
             });
-        } catch (e: any) {
-            const msg = e?.message || "";
+        } catch (e) {
+            const msg = errorMessage(e, "");
             const isNetwork = /fetch|network|failed|refused|ERR_/i.test(msg);
             setError(
                 isNetwork

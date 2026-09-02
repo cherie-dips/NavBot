@@ -12,8 +12,8 @@
 import "dotenv/config";
 import fs from "fs";
 import path from "path";
-import { answerQuestionWithRag } from "../src/services/rag";
-import { generateContentText, GEMINI_MODELS } from "../src/services/gemini-client";
+import { answerQuestionWithRag } from "../src/services/answer/rag";
+import { generateContentText, GEMINI_MODELS } from "../src/services/platform/gemini-client";
 
 interface DatasetExample {
   id: string;

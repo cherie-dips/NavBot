@@ -22,8 +22,10 @@
  * `auto` prefers grounding and falls back to Serper, because grounding quota is
  * metered per month and returns 429 the moment it runs out.
  */
-import { getGoogleGenAI, GEMINI_MODELS } from "./gemini-client";
-import { getSiteProfile } from "./site-profile";
+import { getGoogleGenAI, GEMINI_MODELS } from "../platform/gemini-client";
+import { getSiteProfile } from "../platform/site-profile";
+import { TtlCache } from "../ttl-cache";
+import { serperSearch as googleSearch } from "./serper";
 
 interface WebSource {
   url: string;
@@ -58,10 +60,6 @@ function providerMode(): ProviderMode {
   return "auto";
 }
 
-function getSerperApiKey(): string {
-  return process.env.SERPER_API_KEY?.trim() ?? "";
-}
-
 /** Searches issued per question. Each one is a billable Serper credit. */
 const MAX_QUERIES = 3;
 /** Results requested per query before dedupe. */
@@ -74,29 +72,10 @@ const GROUNDING_MAX_TOKENS = 1_200;
 // ---------------------------------------------------------------------------
 // Cache — the same question from many visitors should cost one search
 // ---------------------------------------------------------------------------
-const CACHE_TTL_MS = 60 * 60 * 1000;
-const cache = new Map<string, { research: WebResearch; ts: number }>();
+const cache = new TtlCache<WebResearch>(60 * 60 * 1000, 300);
 
 function cacheKey(siteId: string, question: string): string {
   return `${siteId}:${question.toLowerCase().replace(/\s+/g, " ").trim()}`;
-}
-
-function getCached(key: string): WebResearch | null {
-  const hit = cache.get(key);
-  if (!hit) return null;
-  if (Date.now() - hit.ts > CACHE_TTL_MS) {
-    cache.delete(key);
-    return null;
-  }
-  return hit.research;
-}
-
-function setCached(key: string, research: WebResearch): void {
-  cache.set(key, { research, ts: Date.now() });
-  if (cache.size > 300) {
-    const now = Date.now();
-    for (const [k, v] of cache) if (now - v.ts > CACHE_TTL_MS) cache.delete(k);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -144,42 +123,22 @@ function isOnDomain(url: string, domain: string): boolean {
 // ---------------------------------------------------------------------------
 // Serper provider
 // ---------------------------------------------------------------------------
-async function serperSearch(query: string): Promise<WebSource[]> {
-  const key = getSerperApiKey();
-  if (!key) return [];
-
-  try {
-    const res = await fetch("https://google.serper.dev/search", {
-      method: "POST",
-      headers: { "X-API-KEY": key, "Content-Type": "application/json" },
-      body: JSON.stringify({ q: query, num: RESULTS_PER_QUERY }),
-      signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      console.warn(`[web-research] Serper ${res.status} for "${query.slice(0, 60)}"`);
-      return [];
-    }
-    const data = (await res.json()) as {
-      organic?: Array<{ title?: string; link?: string; snippet?: string }>;
-    };
-    return (data.organic ?? [])
-      .filter((r) => r.link)
-      .map((r) => ({ url: r.link!, title: r.title ?? "", snippet: r.snippet ?? "" }));
-  } catch (err) {
-    console.warn(
-      `[web-research] Serper failed for "${query.slice(0, 60)}":`,
-      err instanceof Error ? err.message.slice(0, 120) : err
-    );
-    return [];
-  }
-}
-
 async function researchViaSerper(
   domain: string,
   queries: string[]
 ): Promise<{ sources: WebSource[]; queries: string[] }> {
   const scoped = queries.map((q) => `site:${domain} ${q}`);
-  const batches = await Promise.all(scoped.map(serperSearch));
+  const batches = await Promise.all(
+    scoped.map((q) =>
+      googleSearch(q, {
+        num: RESULTS_PER_QUERY,
+        timeoutMs: SEARCH_TIMEOUT_MS,
+        label: "web-research",
+      }).then((rows) =>
+        rows.map((r) => ({ url: r.link, title: r.title, snippet: r.snippet }))
+      )
+    )
+  );
 
   const seen = new Set<string>();
   const sources: WebSource[] = [];
@@ -314,7 +273,7 @@ export async function researchWeb(params: {
   if (mode === "off") return EMPTY;
 
   const key = cacheKey(siteId, question);
-  const cached = getCached(key);
+  const cached = cache.get(key);
   if (cached) return cached;
 
   const domain = siteDomain(siteId);
@@ -334,7 +293,7 @@ export async function researchWeb(params: {
       console.log(
         `[web-research] site=${siteId} provider=grounding sources=${research.sources.length} ${research.ms}ms`
       );
-      setCached(key, research);
+      cache.set(key, research);
       return research;
     }
     if (mode === "grounding") return EMPTY;
@@ -367,7 +326,7 @@ export async function researchWeb(params: {
     `[web-research] site=${siteId} provider=${research.provider} q=${issued.length} sources=${sources.length} ${research.ms}ms`
   );
 
-  if (sources.length) setCached(key, research);
+  if (sources.length) cache.set(key, research);
   return research;
 }
 

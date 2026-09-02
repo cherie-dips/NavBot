@@ -5,7 +5,7 @@ import {
   answerQuestionStreaming,
   transcribeAndAnswer,
   synthesizeSpeech,
-} from "../services/rag";
+} from "../services/answer/rag";
 import {
   logChatTurn,
   consumeSessionQuery,
@@ -13,8 +13,8 @@ import {
   getChatLimits,
   purgeOldSessions,
   purgeOldChatQueries,
-} from "../services/db";
-import { resolveSessionToken, sessionTokenFromRequest } from "../services/session";
+} from "../services/platform/db";
+import { resolveSessionToken, sessionTokenFromRequest } from "../services/platform/session";
 
 export const router: Router = Router();
 
@@ -273,10 +273,7 @@ router.post("/stream", async (req: Request, res: Response) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// Voice chat — accepts multipart/form-data with `audio` file + `siteId`
-// Also accepts optional `history` as a JSON string field
-// ---------------------------------------------------------------------------
+/** Audio upload handling for the voice route below. */
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB max

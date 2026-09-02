@@ -12,7 +12,6 @@ import type { Browser } from "playwright";
  * - `NAVBOT_BROWSER_CRAWL` — `auto` (default) | `always` | `off`
  * - `NAVBOT_BROWSER_TIMEOUT_MS` — navigation timeout (default 60000)
  * - `NAVBOT_BROWSER_SETTLE_MS` — extra wait after load for hydration (default 2000)
- * - `JINA_API_KEY` — optional; enables Jina Reader as fallback when Playwright is unavailable
  */
 
 // ---------------------------------------------------------------------------
@@ -73,37 +72,6 @@ export function detectFramework(html: string, headers?: Record<string, string>):
   }
 
   return { framework: "unknown", isSPA: false, confidence: "low" };
-}
-
-// ---------------------------------------------------------------------------
-// Jina Reader Fallback
-// ---------------------------------------------------------------------------
-async function fetchViaJinaReader(url: string): Promise<string | null> {
-  const apiKey = process.env.JINA_API_KEY?.trim();
-  const jinaUrl = `https://r.jina.ai/${url}`;
-
-  const headers: Record<string, string> = {
-    Accept: "text/html",
-    "X-Return-Format": "html",
-  };
-  if (apiKey) {
-    headers["Authorization"] = `Bearer ${apiKey}`;
-  }
-
-  try {
-    const res = await fetch(jinaUrl, { headers, redirect: "follow" });
-    if (!res.ok) {
-      console.warn(`[jina-reader] Failed for ${url} — HTTP ${res.status}`);
-      return null;
-    }
-    const text = await res.text();
-    if (text.length < 100) return null;
-    console.log(`[jina-reader] Rendered ${url} (${text.length} chars)`);
-    return text;
-  } catch (err) {
-    console.warn("[jina-reader] Error:", err instanceof Error ? err.message : err);
-    return null;
-  }
 }
 
 let browserInstance: Browser | null = null;
@@ -170,7 +138,7 @@ let renderQueue: Promise<void> = Promise.resolve();
 
 /**
  * Load URL in headless Chromium and return serialized DOM HTML (post-JS).
- * Falls back to Jina Reader when Playwright is unavailable.
+ * Returns null when Playwright is unavailable, so the caller keeps its static fetch.
  * Access is serialized: only one page renders at a time to avoid OOM.
  */
 export function fetchRenderedHtml(url: string): Promise<string | null> {
@@ -181,9 +149,9 @@ export function fetchRenderedHtml(url: string): Promise<string | null> {
 
 async function renderOnePage(url: string): Promise<string | null> {
   const browser = await getSharedBrowser();
-  if (!browser) {
-    return fetchViaJinaReader(url);
-  }
+  // No browser means no rendering: the caller falls back to the static fetch it
+  // already has, which is better than returning a half-rendered shell.
+  if (!browser) return null;
 
   const timeout = browserTimeoutMs();
   const settle = browserSettleMs();
@@ -197,7 +165,7 @@ async function renderOnePage(url: string): Promise<string | null> {
       console.warn("[browser-render] Browser crashed, resetting instance");
       browserInstance = null;
     }
-    return fetchViaJinaReader(url);
+    return null;
   }
 
   try {
@@ -216,7 +184,7 @@ async function renderOnePage(url: string): Promise<string | null> {
     if (/closed|crashed|disposed/i.test(msg)) {
       browserInstance = null;
     }
-    return fetchViaJinaReader(url);
+    return null;
   } finally {
     await page.close().catch(() => {});
   }

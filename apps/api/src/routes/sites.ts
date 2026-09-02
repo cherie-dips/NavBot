@@ -1,12 +1,13 @@
 import { Router, type Request, type Response } from "express";
-import { crawlSite, crawlPages, shutdownBrowser, discoverUrls, normalizeUrl } from "../services/crawler";
+import { crawlSite, crawlPages, shutdownBrowser, discoverUrls, normalizeUrl } from "../services/crawl/crawler";
 import {
   upsertSitePages,
   deletePagesFromSite,
   deleteSiteCollection,
   pineconeSiteNamespaceRecordCount,
-} from "../services/vectorstore";
-import { getSitemapEntries } from "../services/sitemap";
+} from "../services/retrieval/vectorstore";
+import { getSitemapEntries } from "../services/crawl/sitemap";
+import { TtlCache } from "../services/ttl-cache";
 import { trySitemapSync } from "../services/auto-sync";
 import {
   upsertSite,
@@ -19,6 +20,8 @@ import {
   DEFAULT_THEME,
   type WidgetTheme,
   getPageHashes,
+  getIndexedPages,
+  deletePageHashesForUrls,
   upsertPageHashes,
   upsertPageLastmods,
   deletePageHashes,
@@ -32,8 +35,8 @@ import {
   getChatLimits,
   updateChatLimits,
   DEFAULT_LIMIT_MESSAGE,
-} from "../services/db";
-import { getOrGenerateFaqs, refreshFaqs, saveFaqUserAnswer } from "../services/faq";
+} from "../services/platform/db";
+import { getOrGenerateFaqs, refreshFaqs, saveFaqUserAnswer } from "../services/answer/faq";
 import { requireAuth, requireSiteOwner, restrictToDashboardOrigin } from "../middleware/require-site-owner";
 
 export const router: Router = Router();
@@ -161,8 +164,7 @@ router.get("/", restrictToDashboardOrigin, requireAuth, async (req: Request, res
 });
 
 /* ── Dashboard analytics (conversations, volume, top queries) ──────────── */
-const statsCache = new Map<string, { data: unknown; ts: number }>();
-const STATS_CACHE_TTL = 60_000;
+const statsCache = new TtlCache<unknown>(60_000);
 
 router.get("/dashboard-stats", restrictToDashboardOrigin, requireAuth, async (req: Request, res: Response) => {
   try {
@@ -171,14 +173,12 @@ router.get("/dashboard-stats", restrictToDashboardOrigin, requireAuth, async (re
     const filterSiteId = siteIdRaw?.trim() ? siteIdRaw.trim() : null;
     const cacheKey = `${userId}:${filterSiteId ?? "all"}`;
     const cached = statsCache.get(cacheKey);
-    if (cached && Date.now() - cached.ts < STATS_CACHE_TTL) {
-      return res.json(cached.data);
-    }
+    if (cached) return res.json(cached);
     const data = await getDashboardAnalytics(userId, filterSiteId);
     if (!data) {
       return res.status(403).json({ error: "site not found or access denied" });
     }
-    statsCache.set(cacheKey, { data, ts: Date.now() });
+    statsCache.set(cacheKey, data);
     res.json(data);
   } catch (err) {
     console.error("[dashboard-stats]", err);
@@ -402,7 +402,6 @@ router.patch("/:siteId/pages", restrictToDashboardOrigin, requireSiteOwner, asyn
 router.get("/:siteId/pages", async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
-    const { getIndexedPages } = await import("../services/db");
     const pages = await getIndexedPages(siteId);
     res.json({ siteId, pages, total: pages.length });
   } catch (err) {
@@ -422,7 +421,6 @@ router.delete("/:siteId/pages", restrictToDashboardOrigin, requireSiteOwner, asy
     }
 
     await deletePagesFromSite(siteId, urls);
-    const { deletePageHashesForUrls } = await import("../services/db");
     await deletePageHashesForUrls(siteId, urls);
     await invalidateRagCache(siteId);
 
@@ -566,22 +564,19 @@ router.get("/:siteId/theme", restrictToDashboardOrigin, requireSiteOwner, async 
 });
 
 /* ── Get widget config (public — called by widget itself) ──────────────── */
-const widgetConfigCache = new Map<string, { data: unknown; ts: number }>();
-const WIDGET_CACHE_TTL = 120_000;
+const widgetConfigCache = new TtlCache<unknown>(120_000);
 
 router.get("/:siteId/widget-config", async (req: Request, res: Response) => {
   try {
     const { siteId } = req.params;
     const cached = widgetConfigCache.get(siteId);
-    if (cached && Date.now() - cached.ts < WIDGET_CACHE_TTL) {
-      return res.json(cached.data);
-    }
+    if (cached) return res.json(cached);
     const [theme, limits] = await Promise.all([
       getSiteThemePublic(siteId).then((t) => t ?? DEFAULT_THEME),
       getChatLimits(siteId),
     ]);
     const data = { siteId, theme, dailyLimit: limits.dailyLimit };
-    widgetConfigCache.set(siteId, { data, ts: Date.now() });
+    widgetConfigCache.set(siteId, data);
     res.json(data);
   } catch (err) {
     console.error("[widget-config] error:", err);
@@ -651,8 +646,7 @@ router.patch("/:siteId/limits", restrictToDashboardOrigin, requireSiteOwner, asy
 });
 
 /* ── Get FAQs for a site (public — called by the widget) ───────────────── */
-const faqCache = new Map<string, { data: unknown; ts: number }>();
-const FAQ_CACHE_TTL = 120_000;
+const faqCache = new TtlCache<unknown>(120_000);
 
 router.get("/:siteId/faqs", async (req: Request, res: Response) => {
   try {
@@ -661,12 +655,10 @@ router.get("/:siteId/faqs", async (req: Request, res: Response) => {
       req.query.includeAnswers === "1" || req.query.includeAnswers === "true";
     const cacheKey = `${siteId}:${includeAnswers}`;
     const cached = faqCache.get(cacheKey);
-    if (cached && Date.now() - cached.ts < FAQ_CACHE_TTL) {
-      return res.json(cached.data);
-    }
+    if (cached) return res.json(cached);
     const faqs = await getOrGenerateFaqs(siteId, { includeAnswers });
     const data = { siteId, faqs };
-    faqCache.set(cacheKey, { data, ts: Date.now() });
+    faqCache.set(cacheKey, data);
     res.json(data);
   } catch (err) {
     console.error("FAQ fetch error:", err);

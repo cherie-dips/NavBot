@@ -1,4 +1,6 @@
+import crypto from "crypto";
 import pg from "pg";
+import { DEFAULT_THEME, type WidgetTheme } from "@repo/widget-theme";
 
 let _pool: pg.Pool | null = null;
 
@@ -380,35 +382,7 @@ interface SiteRow {
   widget_theme: string | null;
 }
 
-export interface WidgetTheme {
-  primary: string;
-  launcherBg: string;
-  botBubbleBg: string;
-  userBubbleBg: string;
-  headerTextColor: string;
-  timestampColor: string;
-  iconColor: string;
-  sendBtnBg: string;
-  sendBtnColor: string;
-  fontFamily: string;
-  widgetOpacity: number;
-  /** Shown as a small disclosure link in the widget when set — not required. */
-  privacyPolicyUrl?: string;
-}
-
-export const DEFAULT_THEME: WidgetTheme = {
-  primary: "#2E3538",
-  launcherBg: "#2E3538",
-  botBubbleBg: "rgba(255,255,255,0.4)",
-  userBubbleBg: "rgba(0,0,0,0.06)",
-  headerTextColor: "#2E3538",
-  timestampColor: "#94a3b8",
-  iconColor: "#94a3b8",
-  sendBtnBg: "#2E3538",
-  sendBtnColor: "#ffffff",
-  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-  widgetOpacity: 0.45,
-};
+export { DEFAULT_THEME, type WidgetTheme };
 
 export async function upsertSite(params: {
   siteId: string;
@@ -895,7 +869,6 @@ function normalizeQueryForCache(query: string): string {
 }
 
 function queryHash(normalized: string): string {
-  const crypto = require("crypto");
   return crypto.createHash("md5").update(normalized).digest("hex");
 }
 

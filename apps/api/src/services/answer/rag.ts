@@ -14,10 +14,10 @@ import {
   buildSocialContextString,
   socialProfileLinks,
   type SocialSearchResult,
-} from "./social-search";
-import { getFaqUserAnswerForQuestion, getRagCache, setRagCache } from "./db";
-import { runRetrieval } from "./agentic-retrieval";
-import { planQuery, fallbackPlan, type QueryPlan } from "./query-planner";
+} from "../search/social";
+import { getFaqUserAnswerForQuestion, getRagCache, setRagCache } from "../platform/db";
+import { runRetrieval } from "../retrieval/agentic-retrieval";
+import { planQuery, fallbackPlan, type QueryPlan } from "../retrieval/query-planner";
 import {
   buildSystemPrompt,
   buildAnalystPrompt,
@@ -26,9 +26,9 @@ import {
   buildContactFallback,
   adaptForClient,
 } from "./answer-format";
-import { researchWeb, buildWebContextString, type WebResearch } from "./web-research";
-import { getSiteProfile, applyGlossary } from "./site-profile";
-import type { RerankedDoc } from "./reranker";
+import { researchWeb, buildWebContextString, type WebResearch } from "../search/site";
+import { getSiteProfile, applyGlossary } from "../platform/site-profile";
+import type { RerankedDoc } from "../retrieval/reranker";
 import type { ChatHistoryItem, PageLink, SocialLink, ChatAnswer } from "./chat-types";
 import {
   withRetry,
@@ -37,7 +37,7 @@ import {
   GEMINI_MODELS,
   generateContentText,
   generateContentStream,
-} from "./gemini-client";
+} from "../platform/gemini-client";
 
 if (!getGeminiApiKey()) {
   console.warn("GEMINI_API_KEY is not set. Chat, STT, and TTS will not work.");

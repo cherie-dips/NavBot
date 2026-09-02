@@ -640,6 +640,209 @@ export const openApiSpec = {
         },
       },
     },
+    "/api/chat/session": {
+      post: {
+        tags: ["Chat"],
+        summary: "Start or resume a visitor session",
+        description:
+          "The widget calls this when it opens. Returns a signed anonymous session token " +
+          "(also accepted on later requests via the X-Navbot-Session header) plus the site's " +
+          "daily question allowance and how much of it this visitor has used.",
+        operationId: "postChatSession",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["siteId"],
+                properties: {
+                  siteId: { type: "string" },
+                  sessionToken: {
+                    type: "string",
+                    description: "A token from a previous session, if the widget has one stored.",
+                  },
+                },
+              },
+              examples: {
+                firstVisit: { summary: "No stored token", value: { siteId: "example.com" } },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Session token and quota",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    token: { type: "string" },
+                    used: { type: "integer" },
+                    limit: { type: "integer" },
+                    remaining: { type: "integer", nullable: true },
+                    limitReached: { type: "boolean" },
+                    limitMessage: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          "400": { description: "Missing siteId" },
+          "500": { description: "session_failed" },
+        },
+      },
+    },
+    "/api/chat/stream": {
+      post: {
+        tags: ["Chat"],
+        summary: "Text chat, streamed (SSE)",
+        description:
+          "Same pipeline as POST /api/chat, delivered as Server-Sent Events so text appears " +
+          "as it is generated. Events: `status` (pipeline stage), `delta` (text fragment), " +
+          "`done` (final answer with links and follow-ups), `error`. A visitor who is out of " +
+          "questions gets an ordinary JSON body instead of a stream.",
+        operationId: "postChatStream",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { $ref: "#/components/schemas/ChatBody" },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "text/event-stream of status/delta/done events",
+            content: { "text/event-stream": { schema: { type: "string" } } },
+          },
+          "400": { description: "Missing siteId or message" },
+          "429": { description: "Rate limited" },
+        },
+      },
+    },
+    "/api/sites/{siteId}/limits": {
+      get: {
+        tags: ["Sites"],
+        summary: "Read the daily question limit",
+        operationId: "getChatLimits",
+        parameters: [
+          {
+            name: "siteId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        responses: {
+          "200": {
+            description: "Current limit settings",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    siteId: { type: "string" },
+                    dailyLimit: { type: "integer", description: "0 means unlimited." },
+                    limitMessage: { type: "string" },
+                    defaultMessage: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          "500": { description: "failed_to_read_limits" },
+        },
+      },
+      patch: {
+        tags: ["Sites"],
+        summary: "Update the daily question limit",
+        operationId: "patchChatLimits",
+        parameters: [
+          {
+            name: "siteId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["dailyLimit"],
+                properties: {
+                  dailyLimit: {
+                    type: "integer",
+                    minimum: 0,
+                    maximum: 1000,
+                    description: "Questions per visitor per day. 0 means unlimited.",
+                  },
+                  limitMessage: {
+                    type: "string",
+                    maxLength: 500,
+                    description: "Shown to a visitor who has run out. Blank uses the default.",
+                  },
+                },
+              },
+              examples: {
+                tenPerDay: { summary: "Ten a day", value: { dailyLimit: 10, limitMessage: "" } },
+                unlimited: { summary: "No limit", value: { dailyLimit: 0, limitMessage: "" } },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated limits" },
+          "400": { description: "invalid_daily_limit or message_too_long" },
+          "404": { description: "site not found" },
+        },
+      },
+    },
+    "/api/sites/{siteId}/faqs/{faqId}": {
+      patch: {
+        tags: ["Sites"],
+        summary: "Save an owner-written FAQ answer",
+        description:
+          "An approved answer short-circuits the RAG pipeline for matching questions, for as " +
+          "long as it stays fresh relative to the latest index.",
+        operationId: "patchFaqAnswer",
+        parameters: [
+          {
+            name: "siteId",
+            in: "path",
+            required: true,
+            schema: { type: "string" },
+          },
+          {
+            name: "faqId",
+            in: "path",
+            required: true,
+            schema: { type: "integer" },
+          },
+        ],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["answer"],
+                properties: { answer: { type: "string" } },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Saved" },
+          "400": { description: "answer is required, or invalid faqId" },
+          "404": { description: "faq not found" },
+        },
+      },
+    },
     "/api/chat": {
       post: {
         tags: ["Chat"],

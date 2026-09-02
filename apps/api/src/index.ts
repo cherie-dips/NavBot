@@ -13,9 +13,9 @@ import { router as chatRouter } from "./routes/chat";
 import { router as colorRouter } from "./routes/colors";
 import { router as syncRouter } from "./routes/sync";
 import { startAutoSync } from "./services/auto-sync";
-import { shutdownBrowser } from "./services/browser-render";
+import { shutdownBrowser } from "./services/crawl/browser-render";
 import { openApiSpec } from "./openapi/openapi-spec";
-import { initAppDatabase } from "./services/db";
+import { initAppDatabase } from "./services/platform/db";
 
 const app = express();
 

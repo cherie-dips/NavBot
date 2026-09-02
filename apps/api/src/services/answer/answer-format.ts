@@ -6,9 +6,9 @@
  * regexes. Here the prompt carries worked examples, and the cleanup is a safety
  * net rather than the mechanism.
  */
-import { getSiteProfile, applyGlossary, contactForQuestion } from "./site-profile";
+import { getSiteProfile, applyGlossary, contactForQuestion } from "../platform/site-profile";
 import type { PageLink } from "./chat-types";
-import type { RerankedDoc } from "./reranker";
+import type { RerankedDoc } from "../retrieval/reranker";
 
 interface FormattedAnswer {
   answer: string;

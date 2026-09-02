@@ -14,8 +14,8 @@ import { SiteOption } from "./components/SiteSelector";
 import { normalizeApiBase } from "./lib/api-base";
 import "./style.css";
 
-const API_BASE = normalizeApiBase((import.meta as any).env?.VITE_API_URL);
-(window as any).NAVBOT_CONFIG = { ...((window as any).NAVBOT_CONFIG || {}), apiBase: API_BASE };
+const API_BASE = normalizeApiBase(import.meta.env.VITE_API_URL);
+window.NAVBOT_CONFIG = { ...(window.NAVBOT_CONFIG ?? {}), apiBase: API_BASE };
 
 const App = () => {
   const [currentView, setCurrentView] = useState("home");
@@ -81,12 +81,6 @@ const App = () => {
     else { setPostAuthView("get-started"); setCurrentView("auth"); }
   };
 
-  const handleAddSite = () => {
-    setCurrentView("dashboard");
-    // DashboardPage will handle opening the add-site flow via its own state
-    // We just navigate — the dashboard listens via a prop
-  };
-
   return (
     <div className="min-h-screen overflow-x-hidden bg-[#f8f4ee] font-sans text-[#1f2522] selection:bg-[#f1d8bf] selection:text-[#1f2522]">
       <Navbar
@@ -99,7 +93,6 @@ const App = () => {
         sites={sites}
         selectedSite={selectedSite}
         onSiteSelect={setSelectedSite}
-        onAddSite={handleAddSite}
       />
 
       {currentView === "home"        && <HomePage onViewChange={setCurrentView} onGetStarted={handleGetStartedCTA} />}

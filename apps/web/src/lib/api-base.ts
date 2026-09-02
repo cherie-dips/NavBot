@@ -1,3 +1,9 @@
+/**
+ * Where the dashboard talks to the NavBot API.
+ *
+ * `API_BASE` is resolved once here rather than recomputed per module — it was being
+ * derived independently in main.tsx, GetStartedPage and DashboardPage.
+ */
 /** Vite env base URL for the NavBot API — no trailing slash (avoids //api/...). */
 export function normalizeApiBase(raw: string | undefined): string {
   return String(raw ?? "").trim().replace(/\/+$/, "") || "http://localhost:3001";
@@ -19,3 +25,6 @@ export function siteHostnameFromInput(raw: string): string {
     }
   }
 }
+
+/** Base URL of the NavBot API service, without a trailing slash. */
+export const API_BASE = normalizeApiBase(import.meta.env.VITE_API_URL);

@@ -1,9 +1,7 @@
-import { getSocialHandles, type SocialHandles } from "./db";
-import { getSiteProfile, DEFAULT_SOCIAL_PLATFORMS } from "./site-profile";
-
-function getSerperApiKey(): string {
-  return process.env.SERPER_API_KEY?.trim() ?? "";
-}
+import { getSocialHandles, type SocialHandles } from "../platform/db";
+import { getSiteProfile, DEFAULT_SOCIAL_PLATFORMS } from "../platform/site-profile";
+import { TtlCache } from "../ttl-cache";
+import { serperSearch, hasSerperApiKey } from "./serper";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,30 +15,9 @@ export interface SocialSearchResult {
 }
 
 // ---------------------------------------------------------------------------
-// In-memory cache — key: "siteId:query_normalized", TTL 4 hours
+// Cache — the same question from many visitors should cost one search
 // ---------------------------------------------------------------------------
-const CACHE_TTL_MS = 4 * 60 * 60 * 1000;
-const cache = new Map<string, { results: SocialSearchResult[]; ts: number }>();
-
-function getCached(key: string): SocialSearchResult[] | null {
-  const entry = cache.get(key);
-  if (!entry) return null;
-  if (Date.now() - entry.ts > CACHE_TTL_MS) {
-    cache.delete(key);
-    return null;
-  }
-  return entry.results;
-}
-
-function setCache(key: string, results: SocialSearchResult[]) {
-  cache.set(key, { results, ts: Date.now() });
-  if (cache.size > 500) {
-    const now = Date.now();
-    for (const [k, v] of cache) {
-      if (now - v.ts > CACHE_TTL_MS) cache.delete(k);
-    }
-  }
-}
+const cache = new TtlCache<SocialSearchResult[]>(4 * 60 * 60 * 1000);
 
 // ---------------------------------------------------------------------------
 // Intent detection — should we search social media for this query?
@@ -132,45 +109,6 @@ function buildSearchQueries(
 }
 
 // ---------------------------------------------------------------------------
-// Serper.dev Google Search API
-// ---------------------------------------------------------------------------
-async function serperSearch(
-  query: string
-): Promise<Array<{ title: string; link: string; snippet: string }>> {
-  if (!getSerperApiKey()) return [];
-
-  try {
-    const res = await fetch("https://google.serper.dev/search", {
-      method: "POST",
-      headers: {
-        "X-API-KEY": getSerperApiKey(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ q: query, num: 5 }),
-    });
-
-    if (!res.ok) {
-      console.error(
-        `[social-search] Serper returned ${res.status}: ${await res.text()}`
-      );
-      return [];
-    }
-
-    const data = (await res.json()) as {
-      organic?: Array<{ title?: string; link?: string; snippet?: string }>;
-    };
-    return (data.organic ?? []).map((r) => ({
-      title: r.title ?? "",
-      link: r.link ?? "",
-      snippet: r.snippet ?? "",
-    }));
-  } catch (err) {
-    console.error("[social-search] Serper request failed:", err);
-    return [];
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Filter out results that are not real posts (profile pages, generic uploads)
 // ---------------------------------------------------------------------------
 /**
@@ -234,8 +172,7 @@ export async function searchSocialMedia(
   siteId: string,
   userQuery: string
 ): Promise<SocialSearchResult[]> {
-  const serperKey = getSerperApiKey();
-  if (!serperKey) {
+  if (!hasSerperApiKey()) {
     console.warn("[social-search] SERPER_API_KEY not set, skipping social search");
     return [];
   }
@@ -267,7 +204,7 @@ export async function searchSocialMedia(
 
   // Check cache
   const cacheKey = `${siteId}:${userQuery.toLowerCase().trim()}`;
-  const cached = getCached(cacheKey);
+  const cached = cache.get(cacheKey);
   if (cached) {
     console.log(`[social-search] Cache hit for "${cacheKey}" (${cached.length} results)`);
     return cached;
@@ -279,7 +216,7 @@ export async function searchSocialMedia(
   // Run all platform searches in parallel
   const allResults = await Promise.all(
     searchQueries.map(async ({ platform, searchQuery, profileUrl, handle }) => {
-      const raw = await serperSearch(searchQuery);
+      const raw = await serperSearch(searchQuery, { num: 5, label: "social-search" });
       return raw
         .filter((r) => belongsToAccount(r.link, platform, handle))
         .map((r) => ({
@@ -308,7 +245,7 @@ export async function searchSocialMedia(
       }
     })
     .filter((r) => !isUselessSocialResult(r));
-  setCache(cacheKey, results);
+  cache.set(cacheKey, results);
   console.log(`[social-search] Found ${results.length} results (${raw.length - results.length} junk filtered)`);
 
   return results;

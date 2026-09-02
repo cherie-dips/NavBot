@@ -295,26 +295,42 @@ The auth app does **not** expose the same `/api/sites` or `/api/chat` routes. Al
 NavBot/
 ├── apps/
 │   ├── api/                 # Express API: crawl, RAG, Pinecone, Postgres app data, OpenAPI
+│   │   ├── eval/                  # Datasets and benchmark harnesses (see features.md §10)
 │   │   └── src/
 │   │       ├── index.ts           # App entry, routers, Swagger
 │   │       ├── routes/            # sites, chat, sync, colors
-│   │       ├── services/          # crawler, vectorstore, rag, db, faq, sitemap, auto-sync, …
-│   │       └── openapi/           # OpenAPI spec for /api-docs
-│   ├── server/              # Express + better-auth (sessions, OAuth)
+│   │       ├── middleware/        # requireAuth / requireSiteOwner
+│   │       ├── openapi/           # OpenAPI spec for /api-docs
+│   │       └── services/
+│   │           ├── crawl/         # crawler, browser-render (Playwright), sitemap
+│   │           ├── retrieval/     # vectorstore, query-planner, boilerplate, reranker,
+│   │           │                  #   agentic-retrieval
+│   │           ├── answer/        # rag (the pipeline), answer-format, faq, chat-types
+│   │           ├── search/        # serper (shared client), site, social
+│   │           ├── platform/      # db, gemini-client, site-profile, session, api-token
+│   │           ├── site-sync.ts   # The one sitemap-sync implementation
+│   │           ├── auto-sync.ts   # When that sync runs (cron + widget ping)
+│   │           └── ttl-cache.ts   # Shared in-process TTL cache
+│   ├── server/              # Express + better-auth (sessions, OAuth, API token minting)
 │   │   └── src/
 │   │       ├── index.ts           # Auth routes + shared DB bootstrap
-│   │       └── auth.ts            # better-auth configuration
+│   │       ├── auth.ts            # better-auth configuration
+│   │       └── api-token.ts       # Short-lived tokens apps/api verifies
 │   └── web/                 # Vite + React dashboard and marketing site
 │       └── src/
-│           ├── pages/             # Dashboard, scraping flow, billing, etc.
-│           ├── components/        # UI pieces (integration, theme picker, …)
-│           └── lib/               # auth-client, mocks, etc.
+│           ├── pages/             # Marketing pages, auth, onboarding, billing
+│           │   └── dashboard/     # One file per dashboard tab + shared types/styles
+│           ├── components/        # Navbar, theme picker, integration panel, sync panel
+│           └── lib/               # api-base, api-fetch, auth-client, embed-snippet,
+│                                  #   format-date, errors
 ├── packages/
 │   ├── chat-widget/         # Embeddable widget (Vite library build → IIFE)
-│   ├── color-extractor/     # Shared helper used by API for theme/color features
+│   ├── color-extractor/     # Palette extraction, used by the API's /api/colors route
+│   ├── widget-theme/        # WidgetTheme type + DEFAULT_THEME, shared by web/api/widget
 │   ├── eslint-config/       # Shared ESLint config
 │   └── typescript-config/   # Shared TS config
-├── render.yaml              # Render Blueprint: Postgres + auth, API, static web (see file for env checklist)
+├── features.md              # Product/feature reference, including the RAG pipeline
+├── render.yaml              # Render Blueprint: Postgres + auth, API, static web
 ├── package.json             # Root scripts: dev, build, lint, format; pins pnpm@8.15.6
 ├── pnpm-workspace.yaml      # workspaces: apps/*, packages/*
 └── turbo.json               # Turborepo pipeline
@@ -330,6 +346,9 @@ NavBot/
 | `pnpm --filter api build`               | Compile API only                   |
 | `pnpm --filter web build`               | Typecheck + Vite build web app     |
 | `pnpm --filter @repo/chat-widget build` | Build embeddable widget assets     |
+| `pnpm lint`                             | ESLint across all apps and packages |
+| `pnpm --filter api typecheck`           | Typecheck the API without emitting  |
+| `pnpm --filter api test`                | Answer-format + api-token unit checks |
 
 
 ---

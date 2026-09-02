@@ -1,6 +1,6 @@
 import { Pinecone } from "@pinecone-database/pinecone";
 import crypto from "crypto";
-import type { CrawledPage } from "./crawler";
+import type { CrawledPage } from "../crawl/crawler";
 
 // ---------------------------------------------------------------------------
 // Pinecone client + embedding model (Inference API)
@@ -69,7 +69,7 @@ async function resolveUpsertConfig(): Promise<{
   }
 
   // auto (default when unset or "auto")
-  let mode: "vectors" | "records" = desc.embed ? "records" : "vectors";
+  const mode: "vectors" | "records" = desc.embed ? "records" : "vectors";
   let textField = ENV_EMBED_TEXT_FIELD;
 
   if (desc.embed?.fieldMap && typeof desc.embed.fieldMap === "object") {

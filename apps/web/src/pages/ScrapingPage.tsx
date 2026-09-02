@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Globe, Cpu, Database, CheckCircle2 } from "lucide-react";
 import type { WidgetTheme } from "../components/ColorThemePicker";
+import { errorMessage } from "../lib/errors";
 
 interface ScrapingPageProps {
   websiteUrl: string;
@@ -176,9 +177,9 @@ export const ScrapingPage = ({
           }
         };
         waitForFill();
-      } catch (err: any) {
+      } catch (err) {
         timers.forEach(clearTimeout);
-        onError(err?.message || "Something went wrong while indexing.");
+        onError(errorMessage(err, "Something went wrong while indexing."));
       }
     };
 

@@ -17,7 +17,7 @@ import path from "path";
 import {
   generateContentText,
   GEMINI_MODELS,
-} from "../src/services/gemini-client";
+} from "../src/services/platform/gemini-client";
 
 interface BaselineResult {
   id: string;

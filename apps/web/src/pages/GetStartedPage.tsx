@@ -5,13 +5,7 @@ import { IntegrationPanel } from "../components/IntegrationPanel";
 import { authClient } from "../lib/auth-client";
 import { normalizeApiBase } from "../lib/api-base";
 
-const API_BASE = normalizeApiBase((import.meta as any).env?.VITE_API_URL);
-const WIDGET_SCRIPT_URL =
-  (import.meta as any).env?.VITE_WIDGET_SCRIPT_URL ??
-  (typeof window !== "undefined"
-    ? `${window.location.origin}/chat-widget.iife.js`
-    : "/chat-widget.iife.js");
-
+const API_BASE = normalizeApiBase(import.meta.env.VITE_API_URL);
 interface IndexResult {
   siteId: string;
   url: string;
@@ -49,12 +43,6 @@ export const GetStartedPage = () => {
     setResult(null);
   };
 
-  const buildIntegration = (siteId: string) => {
-    const consoleCode = `(function(){if(document.getElementById("chat-widget-root")){console.log("NavBot already loaded.");return;}window.NAVBOT_CONFIG={apiBase:"${API_BASE}",siteId:"${siteId}"};var s=document.createElement("script");s.src="${WIDGET_SCRIPT_URL}";document.body.appendChild(s);})();`;
-    const scriptTag = `<script>\n  window.NAVBOT_CONFIG = { apiBase: "${API_BASE}", siteId: "${siteId}" };\n</script>\n<script src="${WIDGET_SCRIPT_URL}"></script>`;
-    return { siteId, url: websiteUrl, consoleCode, scriptTag };
-  };
-
   const handleReset = () => {
     setWebsiteUrl("");
     setIsScraping(false);
@@ -88,7 +76,7 @@ export const GetStartedPage = () => {
   }
 
   if (result) {
-    const info = buildIntegration(result.siteId);
+    const info = { siteId: result.siteId, url: websiteUrl };
     return (
       <div className="animate-fade-in-up relative min-h-screen overflow-hidden bg-[#f8f4ee] pb-20 pt-32 text-[#1f2522]">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">

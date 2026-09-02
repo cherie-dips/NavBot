@@ -6,7 +6,7 @@ function normalizeAuthServerUrl(raw: string): string {
 }
 
 export const AUTH_SERVER_URL = normalizeAuthServerUrl(
-  (import.meta as any).env?.VITE_AUTH_URL ?? "http://localhost:3000"
+  import.meta.env.VITE_AUTH_URL ?? "http://localhost:3000"
 );
 
 export const authClient = createAuthClient({

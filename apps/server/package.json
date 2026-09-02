@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js"
   },
@@ -18,10 +20,12 @@
     "pg": "^8.13.1"
   },
   "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
     "@types/cors": "^2.8.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.0",
     "@types/pg": "^8.11.10",
+    "eslint": "^8.57.0",
     "tsx": "^4.19.0",
     "typescript": "5.5.4"
   }

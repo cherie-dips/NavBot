@@ -1,22 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { Palette, RefreshCw, Check, Loader2, AlertCircle, Eye } from "lucide-react";
 import { apiFetch } from "../lib/api-fetch";
-export interface WidgetTheme {
-  primary: string;
-  launcherBg: string;
-  botBubbleBg: string;
-  userBubbleBg: string;
-  headerTextColor: string;
-  timestampColor: string;
-  iconColor: string;
-  sendBtnBg: string;
-  sendBtnColor: string;
-  fontFamily: string;
-  widgetOpacity: number;
-  /** Shown as a small disclosure link in the widget when set — not required. */
-  privacyPolicyUrl?: string;
-}
+import { DEFAULT_THEME, type WidgetTheme } from "@repo/widget-theme";
 
+// Re-exported because most of the dashboard imports the theme type alongside this
+// picker; the definition itself lives in @repo/widget-theme.
+export type { WidgetTheme };
+import { errorMessage } from "../lib/errors";
 interface ColorEntry {
   hex: string;
   source: string;
@@ -33,26 +23,11 @@ interface SitePalette {
 interface ColorThemePickerProps {
   siteId: string;
   siteUrl: string;
-  userId: string;
   apiBase: string;
   initialTheme?: WidgetTheme | null;
   onSave?: (theme: WidgetTheme) => void;
   onThemeChange?: (theme: WidgetTheme) => void;
 }
-
-const DEFAULT_THEME: WidgetTheme = {
-  primary: "#2E3538",
-  launcherBg: "#2E3538",
-  botBubbleBg: "rgba(255,255,255,0.4)",
-  userBubbleBg: "rgba(0,0,0,0.06)",
-  headerTextColor: "#2E3538",
-  timestampColor: "#94a3b8",
-  iconColor: "#94a3b8",
-  sendBtnBg: "#2E3538",
-  sendBtnColor: "#ffffff",
-  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-  widgetOpacity: 0.45,
-};
 
 function isLight(hex: string): boolean {
   try {
@@ -425,7 +400,6 @@ const FONT_OPTIONS: Array<{ label: string; value: string }> = [
 export function ColorThemePicker({
   siteId,
   siteUrl,
-  userId,
   apiBase,
   initialTheme,
   onSave,
@@ -469,8 +443,8 @@ export function ColorThemePicker({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Color extraction failed");
       setPalette(data as SitePalette);
-    } catch (err: any) {
-      setExtractError(err?.message || "Could not extract colors");
+    } catch (err) {
+      setExtractError(errorMessage(err, "Could not extract colors"));
     } finally {
       setExtracting(false);
     }
@@ -517,7 +491,7 @@ export function ColorThemePicker({
     setSaveError(null);
     try {
       const res = await apiFetch(
-        `${apiBase}/api/sites/${encodeURIComponent(siteId)}/theme?userId=${encodeURIComponent(userId)}`,
+        `${apiBase}/api/sites/${encodeURIComponent(siteId)}/theme`,
         { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(theme) }
       );
       const data = await res.json();
@@ -526,8 +500,8 @@ export function ColorThemePicker({
       setPalette(themeToPalette(theme));
       onSave?.(theme);
       setTimeout(() => setSaved(false), 2500);
-    } catch (err: any) {
-      setSaveError(err?.message || "Could not save theme");
+    } catch (err) {
+      setSaveError(errorMessage(err, "Could not save theme"));
     } finally {
       setSaving(false);
     }

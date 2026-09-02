@@ -15,7 +15,7 @@
  */
 import crypto from "crypto";
 import type { RetrievedDoc } from "./vectorstore";
-import { getSiteProfile } from "./site-profile";
+import { getSiteProfile } from "../platform/site-profile";
 
 /** The indexer prefixes chunks with "Page: <title> URL: <url> Section: <breadcrumb>". */
 const CHUNK_PREAMBLE = /^\s*Page:\s*.*?\s*URL:\s*\S+\s*(?:Section:\s*)?/is;

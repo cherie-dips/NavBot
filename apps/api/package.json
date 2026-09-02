@@ -4,20 +4,22 @@
   "private": true,
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "lint": "eslint \"src/**/*.ts\" \"eval/**/*.ts\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node --max-old-space-size=384 --optimize-for-size dist/index.js",
-    "build": "pnpm --filter @repo/color-extractor build && tsc -p tsconfig.json && pnpm test",
+    "build": "pnpm --filter @repo/color-extractor build && pnpm --filter @repo/widget-theme build && tsc -p tsconfig.json && pnpm test",
     "playwright:install": "playwright install chromium",
     "eval:baselines": "tsx eval/baselines.ts",
     "eval:judge": "tsx eval/evaluate.ts",
-    "test": "tsx eval/format-test.ts && tsx src/services/api-token.test.ts",
+    "test": "tsx eval/format-test.ts && tsx src/services/platform/api-token.test.ts",
     "eval:bench": "tsx eval/bench.ts",
-    "eval:retrieval": "tsx eval/retrieval-bench.ts",
-    "eval:smoke": "tsx eval/smoke.ts"
+    "eval:retrieval": "tsx eval/retrieval-bench.ts"
   },
   "dependencies": {
     "@google/genai": "^1.21.0",
     "@pinecone-database/pinecone": "^6.1.4",
     "@repo/color-extractor": "workspace:*",
+    "@repo/widget-theme": "workspace:*",
     "@sentry/node": "^10.72.0",
     "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5",
@@ -34,6 +36,7 @@
     "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
+    "@repo/eslint-config": "workspace:*",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/morgan": "^1.9.9",
@@ -42,6 +45,7 @@
     "@types/node-cron": "^3.0.11",
     "@types/pg": "^8.11.10",
     "@types/swagger-ui-express": "^4.1.6",
+    "eslint": "^8.57.0",
     "tsx": "^4.19.2",
     "typescript": "5.5.4"
   }

@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Sparkles,
 } from "lucide-react";
+import { errorMessage } from "../lib/errors";
 
 
 interface SyncStats {
@@ -43,7 +44,6 @@ interface SyncResult {
 
 interface SitemapSyncPanelProps {
   siteId: string;
-  userId: string;
   apiBase: string;
   hostname: string;
 }
@@ -67,7 +67,6 @@ function formatDate(iso: string | null): string {
 
 export function SitemapSyncPanel({
   siteId,
-  userId,
   apiBase,
   hostname,
 }: SitemapSyncPanelProps) {
@@ -79,7 +78,7 @@ export function SitemapSyncPanel({
   const [error, setError] = useState<string | null>(null);
   const [showChangedUrls, setShowChangedUrls] = useState(false);
 
-  const baseUrl = `${apiBase}/api/sites/${encodeURIComponent(siteId)}/sync?userId=${encodeURIComponent(userId)}`;
+  const baseUrl = `${apiBase}/api/sites/${encodeURIComponent(siteId)}/sync`;
 
   // ── Load stats ─────────────────────────────────────────────────────────
   const loadStats = async () => {
@@ -90,8 +89,8 @@ export function SitemapSyncPanel({
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Failed to load stats");
       setStats({ totalTracked: data.totalTracked, lastSynced: data.lastSynced });
-    } catch (err: any) {
-      setError(err?.message || "Failed to load sync stats");
+    } catch (err) {
+      setError(errorMessage(err, "Failed to load sync stats"));
     } finally {
       setLoading(null);
     }
@@ -114,13 +113,13 @@ export function SitemapSyncPanel({
     setSyncResult(null);
     setShowChangedUrls(false);
     try {
-      const res = await apiFetch(`${baseUrl}&preview=true`);
+      const res = await apiFetch(`${baseUrl}?preview=true`);
       const data = await res.json();
       if (!res.ok) throw new Error(data?.detail || data?.error || "Preview failed");
       setPreview(data.preview);
       setStats({ totalTracked: data.totalTracked, lastSynced: data.lastSynced });
-    } catch (err: any) {
-      setError(err?.message || "Could not preview changes — check the API server logs");
+    } catch (err) {
+      setError(errorMessage(err, "Could not preview changes — check the API server logs"));
     } finally {
       setLoading(null);
     }
@@ -143,8 +142,8 @@ export function SitemapSyncPanel({
         const statsData = await statsRes.json();
         setStats({ totalTracked: statsData.totalTracked, lastSynced: statsData.lastSynced });
       }
-    } catch (err: any) {
-      setError(err?.message || "Sync failed — check the API server logs");
+    } catch (err) {
+      setError(errorMessage(err, "Sync failed — check the API server logs"));
     } finally {
       setLoading(null);
     }

@@ -126,7 +126,7 @@ async function fetchStaticHtml(url: string): Promise<StaticFetchResult | null> {
 
 /**
  * Returns final HTML string to parse with Cheerio — either static, or browser-rendered when that yields richer content.
- * If the site is detected as a SPA (React, Vue, Angular, Next.js, etc.), always use Playwright/Jina directly.
+ * If the site is detected as a SPA (React, Vue, Angular, Next.js, etc.), always use Playwright directly.
  */
 async function resolvePageHtml(
   fetchUrl: string,
@@ -521,7 +521,9 @@ async function ocrImagesOnPage(
     try {
       const absolute = new URL(src, pageUrl).toString();
       if (!candidates.includes(absolute)) candidates.push(absolute);
-    } catch {}
+    } catch {
+      /* unresolvable src — skip this image */
+    }
   });
 
   // CSS background images (common in cards, hero sections, profile overlays)
@@ -534,7 +536,9 @@ async function ocrImagesOnPage(
     try {
       const absolute = new URL(src, pageUrl).toString();
       if (!candidates.includes(absolute)) candidates.push(absolute);
-    } catch {}
+    } catch {
+      /* unresolvable src — skip this image */
+    }
   });
 
   const results: string[] = [];
@@ -542,7 +546,9 @@ async function ocrImagesOnPage(
     try {
       const text = await ocrImageUrl(url);
       if (text.length >= 5) results.push(`[Image text: ${text}]`);
-    } catch {}
+    } catch {
+      /* OCR is best-effort — one unreadable image must not fail the page */
+    }
   }
   return results;
 }
@@ -617,7 +623,11 @@ function processHtmlPage(
 ): CrawledPage | null {
   const $ = cheerio.load(html);
   const title = $("title").first().text().replace(/\s+/g, " ").trim() || rawUrl;
-  let { text: content, sections } = extractStructuredContent($, rawUrl, title);
+  // Split rather than destructured with one `let`: `content` is appended to below,
+  // `sections` never is.
+  const extracted = extractStructuredContent($, rawUrl, title);
+  const { sections } = extracted;
+  let content = extracted.text;
 
   if (ocrTexts && ocrTexts.length > 0) {
     content += "\n\n" + ocrTexts.join("\n");
@@ -689,7 +699,9 @@ export async function crawlPages(urls: string[], options?: { enableOcr?: boolean
       if (!originRules.has(origin)) {
         originRules.set(origin, await fetchRobotsRules(origin));
       }
-    } catch {}
+    } catch {
+      /* no robots.txt, or unreachable — treat as no rules */
+    }
   }
 
   const results = await mapConcurrent(urls, CRAWL_CONCURRENCY, async (rawUrl) => {
@@ -701,7 +713,9 @@ export async function crawlPages(urls: string[], options?: { enableOcr?: boolean
           console.log(`[crawler] Skipping ${rawUrl} — disallowed by robots.txt`);
           return null;
         }
-      } catch {}
+      } catch {
+        /* robots lookup failed — fall through and crawl */
+      }
       return await crawlSingleUrl(rawUrl, mode, ocr);
     } catch (err) {
       console.error("Failed to crawl page", rawUrl, err);
@@ -884,10 +898,14 @@ export async function discoverUrls(
                 if (visited.has(norm)) return;
                 if (SKIP_PATH_PATTERNS.some((p) => p.test(norm))) return;
                 queue.push({ url: norm, depth: depth + 1 });
-              } catch {}
+              } catch {
+                /* unparseable href — not a link we can follow */
+              }
             });
           }
-        } catch {}
+        } catch {
+          /* page failed to parse — other pages continue */
+        }
       })
     );
   }

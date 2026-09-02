@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { invalidateRagCache } from "../src/services/db";
+import { invalidateRagCache } from "../src/services/platform/db";
 
 async function main() {
   const siteId = process.env.EVAL_SITE_ID || "plaksha.edu.in";

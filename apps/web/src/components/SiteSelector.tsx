@@ -12,14 +12,14 @@ export interface SiteOption {
   hostname: string;
   pagesIndexed: number;
   status: string;
-  lastCrawled: string;
+  /** Null until the first crawl finishes — GET /api/sites returns the raw column. */
+  lastCrawled: string | null;
 }
 
 interface SiteSelectorProps {
   sites: SiteOption[];
   selectedSite: SiteOption | null;
   onSelect: (site: SiteOption | null) => void;
-  onAddSite: () => void;
   /** Visual variant: "navbar" renders compact for top nav, "inline" renders fuller */
   variant?: "navbar" | "inline";
 }
@@ -28,7 +28,6 @@ export function SiteSelector({
   sites,
   selectedSite,
   onSelect,
-  onAddSite,
   variant = "navbar",
 }: SiteSelectorProps) {
   const [open, setOpen] = useState(false);

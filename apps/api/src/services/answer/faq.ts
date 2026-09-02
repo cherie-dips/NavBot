@@ -1,4 +1,4 @@
-import { querySiteDocs } from "./vectorstore";
+import { querySiteDocs } from "../retrieval/vectorstore";
 import {
   getFaqsBySite,
   replaceFaqs,
@@ -6,9 +6,9 @@ import {
   updateFaqAnswerPreview,
   isFaqUserAnswerStale,
   updateFaqUserAnswer,
-} from "./db";
+} from "../platform/db";
 import { answerQuestionWithRag } from "./rag";
-import { generateContentText, GEMINI_MODELS, getGeminiApiKey } from "./gemini-client";
+import { generateContentText, GEMINI_MODELS, getGeminiApiKey } from "../platform/gemini-client";
 
 const FAQ_ANSWER_PREVIEW_MAX = 800;
 const MIN_FAQS = 5;

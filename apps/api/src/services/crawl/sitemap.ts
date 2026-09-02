@@ -1,7 +1,7 @@
 import * as cheerio from "cheerio";
 import { normalizeUrl } from "./crawler";
 
-interface SitemapEntry {
+export interface SitemapEntry {
   url: string;
   lastmod: string | null; // ISO date string or null
 }

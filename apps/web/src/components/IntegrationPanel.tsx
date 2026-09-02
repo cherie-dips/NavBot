@@ -1,74 +1,34 @@
 import { useState } from "react";
 import { Code, Terminal, Globe } from "lucide-react";
-import { ColorThemePicker, type WidgetTheme } from "./ColorThemePicker";
+import { ColorThemePicker } from "./ColorThemePicker";
+import { DEFAULT_THEME, type WidgetTheme } from "@repo/widget-theme";
+import { buildEmbedSnippets } from "../lib/embed-snippet";
 
 interface IntegrationPanelProps {
+  /** The site being embedded. The snippet is derived, not passed in. */
   info: {
     siteId: string;
     url: string;
-    consoleCode: string;
-    scriptTag: string;
   };
-  userId?: string;
   apiBase?: string;
   initialTheme?: WidgetTheme | null;
 }
 
-const DEFAULT_THEME: WidgetTheme = {
-  primary: "#1f2522",
-  launcherBg: "#1f2522",
-  botBubbleBg: "rgba(255,255,255,0.4)",
-  userBubbleBg: "rgba(0,0,0,0.06)",
-  headerTextColor: "#1f2522",
-  timestampColor: "#94a3b8",
-  iconColor: "#94a3b8",
-  sendBtnBg: "#1f2522",
-  sendBtnColor: "#ffffff",
-  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
-  widgetOpacity: 0.45,
-};
-
-function buildSnippets(
-  siteId: string,
-  _url: string,
-  apiBase: string,
-  widgetScriptUrl: string,
-  theme: WidgetTheme
-) {
-  const themeJson = JSON.stringify(theme, null, 2);
-  const themeJsonMinified = JSON.stringify(theme);
-
-  const consoleCode =
-    `(function(){if(document.getElementById("chat-widget-root")){console.log("NavBot already loaded.");return;}` +
-    `window.NAVBOT_CONFIG={apiBase:"${apiBase}",siteId:"${siteId}",theme:${themeJsonMinified}};` +
-    `var s=document.createElement("script");s.src="${widgetScriptUrl}";document.body.appendChild(s);})();`;
-
-  const scriptTag =
-    `<script>\n  window.NAVBOT_CONFIG = {\n    apiBase: "${apiBase}",\n    siteId: "${siteId}",\n    theme: ${themeJson.split("\n").map((l, i) => (i === 0 ? l : "    " + l)).join("\n")}\n  };\n</script>\n` +
-    `<script src="${widgetScriptUrl}"></script>`;
-
-  return { consoleCode, scriptTag };
-}
-
 export const IntegrationPanel = ({
   info,
-  userId = "",
   apiBase = "http://localhost:3001",
   initialTheme = null,
 }: IntegrationPanelProps) => {
   const [theme, setTheme] = useState<WidgetTheme>(initialTheme ? { ...DEFAULT_THEME, ...initialTheme } : DEFAULT_THEME);
   const [activeTab, setActiveTab] = useState<"theme" | "code">("theme");
 
-  const widgetSrcMatch = info.scriptTag.match(/src="([^"]+chat-widget[^"]+)"/);
-  const widgetScriptUrl = widgetSrcMatch?.[1] ?? `${window.location.origin}/chat-widget.iife.js`;
-
-  const { consoleCode, scriptTag } = buildSnippets(
-    info.siteId,
-    info.url,
+  // The snippet is rebuilt here rather than taken from `info`, because it has to track
+  // the theme the owner is editing on this screen.
+  const { consoleCode, scriptTag } = buildEmbedSnippets({
     apiBase,
-    widgetScriptUrl,
-    theme
-  );
+    siteId: info.siteId,
+    theme,
+  });
 
   const tabs = [
     { id: "theme" as const, label: "Customize Theme", icon: Globe },
@@ -124,7 +84,6 @@ export const IntegrationPanel = ({
           <ColorThemePicker
             siteId={info.siteId}
             siteUrl={info.url}
-            userId={userId}
             apiBase={apiBase}
             initialTheme={initialTheme}
             onSave={setTheme}

@@ -13,10 +13,11 @@
  *   4. one cross-encoder rerank that decides ordering (and how much to hedge)
  */
 import { querySiteDocs, type RetrievedDoc } from "./vectorstore";
-import { getTrackedUrls } from "./db";
+import { getTrackedUrls } from "../platform/db";
+import { TtlCache } from "../ttl-cache";
 import { removeBoilerplate, type BoilerplateStats } from "./boilerplate";
 import { rerankDocs, RELEVANCE, type RerankedDoc } from "./reranker";
-import { sectionsForQuestion } from "./site-profile";
+import { sectionsForQuestion } from "../platform/site-profile";
 import type { QueryPlan } from "./query-planner";
 
 /** Candidates pulled from the vector store before reranking. */
@@ -35,14 +36,13 @@ const PINNED_ROSTER_CHUNKS = 8;
  * The tracked-URL set changes only on re-crawl, but section expansion needs it on
  * every list question. Reading 526 rows from Postgres each time was pure latency.
  */
-const TRACKED_TTL_MS = 5 * 60_000;
-const trackedCache = new Map<string, { at: number; urls: Set<string> }>();
+const trackedCache = new TtlCache<Set<string>>(5 * 60_000);
 
 async function getTrackedUrlsCached(siteId: string): Promise<Set<string>> {
   const hit = trackedCache.get(siteId);
-  if (hit && Date.now() - hit.at < TRACKED_TTL_MS) return hit.urls;
+  if (hit) return hit;
   const urls = await getTrackedUrls(siteId).catch(() => new Set<string>());
-  trackedCache.set(siteId, { at: Date.now(), urls });
+  trackedCache.set(siteId, urls);
   return urls;
 }
 
@@ -53,7 +53,7 @@ async function getTrackedUrlsCached(siteId: string): Promise<Set<string>> {
  * a list that stops silently at "M" reads as complete and is the failure this exists
  * to prevent.
  */
-export interface SectionCoverage {
+interface SectionCoverage {
   label: string;
   /** Pages on the site in this section. */
   matchingPages: number;

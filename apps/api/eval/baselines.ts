@@ -10,12 +10,12 @@
 import "dotenv/config";
 import fs from "fs";
 import path from "path";
-import { querySiteDocs } from "../src/services/vectorstore";
-import { answerQuestionWithRag } from "../src/services/rag";
+import { querySiteDocs } from "../src/services/retrieval/vectorstore";
+import { answerQuestionWithRag } from "../src/services/answer/rag";
 import {
   generateContentText,
   GEMINI_MODELS,
-} from "../src/services/gemini-client";
+} from "../src/services/platform/gemini-client";
 
 interface DatasetExample {
   id: string;

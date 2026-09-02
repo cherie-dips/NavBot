@@ -3,8 +3,8 @@
  * without touching the answer model, so it can be run freely against LLM quota.
  */
 import "dotenv/config";
-import { runRetrieval } from "../src/services/agentic-retrieval";
-import type { QueryPlan } from "../src/services/query-planner";
+import { runRetrieval } from "../src/services/retrieval/agentic-retrieval";
+import type { QueryPlan } from "../src/services/retrieval/query-planner";
 
 const SITE = process.env.EVAL_SITE_ID || "plaksha.edu.in";
 

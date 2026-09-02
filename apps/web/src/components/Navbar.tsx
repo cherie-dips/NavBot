@@ -10,7 +10,6 @@ interface NavbarProps {
   sites?: SiteOption[];
   selectedSite?: SiteOption | null;
   onSiteSelect?: (site: SiteOption | null) => void;
-  onAddSite?: () => void;
 }
 
 export const Navbar = ({
@@ -22,7 +21,6 @@ export const Navbar = ({
   sites = [],
   selectedSite = null,
   onSiteSelect,
-  onAddSite,
 }: NavbarProps) => {
   const [scrolled, setScrolled] = useState(false);
   const isDashboard = currentView === "dashboard";
@@ -86,12 +84,11 @@ export const Navbar = ({
         <div className="flex items-center gap-3">
           {isAuthed ? (
             <>
-              {isDashboard && onSiteSelect && onAddSite && (
+              {isDashboard && onSiteSelect && (
                 <SiteSelector
                   sites={sites}
                   selectedSite={selectedSite}
                   onSelect={onSiteSelect}
-                  onAddSite={onAddSite}
                   variant="navbar"
                 />
               )}

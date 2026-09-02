@@ -1,6 +1,8 @@
 # NavBot — Product Features
 
-NavBot is a website-grounded AI assistant that answers visitor questions using retrieval-augmented generation (RAG) from indexed site content. It combines multi-query vector search, an agentic planner, social media search, and an LLM judge into a single embeddable chat widget with text and voice support.
+NavBot is a website-grounded AI assistant that answers visitor questions using retrieval-augmented generation (RAG) from indexed site content. It combines an LLM query planner, multi-query vector search, cross-encoder reranking, live site and social search, and a two-pass analyst/editor writer into a single embeddable chat widget with text and voice support.
+
+All language, speech and vision calls run on **Google Gemini** via `@google/genai`; embeddings and reranking run on **Pinecone Inference**.
 
 ---
 
@@ -71,7 +73,7 @@ NavBot automatically identifies single-page application frameworks and switches 
 Three rendering backends, selected automatically:
 1. **Static HTML fetch + Cheerio** — fast extraction for traditional server-rendered sites
 2. **Headless Chromium via Playwright** — full browser rendering for SPAs; runs inside Docker on production (pinned to Playwright v1.59.1)
-3. **Jina Reader API** (`r.jina.ai`) — fallback when Playwright is unavailable; also used for manual scraping of hard-to-render pages
+3. **Static fetch fallback** — when Playwright is unavailable the crawler keeps the plain HTTP response rather than substituting a third-party renderer
 
 ### Content Extraction
 - **Headings** with hierarchy tracking (h1 > h2 > h3 breadcrumbs)
@@ -109,14 +111,15 @@ An embeddable React widget that site owners paste into their HTML. Built as an I
 
 ### Voice Chat
 - **Speech-to-Text**: Records audio in the browser, sends as multipart form data to `/api/chat/voice`
-- **Transcription**: Sarvam Saaras (`saaras:v3`) converts audio to text
+- **Transcription**: Gemini multimodal generation with an inline audio part (`GEMINI_STT_MODEL`, defaults to the chat model)
 - Supports **WAV, MP3, OGG, and WebM** audio formats, up to 10 MB
 - Transcribed text is then processed through the full RAG pipeline
 - Transcript is returned to the widget alongside the answer
 
 ### Text-to-Speech
 - `/api/chat/tts` endpoint converts answer text to audio
-- Uses **Sarvam Bulbul** (`bulbul:v2`) with configurable speaker (default: `anushka`) and language (default: `en-IN`)
+- Uses a Gemini TTS model (`GEMINI_TTS_MODEL`, default `gemini-3.1-flash-tts-preview`) with a configurable voice (`GEMINI_TTS_VOICE`, default `Kore`)
+- Gemini returns raw little-endian PCM, so a 44-byte RIFF/WAVE header is prepended before the audio is handed to the widget
 - Returns base64-encoded WAV audio for playback in the widget
 - 1000-character limit per TTS request (longer answers are truncated)
 
@@ -130,105 +133,93 @@ Widget appearance and behavior controlled via `window.NAVBOT_CONFIG`:
 
 ## 4. Agentic RAG Pipeline
 
-The core AI pipeline that powers accurate, grounded answers. It combines rule-based query expansion, an LLM-powered planner, multi-query vector search, a refiner loop, and an LLM judge into a multi-stage retrieval and generation pipeline.
+The core AI pipeline that produces grounded answers. It plans retrieval with an LLM, searches the vector index with several queries at once, strips boilerplate, reranks with a cross-encoder, optionally consults a live web and social search, and writes the answer — using a two-pass analyst/editor for questions that need judgement.
+
+Implemented in `apps/api/src/services/answer/rag.ts`, with retrieval in `services/retrieval/` and search in `services/search/`.
 
 ### Architecture
 
 ```
-User Question
+Visitor question
     │
-    ├── FAQ Override Check (admin-approved answers short-circuit RAG)
+    ├── 1. Curated answer  — an owner-approved FAQ answer short-circuits everything
     │
-    ├── Rule-based Query Expansion (7 domain patterns)
+    ├── 2. Semantic cache  — first turn only, keyed on the question
     │
-    ├── LLM Planner (Sarvam sarvam-m) → generates 6-12 search queries + HyDE paragraph
+    ├── 3. Query planner (Gemini, JSON out)
+    │        standalone question · intent · sub-queries · sections
+    │        exhaustive? · analytical? · experiential?
+    │        └─ greeting / out_of_scope answered here, no retrieval
     │
-    ├── Vector Search (Pinecone) → top-K chunks per query, URL spreading
+    ├── 4. Retrieval (parallel)
+    │        ├── multi-query vector search (Pinecone, per-site namespace)
+    │        ├── section expansion for exhaustive "list every X" questions
+    │        ├── boilerplate removal (nav/footer text shared across pages)
+    │        └── cross-encoder rerank (Pinecone Inference, bge-reranker-v2-m3)
     │
-    ├── Refiner Loop (if retrieval weak: distance > 0.62 or low keyword overlap)
+    ├── 5. Live search, when it changes the answer
+    │        ├── site search  — Gemini grounding, else Serper with a site: filter
+    │        └── social search — Serper over the site's configured accounts
     │
-    ├── Multi-page Expansion (for exhaustive list questions)
+    ├── 6. Writing
+    │        ├── analytical questions: analyst pass (internal brief) → editor pass
+    │        └── everything else: a single streamed generation
     │
-    ├── Social Media Search (in parallel via Serper.dev)
-    │
-    ├── Context Building (50K char budget, page directory, source blocks)
-    │
-    ├── Sarvam Chat Completion (sarvam-m, cross-page synthesis instructions)
-    │
-    ├── LLM Judge (validates answer against context, revises or rejects)
-    │
-    └── Source Attribution (deduplicated URLs, distance-filtered)
+    └── 7. Parse, attach page links and follow-ups, cache if confident
 ```
 
-### Stage 1: FAQ Override
-Before running RAG, checks if the user's question matches an admin-approved FAQ answer. If a fresh (non-stale) match exists, returns it immediately without vector search or LLM calls.
+### Stage 1: Curated answer override
+Before anything else, a question is matched against FAQ answers the site owner has written. A fresh (non-stale relative to the last index) match is returned verbatim, with no vector search and no LLM call.
 
-### Stage 2: Rule-Based Query Expansion
-Seven domain-specific regex patterns that expand the user query with relevant synonyms to improve vector recall:
+### Stage 2: Semantic cache
+First turn only — a follow-up depends on the history that produced it, and the cache key is the question alone. Only confident, non-declining answers are written back. `NAVBOT_DISABLE_CACHE=1` bypasses it, which is what the benchmarks use.
 
-| Pattern | Expansion |
-|---------|-----------|
-| Deadlines, dates, admissions | `admission rounds application deadline dates schedule` |
-| Fees, scholarships, financial aid | `tuition fee scholarship financial aid funding` |
-| Eligibility, requirements, scores | `eligibility criteria requirements qualifications` |
-| Programs, courses, curriculum | `program curriculum courses modules structure` |
-| Contact, email, phone, location | `contact information address email phone campus` |
-| List/enumerate questions | `complete list overview all items features details` |
-| Events, workshops, seminars | `events page all events workshops past events schedule` |
+### Stage 3: LLM query planner
+One Gemini call (`GEMINI_PLANNER_MODEL`, defaults to the chat model) returns JSON:
 
-Additionally, question phrasing is stripped ("who is", "what are", "tell me about", etc.) to produce a cleaned variant.
+| Field | Purpose |
+|-------|---------|
+| `standalone` | The question with pronouns and ellipsis resolved from history |
+| `intent` | `greeting` \| `out_of_scope` \| `simple` \| `compositional` |
+| `subQueries` | 1 for simple questions, 2–4 for compositional ones |
+| `sections` | URL path prefixes where the answer probably lives |
+| `exhaustive` | The visitor wants a complete list |
+| `analytical` | Answering needs judgement, not lookup — routes to the reasoning path |
+| `experiential` | "What is it *like*" — needs a description, not a fact list |
 
-### Stage 3: LLM Planner (Agentic)
-When enabled (`ENABLE_AGENTIC_PLANNER=true`, default), an LLM call generates:
-- **6-12 diverse search queries** targeting different site sections (admissions, fees, faculty, events, etc.)
-- A **HyDE paragraph** (Hypothetical Document Embedding) — a synthetic passage that might answer the question, used as an additional search query for better semantic matching
-- Event-section retrieval boosters for workshop/event questions
+A rule-based `fallbackPlan()` covers a planner timeout or malformed JSON, so the pipeline degrades rather than failing.
 
-The planner uses `SARVAM_PLANNER_MODEL` (default: `sarvam-m`) with JSON-mode output.
+### Stage 4: Retrieval
+Multi-query vector search against the site's Pinecone namespace, with the section expansion running concurrently rather than after it. For exhaustive questions, roster pages found by section expansion are merged **ahead** of the vector hits and pinned through reranking — a cross-encoder scores a page of names poorly against a conversational question, and without pinning it evicts the pages that are literally the answer.
 
-### Stage 4: Multi-Query Vector Search
-Each generated query is sent to Pinecone in parallel:
-- **Top-K retrieval**: 12 chunks per query
-- **URL spreading**: Results are diversified across different pages to avoid over-representing a single source
-- All results are merged, deduplicated by vector ID, and sorted by distance
+Boilerplate removal strips text that repeats across many pages of the same site before reranking, so the reranker judges page content rather than shared navigation.
 
-### Stage 5: Refiner Loop
-If the best retrieval distance exceeds 0.62 or keyword overlap with the user query is low, the refiner generates alternative queries and re-searches. Controlled by `AGENTIC_RAG_MAX_ROUNDS` (default: 1, max: 3).
+### Stage 5: Cross-encoder reranking
+Pinecone Inference (`PINECONE_RERANK_MODEL`, default `bge-reranker-v2-m3`) reorders candidates. The score sets **how much the answer hedges**, and is deliberately never used to refuse: its absolute value shifts with phrasing (the same correct pages scored 0.94 and 0.03 on two wordings of one question), so gating on it would refuse questions the site can answer. On reranker failure the pipeline falls back to distance ordering.
 
-### Stage 6: Multi-Page Expansion
-For exhaustive list questions ("list all programs", "what are all the events"), the system:
-- Detects list-intent via regex patterns
-- Loads additional chunks from tracked URLs in the same path section (e.g., all `/events/...` pages)
-- Uses `sortDocsForExhaustiveAnswer()` to prioritize diverse source coverage
+### Stage 6: Live search
+Two independent, optional searches, both sharing one Serper client (`services/search/serper.ts`):
 
-### Stage 7: Context Building
-Retrieved chunks are assembled into a structured context string:
-- **50K character budget** for the full context window
-- **Page directory** — numbered list of all retrieved pages with titles and URLs
-- **Source blocks** — grouped by URL, with chunk overlap removed
-- Exhaustive questions get higher per-chunk limits (1400 chars) and more sources (up to 30)
-- Standard questions get 1800 chars/chunk and up to 20 sources
+- **Site search** (`search/site.ts`) — catches what a stale or incomplete crawl missed. Prefers Gemini's Google Search grounding and falls back to Serper with a `site:` filter; a grounding quota failure parks that provider for 30 minutes rather than retrying it on every turn. Controlled by `NAVBOT_WEB_MODE` (`analytical` default, `weak`, `always`, `off`) and `NAVBOT_WEB_PROVIDER`.
+- **Social search** (`search/social.ts`) — see §5.
 
-### Stage 8: LLM Chat Completion
-The assembled context is sent to Sarvam (`SARVAM_CHAT_MODEL`, default: `sarvam-m`) with:
-- A detailed system prompt with 22 rules covering: customer service chatbot identity, first-person voice, grounded answering, cross-page synthesis, data-first responses (specific dates/amounts/names over generic steps), concise formatting (bullets for lists, direct for factual), university/academic awareness, follow-up questions, and security constraints
-- Last 6 conversation turns for multi-turn context
-- Temperature: 0.2 for factual consistency
-- Higher token limit for catalog/list questions (1536 vs 400)
+### Stage 7: Answer generation
+For `analytical` questions the pipeline runs two passes: an **analyst** produces an internal brief with a real thinking budget (never shown to the visitor), then an **editor** writes the visible answer against both the brief and the source material. Everything else takes a single streamed generation. `NAVBOT_REASONING=off` disables the two-pass path.
 
-### Stage 9: LLM Judge
-When enabled (`ENABLE_LLM_JUDGE=true`), a second LLM call validates the draft answer:
-- Checks that all factual claims are supported by retrieved context
-- Returns `{"acceptable": true}` or provides a `revised_answer`
-- If the draft is unacceptable and no revision is possible, returns a safe fallback ("I don't have that information")
-- Uses `SARVAM_JUDGE_MODEL` with temperature 0.1 and JSON-mode output
-- Receives condensed context summaries (320 chars per source, up to 6-14 sources)
+Context is assembled to an **18,000 character budget** — reduced from an earlier 128k, which was the dominant cost in time-to-first-token and was mostly boilerplate. When pages do not fit, the count of dropped pages travels with the context so the answer can admit the gap instead of silently truncating a list.
 
-### Stage 10: Source Attribution
-- Sources are deduplicated by URL
-- Filtered by distance threshold (0.55 when social results present, 1.0 otherwise)
-- Exhaustive questions show up to 8 source URLs; standard questions show up to 2
-- Social media URLs are included inline in the answer text (not in the source line)
+Answers stream to the widget as they generate. Trailing metadata blocks (`[RELEVANT_PAGES]`, `[FOLLOW_UPS]`) and `[POST:n]` citation tags are withheld from the visible text, with the displayed prefix recomputed from the whole buffer each tick so a tag split across two chunks can never leak.
+
+### Stage 8: Degradation ladder
+No answer path returns a bare error:
+
+1. Streamed generation
+2. Non-streamed retry on a reduced context (also dodges token-limit failures)
+3. Partial answer with page links
+4. A contact block naming the right desk for the question
+
+### Stage 9: Source attribution
+Sources are deduplicated by URL, with live-search and social URLs merged in. When the answer actually cites social posts, "For More Info" points at the official accounts rather than website pages — the visitor is being shown posts, so the useful next step is the feed.
 
 ---
 
@@ -359,7 +350,7 @@ Two implementations compared side-by-side:
 | Baseline | Description |
 |----------|-------------|
 | **Single-prompt** | Direct vector search (1 query) → top-6 chunks → single LLM call |
-| **Agentic RAG** | Rule expansion + LLM planner + multi-query search + refiner loop + LLM judge |
+| **Agentic RAG** | LLM planner + multi-query search + boilerplate removal + cross-encoder rerank + optional live search + analyst/editor |
 
 Both run with configurable rate limiting (`EVAL_RPM` env var, default 5) and resume-from-crash support.
 
@@ -394,6 +385,18 @@ Key findings:
 - Conversational handling dramatically better in agentic (2.0 → 4.0)
 - Both pipelines strong on groundedness — very little hallucination
 
+> These figures were measured against the pipeline as it stood at the time of the run.
+> Re-run the harness after pipeline changes rather than quoting them as current.
+
+### 10.5 Other harnesses
+
+| Script | Command | What it does |
+|--------|---------|--------------|
+| `eval/bench.ts` | `eval:bench` | Generate **and** judge in one resumable, concurrent pass; writes `eval/runs/<label>.json` and supports `--compare before after` |
+| `eval/retrieval-bench.ts` | `eval:retrieval` | Retrieval only — embed → query → boilerplate → rerank, no answer model, so it runs freely against LLM quota |
+| `eval/format-test.ts` | part of `pnpm test` | Asserts answer post-formatting (chip handling, empty brackets, citation stripping) |
+| `eval/clear-cache.ts` | `tsx eval/clear-cache.ts` | Clears `rag_cache` for `EVAL_SITE_ID` between measured runs |
+
 ---
 
 ## 11. API Endpoints
@@ -414,16 +417,29 @@ Key findings:
 | GET | `/api/sites/:siteId/sync` | Sync status / preview |
 | POST | `/api/sites/:siteId/sync` | Trigger sync |
 | GET | `/api/sites/:siteId/ping` | Ping (triggers background sync) |
+| GET | `/api/sites/:siteId/pages` | List indexed pages |
+| POST | `/api/sites/:siteId/pages` | Add pages by URL |
+| PATCH | `/api/sites/:siteId/pages` | Re-crawl specific pages |
+| DELETE | `/api/sites/:siteId/pages` | Remove pages from the index |
+| POST | `/api/sites/:siteId/reindex` | Full re-crawl and re-index |
+| GET | `/api/sites/:siteId/limits` | Read the daily question limit |
+| PATCH | `/api/sites/:siteId/limits` | Update the daily question limit |
 | GET | `/api/colors?url=...` | Extract colors from URL |
 
 ### AI Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| POST | `/api/chat/session` | Start/resume a visitor session, returns the quota |
 | POST | `/api/chat` | Text chat (RAG pipeline) |
+| POST | `/api/chat/stream` | Text chat streamed as Server-Sent Events |
 | POST | `/api/chat/voice` | Voice chat (STT → RAG) |
 | POST | `/api/chat/tts` | Text-to-speech |
 | GET | `/api/sites/:siteId/faqs` | Get/generate FAQs |
+| POST | `/api/sites/:siteId/faqs/refresh` | Regenerate FAQs from popular queries |
+| PATCH | `/api/sites/:siteId/faqs/:faqId` | Save an owner-written FAQ answer |
+
+Interactive docs, with runnable examples, are served at `/api-docs` (`apps/api/src/openapi/openapi-spec.ts`).
 
 ### Request/Response Examples
 
@@ -471,12 +487,13 @@ Response:
 | Auth | better-auth | Email/password, Google OAuth, GitHub OAuth |
 | API | Express + TypeScript | REST API server |
 | Vector DB | Pinecone | `llama-text-embed-v2` embeddings, 1024 dims, records mode |
-| LLM (Chat/Planner/Judge) | Sarvam AI (`sarvamai`) | `sarvam-m` (24B) via Sarvam API; also supports `sarvam-30b` and `sarvam-105b` |
-| STT | Sarvam Saaras | `saaras:v3` for speech-to-text |
-| TTS | Sarvam Bulbul | `bulbul:v2` for text-to-speech (configurable speaker and language) |
+| LLM (chat, planner, analyst/editor) | Google Gemini (`@google/genai`) | `gemini-2.5-flash` by default; the planner can be pointed at a smaller model |
+| Reranking | Pinecone Inference | `bge-reranker-v2-m3` cross-encoder |
+| STT | Google Gemini | Multimodal generation with an inline audio part |
+| TTS | Google Gemini | `gemini-3.1-flash-tts-preview`, PCM wrapped as WAV |
 | Database | PostgreSQL | Sites, pages, analytics, social handles, FAQs |
 | Crawling | Cheerio + Playwright + pdfjs-dist | Static HTML, SPA rendering, PDF extraction |
-| Social Search | Serper.dev | Google search API scoped to social platforms |
+| Live search | Gemini Google Search grounding + Serper.dev | Site-restricted web search and social account search |
 | Widget | React IIFE bundle | Cross-origin embeddable via `<script>` tag |
 | Monorepo | pnpm + Turborepo | Shared packages across apps |
 | Deploy | Render (Blueprint) | `render.yaml` defines all services |
@@ -490,23 +507,26 @@ Response:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SARVAM_API_KEY` | Yes | Sarvam AI API key for chat, planner, judge, STT, and TTS |
-| `SARVAM_CHAT_MODEL` | No | Chat model (default: `sarvam-m`) |
-| `SARVAM_PLANNER_MODEL` | No | Planner model (default: `sarvam-m`) |
-| `SARVAM_JUDGE_MODEL` | No | Judge model (default: `sarvam-m`) |
-| `SARVAM_STT_MODEL` | No | STT model (default: `saaras:v3`) |
-| `SARVAM_TTS_MODEL` | No | TTS model (default: `bulbul:v2`) |
-| `SARVAM_TTS_SPEAKER` | No | TTS speaker voice (default: `anushka`) |
-| `SARVAM_TTS_LANG` | No | TTS language code (default: `en-IN`) |
+| `GEMINI_API_KEY` | Yes | Gemini API key for chat, planner, STT and TTS (`GOOGLE_API_KEY` also accepted) |
+| `GEMINI_CHAT_MODEL` | No | Answer model (default: `gemini-2.5-flash`) |
+| `GEMINI_PLANNER_MODEL` | No | Planner model (defaults to the chat model) |
+| `GEMINI_STT_MODEL` | No | Speech-to-text model (defaults to the chat model) |
+| `GEMINI_TTS_MODEL` | No | Text-to-speech model (default: `gemini-3.1-flash-tts-preview`) |
+| `GEMINI_TTS_VOICE` | No | TTS voice name (default: `Kore`) |
 | `PINECONE_API_KEY` | Yes | Pinecone API key |
 | `PINECONE_INDEX` | Yes | Pinecone index name |
 | `PINECONE_HOST` | No | Pinecone host URL (optional override) |
-| `SERPER_API_KEY` | No | Serper.dev API key for social media search |
+| `PINECONE_RERANK_MODEL` | No | Cross-encoder for reranking (default: `bge-reranker-v2-m3`) |
+| `SERPER_API_KEY` | No | Serper.dev key — powers both site search and social search |
 | `DATABASE_URL` | Yes | PostgreSQL connection string |
-| `AGENTIC_RAG_MAX_ROUNDS` | No | Max refiner iterations (default: 1, max: 3) |
-| `ENABLE_AGENTIC_PLANNER` | No | Enable LLM planner (default: `true`) |
-| `ENABLE_LLM_JUDGE` | No | Enable LLM judge (default: `false`) |
-| `NAVBOT_BROWSER_CRAWL` | No | Browser crawl mode: `auto`, `on`, `off` (default: `auto`) |
+| `NAVBOT_REASONING` | No | `off` disables the two-pass analyst/editor path (default: on) |
+| `NAVBOT_WEB_MODE` | No | Live site search: `analytical` (default), `weak`, `always`, `off` |
+| `NAVBOT_WEB_PROVIDER` | No | `auto` (default), `grounding`, `serper`, `off` |
+| `NAVBOT_SESSION_SECRET` | Yes (prod) | Signs anonymous visitor tokens for the daily question cap |
+| `NAVBOT_API_TOKEN_SECRET` | Yes (prod) | Must match the auth service — verifies dashboard requests |
+| `NAVBOT_DISABLE_CACHE` | No | `1` bypasses the semantic cache (used by the benchmarks) |
+| `AUTO_SYNC_CRON` | No | Sitemap re-crawl schedule (default: `0 */6 * * *`) |
+| `NAVBOT_BROWSER_CRAWL` | No | Browser crawl mode: `auto` (default), `always`, `off` |
 
 ### Auth Service (`navbot-auth`)
 
@@ -516,6 +536,7 @@ Response:
 | `BETTER_AUTH_SECRET` | Yes | Secret for signing sessions |
 | `BETTER_AUTH_URL` | Yes | Public URL of the auth service |
 | `CORS_ORIGIN` | Yes | Allowed origins (comma-separated) |
+| `NAVBOT_API_TOKEN_SECRET` | Yes (prod) | Must be the same value as on the API service |
 | `GOOGLE_CLIENT_ID` | No | Google OAuth client ID |
 | `GOOGLE_CLIENT_SECRET` | No | Google OAuth client secret |
 | `GITHUB_CLIENT_ID` | No | GitHub OAuth client ID |
@@ -527,7 +548,7 @@ Response:
 |----------|----------|-------------|
 | `VITE_API_URL` | Yes | NavBot API URL |
 | `VITE_AUTH_URL` | Yes | Auth service URL |
-| `VITE_WIDGET_SCRIPT_URL` | Yes | URL of `chat-widget.iife.js` |
+| `VITE_WIDGET_SCRIPT_URL` | No | Absolute URL of `chat-widget.iife.js`; defaults to this app's own origin |
 
 ---
 
@@ -535,16 +556,23 @@ Response:
 
 ```bash
 # 1. Set environment variables
-export SARVAM_API_KEY="your-key"
+export GEMINI_API_KEY="your-key"
 export PINECONE_API_KEY="your-key"
 export PINECONE_INDEX="your-index"
-# DATABASE_URL not required — eval scripts run without DB
+export DATABASE_URL="postgres://..."     # curated answers and the semantic cache
+export EVAL_SITE_ID="plaksha.edu.in"
+export NAVBOT_DISABLE_CACHE=1            # measure the pipeline, not the cache
 
-# 2. Run both baselines on the dataset (rate-limited, resumable)
-pnpm --filter api eval:baselines
+# 2a. Single-prompt vs agentic comparison (rate-limited, resumable)
+pnpm --filter api eval:baselines         # → eval/baseline-results.json
+pnpm --filter api eval:judge             # → eval/eval-results.json
 
-# 3. Score with LLM-as-judge
-pnpm --filter api eval:judge
+# 2b. Or the current benchmark: generate + judge in one resumable pass
+pnpm --filter api eval:bench -- --label after
+pnpm --filter api eval:bench -- --compare before after
+
+# 3. Retrieval only — no answer model, so it runs freely against LLM quota
+pnpm --filter api eval:retrieval
 ```
 
-Output includes a comparison table and aggregate scores showing how agentic RAG improves over the single-prompt baseline.
+`eval:baselines` + `eval:judge` produce the single-prompt vs agentic comparison used in client reporting. `eval:bench` is the day-to-day harness: it writes `eval/runs/<label>.json`, skips ids already finished, and scores correctness, groundedness and relevance with a Gemini judge.

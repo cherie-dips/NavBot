@@ -2,21 +2,28 @@
   "$schema": "https://turborepo.dev/schema.json",
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "inputs": ["$TURBO_DEFAULT$", ".env*"],
-      "outputs": ["dist/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env*"
+      ],
+      "outputs": [
+        "dist/**"
+      ]
     },
-
     "lint": {},
-
     "dev": {
       "cache": false
     },
-
     "web#dev": {
       "cache": false,
       "persistent": true,
-      "dependsOn": ["@repo/chat-widget#build"],
+      "dependsOn": [
+        "@repo/chat-widget#build",
+        "@repo/widget-theme#build"
+      ],
       "inputs": [
         "$TURBO_DEFAULT$",
         "../../packages/chat-widget/dist/**"
@@ -26,15 +33,19 @@
       "cache": false,
       "persistent": true
     },
-
     "api#dev": {
       "cache": false,
       "persistent": true,
-      "dependsOn": ["@repo/color-extractor#build"]
+      "dependsOn": [
+        "@repo/color-extractor#build",
+        "@repo/widget-theme#build"
+      ]
     },
-
     "web#build": {
-      "dependsOn": ["@repo/chat-widget#build"]
+      "dependsOn": [
+        "@repo/chat-widget#build",
+        "@repo/widget-theme#build"
+      ]
     }
   }
 }

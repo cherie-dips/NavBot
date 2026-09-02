@@ -43,4 +43,4 @@ coverage/
 *.db
 
 # Local working notes (not part of the build)
-PIPELINE_AUDIT.md
+SYSTEM_DESIGN.md

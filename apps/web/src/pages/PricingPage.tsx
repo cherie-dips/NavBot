@@ -66,23 +66,6 @@ const PLAN_DEFS: PlanInfo[] = [
   },
 ];
 
-const ALL_FEATURES = [
-  { label: "1 website",                   starter: true,  pro: false, team: false },
-  { label: "5 websites",                  starter: false, pro: true,  team: false },
-  { label: "Unlimited websites",          starter: false, pro: false, team: true  },
-  { label: "50 pages indexed",            starter: true,  pro: false, team: false },
-  { label: "Unlimited pages indexed",     starter: false, pro: true,  team: true  },
-  { label: "500 conversations / mo",      starter: true,  pro: false, team: false },
-  { label: "10,000 conversations / mo",   starter: false, pro: true,  team: false },
-  { label: "Unlimited conversations",     starter: false, pro: false, team: true  },
-  { label: "Voice input & TTS",           starter: false, pro: true,  team: true  },
-  { label: "Analytics dashboard",         starter: false, pro: true,  team: true  },
-  { label: "Custom widget theme",         starter: false, pro: true,  team: true  },
-  { label: "Smart sync (sitemap)",        starter: false, pro: true,  team: true  },
-  { label: "Remove NavBot branding",      starter: false, pro: true,  team: true  },
-  { label: "Priority support",            starter: false, pro: false, team: true  },
-];
-
 const FAQS = [
   { q: "Can I cancel anytime?", a: "Yes. Cancel at any time from dashboard settings. You retain access until the end of your billing period — no penalties." },
   { q: "What counts as a conversation?", a: "A single visitor session — from the first message until the chat closes or times out after 30 minutes." },
