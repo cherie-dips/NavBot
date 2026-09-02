@@ -19,7 +19,7 @@
   ],
   "scripts": {
     "dev": "tsc && vite build --watch",
-    "build": "tsc && vite build",
+    "build": "pnpm --filter @repo/widget-theme build && tsc && vite build",
     "lint": "eslint \"src/**/*.{ts,tsx}\""
   },
   "dependencies": {

@@ -107,7 +107,7 @@ services:
     name: navbot-web
     runtime: static
     rootDir: .
-    buildCommand: NODE_ENV=development pnpm install && pnpm --filter @repo/chat-widget build && pnpm --filter web build
+    buildCommand: NODE_ENV=development pnpm install && pnpm --filter @repo/widget-theme build && pnpm --filter @repo/chat-widget build && pnpm --filter web build
     staticPublishPath: ./apps/web/dist
     headers:
       - path: /chat-widget.iife.js
