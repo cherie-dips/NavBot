@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import { normalizeUrl } from "./crawler";
+import { crawlHeaders } from "./crawl-auth";
 
 export interface SitemapEntry {
   url: string;
@@ -9,10 +10,10 @@ export interface SitemapEntry {
 async function parseSitemapXml(url: string): Promise<SitemapEntry[]> {
   const res = await fetch(url, {
     redirect: "follow",
-    headers: {
+    headers: crawlHeaders(url, {
       "User-Agent": "NavBot/1.0 (sitemap reader)",
       Accept: "application/xml, text/xml, */*",
-    },
+    }),
   });
 
   if (!res.ok) throw new Error(`Failed to fetch sitemap ${url}: HTTP ${res.status}`);
@@ -34,10 +35,10 @@ async function parseSitemapXml(url: string): Promise<SitemapEntry[]> {
 async function parseSitemapIndex(url: string): Promise<string[]> {
   const res = await fetch(url, {
     redirect: "follow",
-    headers: {
+    headers: crawlHeaders(url, {
       "User-Agent": "NavBot/1.0 (sitemap reader)",
       Accept: "application/xml, text/xml, */*",
-    },
+    }),
   });
 
   if (!res.ok) return [];
@@ -78,7 +79,7 @@ async function fetchRobotsRules(origin: string): Promise<RobotsRules> {
 
   try {
     const res = await fetch(`${origin}/robots.txt`, {
-      headers: { "User-Agent": "NavBot/1.0 (sitemap reader)" },
+      headers: crawlHeaders(origin, { "User-Agent": "NavBot/1.0 (sitemap reader)" }),
       signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) { robotsCache.set(origin, rules); return rules; }
@@ -142,7 +143,7 @@ async function discoverSitemapUrl(siteUrl: string): Promise<string | null> {
     try {
       const res = await fetch(candidate, {
         method: "HEAD",
-        headers: { "User-Agent": "NavBot/1.0 (sitemap reader)" },
+        headers: crawlHeaders(candidate, { "User-Agent": "NavBot/1.0 (sitemap reader)" }),
         signal: AbortSignal.timeout(10_000),
       });
       if (res.ok) return candidate;

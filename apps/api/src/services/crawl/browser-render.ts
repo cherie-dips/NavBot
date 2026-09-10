@@ -1,4 +1,5 @@
 import type { Browser } from "playwright";
+import { httpCredentialsFor } from "./crawl-auth";
 
 /**
  * Headless Chromium rendering for SPAs (React, Vue, Next client-nav, etc.).
@@ -156,15 +157,22 @@ async function renderOnePage(url: string): Promise<string | null> {
   const timeout = browserTimeoutMs();
   const settle = browserSettleMs();
 
+  // A context rather than a bare page, so Basic Auth credentials can be attached. The
+  // browser then answers the 401 challenge itself, including for the stylesheets and
+  // scripts a rendered page pulls in — a bare Authorization header would only cover the
+  // top-level document, and a protected SPA would render unstyled or empty.
+  let context;
   let page;
   try {
-    page = await browser.newPage();
+    context = await browser.newContext({ httpCredentials: httpCredentialsFor(url) });
+    page = await context.newPage();
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (/closed|crashed|disposed/i.test(msg)) {
       console.warn("[browser-render] Browser crashed, resetting instance");
       browserInstance = null;
     }
+    await context?.close().catch(() => {});
     return null;
   }
 
@@ -187,6 +195,7 @@ async function renderOnePage(url: string): Promise<string | null> {
     return null;
   } finally {
     await page.close().catch(() => {});
+    await context.close().catch(() => {});
   }
 }
 

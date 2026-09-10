@@ -6,6 +6,7 @@ import { writeFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { fetchRenderedHtml, detectFramework } from "./browser-render";
+import { crawlHeaders } from "./crawl-auth";
 import { fetchRobotsRules, isUrlAllowedByRobots } from "./sitemap";
 
 export interface CrawledPage {
@@ -100,10 +101,10 @@ async function fetchStaticHtml(url: string): Promise<StaticFetchResult | null> {
     const res = await fetch(url, {
       redirect: "follow",
       signal: AbortSignal.timeout(30_000),
-      headers: {
+      headers: crawlHeaders(url, {
         "User-Agent": "NavBot/1.0 (site indexer; respectful crawler)",
         Accept: "text/html",
-      },
+      }),
     });
 
     if (!res.ok) {
@@ -472,7 +473,7 @@ function shouldOcrImage(src: string, alt: string, width?: number, height?: numbe
 async function ocrImageUrl(imageUrl: string): Promise<string> {
   const res = await fetch(imageUrl, {
     redirect: "follow",
-    headers: { "User-Agent": "NavBot/1.0 (site indexer)" },
+    headers: crawlHeaders(imageUrl, { "User-Agent": "NavBot/1.0 (site indexer)" }),
     signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) return "";
@@ -588,7 +589,7 @@ async function fetchPdfText(url: string): Promise<{ title: string; content: stri
     const res = await fetch(url, {
       redirect: "follow",
       signal: AbortSignal.timeout(30_000),
-      headers: { "User-Agent": "NavBot/1.0 (site indexer; respectful crawler)" },
+      headers: crawlHeaders(url, { "User-Agent": "NavBot/1.0 (site indexer; respectful crawler)" }),
     });
     if (!res.ok) return null;
     const buf = Buffer.from(await res.arrayBuffer());
@@ -875,7 +876,7 @@ export async function discoverUrls(
       batch.map(async ({ url, depth }) => {
         try {
           const resp = await fetch(url, {
-            headers: { "User-Agent": "NavBot/1.0" },
+            headers: crawlHeaders(url, { "User-Agent": "NavBot/1.0" }),
             redirect: "follow",
             signal: AbortSignal.timeout(10_000),
           });
